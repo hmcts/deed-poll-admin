@@ -192,7 +192,8 @@ belong to the current visit and are not persisted as business sign-off. See
 [plan 16](docs/plans/16-gazette-1-ready-list-review-and-send.md).
 
 Delivery Managers also reach **Service settings** (`/deed-polls/settings`) from the case list. It sets the
-referral claim window (30 minutes to 24 hours, effective immediately for every case), holds the London Gazette
+referral process (the processing window in days, the reminder interval, the cap per Master per window and the two
+referral windows' times, effective immediately for every referral), holds the London Gazette
 recipient for Delivery Managers who also have Gazette access, and links to Manage Case staff administration for
 adding staff and changing their access. Each section saves on its own. The page needs `MANAGE_PROCESS_CONFIG` from
 the API's `GET /me`, so an existing session sees the link within one token lifetime or after signing in again.
@@ -212,7 +213,7 @@ and seed it with `yarn idam:users`. Then provide a separate Redis instance on po
 The suite starts/stops its own app on 3316 and fresh mock on 3216, uses Redis database 1, and refuses
 to reuse occupied app/mock ports. All nine journeys, the service settings journey included, sign in through IDAM and include axe checks; the Delivery Manager
 read and recipient-settings journeys also check Welsh. The dedicated config keeps the empty-state fixture, and the settings journey's
-claim-window save, out of the shared `yarn test:e2e` suite. It never resets an existing mock. These checks cover ready/history reads, recipient settings (including invalid and stale edits),
+referral-process save, out of the shared `yarn test:e2e` suite. It never resets an existing mock. These checks cover ready/history reads, recipient settings (including invalid and stale edits),
 all request outcomes and complete legacy membership, with Welsh and axe checks;
 the mandatory review/send journey covers all five outcomes, lost responses and duplicate confirmation tabs.
 

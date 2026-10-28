@@ -30,6 +30,16 @@ import { cy, en } from "./content.js";
 const PATH = "/deed-polls/settings";
 const PROCESS = "process-settings";
 const GAZETTE = "gazette-recipient";
+const PROCESS_CONTROLS = [
+  "processingDays",
+  "reminderIntervalHours",
+  "masterWindowCap",
+  "morningWindowStart",
+  "morningWindowEnd",
+  "afternoonWindowStart",
+  "afternoonWindowEnd"
+] as const;
+const MINUTES_PER_DAY = 1440;
 
 export async function showSettings(req: Request, res: Response) {
   const saved = req.query.saved === PROCESS || req.query.saved === GAZETTE ? req.query.saved : undefined;
@@ -39,33 +49,37 @@ export async function showSettings(req: Request, res: Response) {
 export async function saveProcessSection(req: Request, res: Response) {
   const content = contentFor(res);
   const body = bodyOf(req);
-  const values = { hours: textOf(body.claimWindowHours), minutes: textOf(body.claimWindowMinutes), revision: textOf(body.revision) };
+  const values = Object.fromEntries([...PROCESS_CONTROLS, "revision"].map((name) => [name, textOf(body[name])])) as ProcessValues;
   const parsed = processSettingsFormSchema({
-    hours: content.processHours,
-    minutes: content.processMinutes,
-    required: content.processRequired,
-    range: content.processRange,
+    processingDays: content.processingDaysError,
+    reminderIntervalHours: content.reminderIntervalError,
+    masterWindowCap: content.masterWindowCapError,
+    morningWindowStart: content.morningWindowStartError,
+    morningWindowEnd: content.morningWindowEndError,
+    afternoonWindowStart: content.afternoonWindowStartError,
+    afternoonWindowEnd: content.afternoonWindowEndError,
+    morningOrder: content.morningOrderError,
+    windowsOrder: content.windowsOrderError,
+    afternoonOrder: content.afternoonOrderError,
     reload: content.processReload
   }).safeParse(body);
   if (!parsed.success) {
     const issue = (path: string) => parsed.error.issues.find((each) => each.path[0] === path)?.message;
-    const process = processFailure(values, {
-      hoursError: issue("claimWindowHours"),
-      minutesError: issue("claimWindowMinutes"),
-      windowError: issue("claimWindow"),
-      reloadText: issue("revision")
-    });
-    return render(req, res, 400, { process });
+    const errors = Object.fromEntries(PROCESS_CONTROLS.flatMap((name) => (issue(name) ? [[name, issue(name)]] : [])));
+    return render(req, res, 400, { process: processFailure(values, { errors, reloadText: issue("revision") }) });
   }
   try {
     await saveProcessSettings(parsed.data, callerFromRequest(req));
   } catch (error) {
     if (error instanceof ConflictError) return render(req, res, 409, { process: processFailure(values, { reloadText: content.processConflict }) });
     if (error instanceof InvalidInputError) {
-      const fields = new Set(error.errors.map((each) => each.field));
-      const isWindowNamed = fields.has("referralClaimExpiryMinutes");
-      const reloadText = fields.has("revision") ? content.processReload : isWindowNamed ? undefined : content.processRefused;
-      return render(req, res, 400, { process: processFailure(values, { windowError: isWindowNamed ? content.processRange : undefined, reloadText }) });
+      const errors = apiFieldErrors(
+        error.errors.map((each) => each.field),
+        content
+      );
+      const hasControl = Object.keys(errors).length > 0;
+      const reloadText = error.errors.some((each) => each.field === "revision") ? content.processReload : hasControl ? undefined : content.processRefused;
+      return render(req, res, 400, { process: processFailure(values, { errors, reloadText }) });
     }
     throw error;
   }
@@ -113,8 +127,25 @@ function textOf(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-function processFailure(values: ProcessValues, errors: SectionErrors & { hoursError?: string; minutesError?: string; windowError?: string }): ProcessForm {
-  return { isAvailable: true, values, ...errors };
+/**
+ * api's field errors in this page's words, on the control holding the field. The form has already checked each time's
+ * format, so api naming a window's end or the afternoon start is its ordering rule, which it reports on those fields.
+ */
+function apiFieldErrors(fields: string[], content: typeof en): ProcessErrors {
+  const messages: Record<string, [ProcessControl, string]> = {
+    referralClaimExpiryMinutes: ["processingDays", content.processingDaysError],
+    reminderIntervalHours: ["reminderIntervalHours", content.reminderIntervalError],
+    masterWindowCap: ["masterWindowCap", content.masterWindowCapError],
+    morningWindowStart: ["morningWindowStart", content.morningWindowStartError],
+    morningWindowEnd: ["morningWindowEnd", content.morningOrderError],
+    afternoonWindowStart: ["afternoonWindowStart", content.windowsOrderError],
+    afternoonWindowEnd: ["afternoonWindowEnd", content.afternoonOrderError]
+  };
+  return Object.fromEntries(fields.flatMap((field) => (Object.hasOwn(messages, field) ? [messages[field]] : [])));
+}
+
+function processFailure(values: ProcessValues, failure: SectionErrors & { errors?: ProcessErrors }): ProcessForm {
+  return { isAvailable: true, values, errors: failure.errors ?? {}, ...(failure.reloadText ? { reloadText: failure.reloadText } : {}) };
 }
 
 function gazetteFailure(values: GazetteValues, errors: SectionErrors & { emailError?: string }): GazetteForm {
@@ -145,10 +176,21 @@ async function render(req: Request, res: Response, status: number, given: { proc
 async function storedProcess(caller: Caller, locale: string): Promise<ProcessSection> {
   const settings = await degraded("process settings", () => findProcessSettings(caller));
   if (!settings) return { isAvailable: false };
-  const total = settings.referralClaimExpiryMinutes;
   return {
     isAvailable: true,
-    values: { hours: String(Math.floor(total / 60)), minutes: String(total % 60), revision: String(settings.revision) },
+    values: {
+      // A window api holds in part-days (only an old claim window can be) is shown as it is, never rounded, so the
+      // digits-only form refuses it and a Save cannot silently change it.
+      processingDays: String(Number((settings.referralClaimExpiryMinutes / MINUTES_PER_DAY).toFixed(2))),
+      reminderIntervalHours: String(settings.reminderIntervalHours),
+      masterWindowCap: String(settings.masterWindowCap),
+      morningWindowStart: settings.morningWindowStart ?? "",
+      morningWindowEnd: settings.morningWindowEnd ?? "",
+      afternoonWindowStart: settings.afternoonWindowStart ?? "",
+      afternoonWindowEnd: settings.afternoonWindowEnd ?? "",
+      revision: String(settings.revision)
+    },
+    errors: {},
     isNeverChanged: !settings.updatedAt,
     ...attribution(settings, locale)
   };
@@ -186,14 +228,15 @@ function attribution(settings: { updatedBy?: string | null; updatedAt?: Date | n
   };
 }
 
-/** Every link names a control the page draws: the fieldset's own error marks both inputs and leads to the first. */
+/** Every link names a control the page draws. */
 function errorList(process: ProcessSection, gazette: GazetteSection | undefined) {
   return [
     ...(process.isAvailable
       ? [
-          ...(process.hoursError ? [{ text: process.hoursError, href: "#claimWindowHours" }] : []),
-          ...(process.minutesError ? [{ text: process.minutesError, href: "#claimWindowMinutes" }] : []),
-          ...(process.windowError ? [{ text: process.windowError, href: "#claimWindowHours" }] : []),
+          ...PROCESS_CONTROLS.flatMap((name) => {
+            const text = process.errors[name];
+            return text ? [{ text, href: `#${name}` }] : [];
+          }),
           ...(process.reloadText ? [{ text: process.reloadText, href: "#reload-process-settings" }] : [])
         ]
       : []),
@@ -206,11 +249,11 @@ function errorList(process: ProcessSection, gazette: GazetteSection | undefined)
   ];
 }
 
-interface ProcessValues {
-  hours: string;
-  minutes: string;
-  revision: string;
-}
+type ProcessControl = (typeof PROCESS_CONTROLS)[number];
+
+type ProcessValues = Record<ProcessControl | "revision", string>;
+
+type ProcessErrors = Partial<Record<ProcessControl, string>>;
 
 interface GazetteValues {
   recipientEmail: string;
@@ -229,9 +272,7 @@ interface ProcessForm extends SectionErrors {
   values: ProcessValues;
   /** Only a read can say so: a refused POST redraws from the body, which carries no attribution. */
   isNeverChanged?: boolean;
-  hoursError?: string;
-  minutesError?: string;
-  windowError?: string;
+  errors: ProcessErrors;
 }
 
 interface GazetteForm extends SectionErrors {

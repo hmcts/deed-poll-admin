@@ -35,7 +35,28 @@ const environment = nunjucks.configure(
   { autoescape: true }
 );
 addPathFilters(environment);
-const PROCESS = { referralClaimExpiryMinutes: 90, revision: 4, updatedBy: "<Dee>", updatedAt: new Date("2026-10-20T09:30:00Z") };
+const PROCESS = {
+  referralClaimExpiryMinutes: 10080,
+  reminderIntervalHours: 48,
+  masterWindowCap: 10,
+  morningWindowStart: "07:00",
+  morningWindowEnd: "10:30",
+  afternoonWindowStart: "14:00",
+  afternoonWindowEnd: "14:30",
+  revision: 4,
+  updatedBy: "<Dee>",
+  updatedAt: new Date("2026-10-20T09:30:00Z")
+};
+const BODY = {
+  processingDays: "7",
+  reminderIntervalHours: "48",
+  masterWindowCap: "10",
+  morningWindowStart: "07:00",
+  morningWindowEnd: "10:30",
+  afternoonWindowStart: "14:00",
+  afternoonWindowEnd: "14:30",
+  revision: "4"
+};
 const GAZETTE = { recipientEmail: "lg@example.com", revision: 2, updatedBy: "<Admin>", updatedAt: new Date("2026-10-08T10:00:00Z") };
 const PROCESS_ONLY = { staff: true, judicial: false, capabilities: [MANAGE_PROCESS_CONFIG] };
 
@@ -81,19 +102,45 @@ describe("service settings page", () => {
     expect(markup).toContain("Save each section before you change another.");
   });
 
-  it("should show the claim window in hours and minutes with the warning before its Save and escaped attribution", async () => {
+  it("should show every referral process value in one form with the warning before its Save and escaped attribution", async () => {
     const { markup } = await render(GET);
 
     const process = form(markup, "/deed-polls/settings");
-    expect(process).toContain('id="claim-window"');
-    expect(process).toMatch(/id="claimWindowHours"[^>]*value="1"/);
-    expect(process).toMatch(/id="claimWindowMinutes"[^>]*value="30"/);
+    expect(markup).toContain('<h2 class="govuk-heading-m">Referral process</h2>');
+    expect(process).toMatch(/id="processingDays"[^>]*value="7"/);
+    expect(process).toMatch(/id="reminderIntervalHours"[^>]*value="48"/);
+    expect(process).toMatch(/id="masterWindowCap"[^>]*value="10"/);
+    expect(process).toMatch(/id="morningWindowStart"[^>]*value="07:00"/);
+    expect(process).toMatch(/id="morningWindowEnd"[^>]*value="10:30"/);
+    expect(process).toMatch(/id="afternoonWindowStart"[^>]*value="14:00"/);
+    expect(process).toMatch(/id="afternoonWindowEnd"[^>]*value="14:30"/);
+    expect(process.match(/name="revision"/g)).toHaveLength(1);
     expect(process).toContain('name="revision" value="4"');
     expect(process).toContain("&lt;Dee&gt;");
     expect(process).toContain("20 October 2026 at 10:30");
-    expect(process.indexOf("Changes take effect immediately for every case.")).toBeGreaterThan(-1);
-    expect(process.indexOf("Changes take effect immediately")).toBeLessThan(process.indexOf("Save claim window"));
-    expect(process).toContain("A longer window does not return claims that have already gone back to the pool");
+    expect(process.indexOf("Changes take effect immediately for every referral.")).toBeGreaterThan(-1);
+    expect(process.indexOf("Changes take effect immediately")).toBeLessThan(process.indexOf("Save referral process"));
+    expect(markup).not.toContain("claim window");
+  });
+
+  it("should group each window's start and end in a fieldset described by the window hint", async () => {
+    const { markup } = await render(GET);
+
+    const fieldsets = [...markup.matchAll(/<fieldset[^>]*>/g)].map((match) => match[0]);
+    for (const window of ["morning", "afternoon"]) {
+      const fieldset = fieldsets.find((tag) => tag.includes(`id="${window}-window"`));
+      expect(fieldset).toContain(`aria-describedby="${window}-window-hint"`);
+      expect(markup).toContain(`id="${window}-window-hint"`);
+    }
+    expect(markup).toContain("Morning referral window");
+    expect(markup).toContain("Afternoon referral window");
+  });
+
+  it("should label the durations with their units", async () => {
+    const { markup } = await render(GET);
+
+    expect(markup).toMatch(/id="processingDays"[\s\S]*?govuk-input__suffix[^>]*>days</);
+    expect(markup).toMatch(/id="reminderIntervalHours"[\s\S]*?govuk-input__suffix[^>]*>hours</);
   });
 
   it("should take the warning icon's hidden text from the page content, so Welsh can translate it", async () => {
@@ -105,13 +152,13 @@ describe("service settings page", () => {
     expect(form(markup, "/deed-polls/settings")).toContain("ICON-MARKER");
   });
 
-  it("should say the claim window has never been changed, with no last-changed line, when api reports no attribution", async () => {
-    vi.mocked(findProcessSettings).mockResolvedValue({ referralClaimExpiryMinutes: 120, revision: 0, updatedBy: null, updatedAt: null });
+  it("should say the referral process has never been changed, with no last-changed line, when api reports no attribution", async () => {
+    vi.mocked(findProcessSettings).mockResolvedValue({ ...PROCESS, revision: 0, updatedBy: null, updatedAt: null });
 
     const { markup } = await render(GET);
 
     const process = form(markup, "/deed-polls/settings");
-    expect(process).toContain("The claim window has not been changed since the service started.");
+    expect(process).toContain("The referral process has not been changed since the service started.");
     expect(process).not.toContain("Last changed");
   });
 
@@ -160,7 +207,7 @@ describe("service settings page", () => {
 
     expect(markup).toContain("The London Gazette recipient could not be loaded. Try again later.");
     expect(form(markup, "/deed-polls/settings/gazette-recipient")).toBe("");
-    expect(markup).toContain("Save claim window");
+    expect(markup).toContain("Save referral process");
   });
 
   it("should link to XUI staff administration in a new tab, saying staff-admin access is needed", async () => {
@@ -183,13 +230,13 @@ describe("service settings page", () => {
   });
 
   it("should keep the staff link on a refused save", async () => {
-    const { markup } = await render(postProcess, { body: { claimWindowHours: "", claimWindowMinutes: "", revision: "4" } });
+    const { markup } = await render(postProcess, { body: { ...BODY, processingDays: "" } });
 
     expect(markup).toContain('href="https://manage-case.aat.platform.hmcts.net/staff"');
   });
 
   it.each([
-    ["process-settings", "en", "Claim window saved."],
+    ["process-settings", "en", "Referral process saved."],
     ["gazette-recipient", "en", "Recipient email address saved."],
     ["gazette-recipient", "cy", "Mae cyfeiriad e-bost y derbynnydd wedi’i gadw."]
   ])("should show the %s saved banner in %s", async (saved, locale, text) => {
@@ -203,32 +250,45 @@ describe("service settings page", () => {
 
     const { markup } = await render(GET, { query: { saved: "process-settings" } });
 
-    expect(markup).toContain("Claim window saved.");
-    expect(markup).toContain("The claim window could not be loaded. Try again later.");
+    expect(markup).toContain("Referral process saved.");
+    expect(markup).toContain("The referral process settings could not be loaded. Try again later.");
   });
 
   describe("error states", () => {
     it.each([
-      ["invalid hours", { claimWindowHours: "1.5", claimWindowMinutes: "0", revision: "4" }],
-      ["invalid minutes", { claimWindowHours: "1", claimWindowMinutes: "-1", revision: "4" }],
-      ["out of range", { claimWindowHours: "0", claimWindowMinutes: "29", revision: "4" }],
-      ["both blank", { claimWindowHours: "", claimWindowMinutes: "", revision: "4" }],
-      ["missing revision", { claimWindowHours: "2", claimWindowMinutes: "0" }],
-      ["everything wrong", { claimWindowHours: "x", claimWindowMinutes: "y" }]
+      ["invalid days", { ...BODY, processingDays: "1.5" }],
+      ["invalid reminder", { ...BODY, reminderIntervalHours: "-1" }],
+      ["invalid cap", { ...BODY, masterWindowCap: "101" }],
+      ["invalid time", { ...BODY, morningWindowStart: "7am" }],
+      ["out of order", { ...BODY, afternoonWindowStart: "09:00" }],
+      ["missing revision", { ...BODY, revision: undefined }],
+      [
+        "everything wrong",
+        {
+          processingDays: "x",
+          reminderIntervalHours: "y",
+          masterWindowCap: "z",
+          morningWindowStart: "a",
+          morningWindowEnd: "b",
+          afternoonWindowStart: "c",
+          afternoonWindowEnd: "d"
+        }
+      ]
     ])("should link every summary entry to a control for %s", async (_name, body) => {
       const { markup } = await render(postProcess, { body });
 
       expectSummaryLinksResolve(markup);
     });
 
-    it("should mark both inputs and the fieldset for a total out of range, keeping the typed text", async () => {
-      const { markup } = await render(postProcess, { body: { claimWindowHours: "23", claimWindowMinutes: " 1 ", revision: "4" } });
+    it("should mark the afternoon start for the ordering rule, keeping the typed text", async () => {
+      const { markup } = await render(postProcess, { body: { ...BODY, afternoonWindowStart: " 10:00 " } });
 
-      expect(markup).toContain('id="claim-window-error"');
-      expect(markup).toMatch(/aria-describedby="claim-window-hint claim-window-error"/);
-      expect(markup.match(/govuk-input--error/g)).toHaveLength(2);
-      expect(markup).toMatch(/id="claimWindowMinutes"[^>]*value=" 1 "/);
+      expect(markup).toContain('id="afternoonWindowStart-error"');
+      expect(markup).toContain("The afternoon window must start after the morning window ends");
+      expect(markup.match(/govuk-input--error/g)).toHaveLength(1);
+      expect(markup).toMatch(/id="afternoonWindowStart"[^>]*value=" 10:00 "/);
       expect(markup).toContain('name="revision" value="4"');
+      expect(markup).toContain("Save referral process");
       expectSummaryLinksResolve(markup);
     });
 
@@ -241,12 +301,12 @@ describe("service settings page", () => {
     ])("should keep the typed text and original revision on %s, offering only a reload", async (_name, arrange) => {
       arrange();
 
-      const { markup } = await render(postProcess, { body: { claimWindowHours: "24", claimWindowMinutes: "", revision: "4" } });
+      const { markup } = await render(postProcess, { body: { ...BODY, processingDays: "12" } });
 
       const process = form(markup, "/deed-polls/settings");
-      expect(process).toMatch(/id="claimWindowHours"[^>]*value="24"/);
+      expect(process).toMatch(/id="processingDays"[^>]*value="12"/);
       expect(process).toContain('name="revision" value="4"');
-      expect(process).not.toContain("Save claim window");
+      expect(process).not.toContain("Save referral process");
       expect(markup).toContain('id="reload-process-settings"');
       // The form posted to this address, so a link differing only by its fragment would scroll rather than reload.
       expect(markup).toContain('href="/deed-polls/settings?reload=process-settings#process-settings"');
@@ -255,22 +315,23 @@ describe("service settings page", () => {
       expectSummaryLinksResolve(markup);
     });
 
-    it("should map api's 400 on the minutes to the fieldset", async () => {
+    it("should map api's 400 on the minutes to the processing window in days", async () => {
       vi.mocked(saveProcessSettings).mockRejectedValue(new InvalidInputError("x", [{ field: "referralClaimExpiryMinutes", message: "x" }]));
 
-      const { markup } = await render(postProcess, { body: { claimWindowHours: "24", claimWindowMinutes: "", revision: "4" } });
+      const { markup } = await render(postProcess, { body: BODY });
 
-      expect(markup).toContain("The claim window must be at least 24 hours");
-      expect(markup).toContain("Save claim window");
+      expect(markup).toContain('id="processingDays-error"');
+      expect(markup).toContain("Enter the processing window as a whole number of days from 1 to 30");
+      expect(markup).toContain("Save referral process");
       expectSummaryLinksResolve(markup);
     });
 
     it("should keep the process errors and drop the Gazette Save when the Gazette read fails", async () => {
       vi.mocked(findGazetteSettings).mockRejectedValue(new Error("down"));
 
-      const { markup } = await render(postProcess, { body: { claimWindowHours: "x", claimWindowMinutes: "0", revision: "4" } });
+      const { markup } = await render(postProcess, { body: { ...BODY, processingDays: "x" } });
 
-      expect(markup).toContain("Enter hours as a whole number from 0 to 24");
+      expect(markup).toContain("Enter the processing window as a whole number of days from 1 to 30");
       expect(markup).toContain("The London Gazette recipient could not be loaded. Try again later.");
       expect(markup).not.toContain("Save recipient");
       expectSummaryLinksResolve(markup);
@@ -290,7 +351,7 @@ describe("service settings page", () => {
       expect(markup).not.toContain("private internal prose");
       expect(markup).not.toContain("Save recipient");
       expect(markup).toContain('id="reload-gazette-recipient"');
-      expect(markup).toContain("Save claim window");
+      expect(markup).toContain("Save referral process");
       expectSummaryLinksResolve(markup);
     });
 
@@ -348,8 +409,8 @@ describe("service settings page", () => {
 
       const { markup } = await render(postGazette, { body: { recipientEmail: "bad", revision: "2" } });
 
-      expect(markup).toContain("The claim window could not be loaded. Try again later.");
-      expect(markup).not.toContain("Save claim window");
+      expect(markup).toContain("The referral process settings could not be loaded. Try again later.");
+      expect(markup).not.toContain("Save referral process");
       expectSummaryLinksResolve(markup);
     });
   });

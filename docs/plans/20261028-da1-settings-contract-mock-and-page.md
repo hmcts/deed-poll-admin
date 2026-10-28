@@ -128,8 +128,8 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Implement the mock rules and the seed data, run the seeder against a private-port mock, run the per-task checks, and record the results.
 
 ### Task 3: Settings: referral process
-- [ ] Add failing schema, handler and template tests.
-- [ ] Implement the section, run the per-task checks, and record the results.
+- [x] Add failing schema, handler and template tests.
+- [x] Implement the section, run the per-task checks, and record the results.
 
 ### Task 4: Settings: Masters and bank holidays
 - [ ] Add failing schema, handler and template tests for both sections and the remove confirmation.
@@ -200,3 +200,28 @@ the two plan commits since added none of the six.)
   added no duplicate.
 - Per-task checks: format and lint clean, `yarn build --force` 8/8. api-client 1,314 (+72). I ran the app suite
   too, because the mock changed under it: 3,148, green. deed-poll was not touched.
+
+**Task 3 (settings: referral process).**
+- "Referral process" replaces "Referral claim window" in place: same `id="process-settings"`, the same POST to
+  `/deed-polls/settings`, one revision and one Save ("Save referral process"). There are seven controls: `processingDays`,
+  `reminderIntervalHours`, `masterWindowCap`, then two fieldsets (`morning-window`, `afternoon-window`) holding
+  `morningWindowStart`/`End` and `afternoonWindowStart`/`End`. Every save sends all seven fields, because the form
+  draws every one.
+- `processSettingsFormSchema` (`libs/deed-poll/src/settings/schemas.ts`) reads whole numbers as trimmed `^\d{1,4}$`
+  (still not `readNumericInput`) against bounds taken from `PROCESS_SETTINGS_LIMITS`. The days bounds are a new export,
+  `PROCESSING_DAYS_LIMITS` (1-30, from api's minutes ÷ 1,440). Times are trimmed and must match `WINDOW_TIME_PATTERN`.
+  The ordering rule runs only when every control is valid. It is refused on the field api names: the morning end, the
+  **afternoon start** for the morning end not being before it, or the afternoon end.
+- api's 400 maps each field to its control in this page's words. The form has already checked each time's format, so
+  api naming `morningWindowEnd`, `afternoonWindowStart` or `afternoonWindowEnd` is shown as the ordering message.
+  `revision` still requires a reload, and any other field gets the generic refusal.
+- A stored window of part-days (possible only for an old claim window, e.g. 1,470 minutes) is shown as days to two
+  places (`1.02`), never rounded. The digits-only form refuses it, so a save cannot silently change it. A null window
+  time is shown as an empty control.
+- The copy no longer mentions claims or the pool: the warning is "Changes take effect immediately for every
+  referral." The new copy's `cy` mirrors its `en`.
+- The e2e spec (`service-settings.spec.ts`) and README were moved onto the new section. The e2e was edited but not
+  run; `yarn test:gazette` is Task 5's.
+- Tests were written alongside the code rather than run failing first.
+- Per-task checks: format and lint clean, `yarn build --force` 8/8. deed-poll 1,650 (+39), app 3,164 (+16), all
+  passing, with Redis on 6379.

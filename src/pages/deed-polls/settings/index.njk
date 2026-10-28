@@ -2,11 +2,37 @@
 {% from "govuk/components/input/macro.njk" import govukInput %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/fieldset/macro.njk" import govukFieldset %}
 {% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
 {% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
 
 {% macro lastChangedLine(section) %}
   {% if section.updatedAt %}<p class="govuk-body">{{ lastChanged }} {{ section.updatedAt }}{% if section.updatedBy %} {{ by }} {{ section.updatedBy }}{% endif %}</p>{% endif %}
+{% endmacro %}
+
+{% macro numberInput(name, label, hint, suffix) %}
+  {{ govukInput({
+    id: name, name: name, inputmode: "numeric", spellcheck: false, classes: "govuk-input--width-3",
+    label: { text: label, classes: "govuk-label--s" }, hint: { text: hint }, value: process.values[name],
+    suffix: { text: suffix } if suffix,
+    errorMessage: { text: process.errors[name] } if process.errors[name]
+  }) }}
+{% endmacro %}
+
+{% macro timeInput(name, label) %}
+  {{ govukInput({
+    id: name, name: name, spellcheck: false, autocomplete: "off", classes: "govuk-input--width-5",
+    label: { text: label }, value: process.values[name],
+    errorMessage: { text: process.errors[name] } if process.errors[name]
+  }) }}
+{% endmacro %}
+
+{% macro windowFieldset(window, legend) %}
+  {% call govukFieldset({ legend: { text: legend, classes: "govuk-fieldset__legend--s" }, describedBy: window + "-window-hint", attributes: { id: window + "-window" } }) %}
+    <div id="{{ window }}-window-hint" class="govuk-hint">{{ windowHint }}</div>
+    {{ timeInput(window + "WindowStart", windowStartLabel) }}
+    {{ timeInput(window + "WindowEnd", windowEndLabel) }}
+  {% endcall %}
 {% endmacro %}
 
 {% block page_content %}
@@ -24,32 +50,16 @@
     <p class="govuk-body">{{ intro }}</p>
 
     <section id="process-settings" class="govuk-!-margin-bottom-8">
+      <h2 class="govuk-heading-m">{{ processHeading }}</h2>
       {% if process.isAvailable %}
+        <p class="govuk-body">{{ processIntro }}</p>
         <form method="post" action="/deed-polls/settings" novalidate>
           <input type="hidden" name="revision" value="{{ process.values.revision }}">
-          <div class="govuk-form-group{% if process.windowError %} govuk-form-group--error{% endif %}">
-            <fieldset class="govuk-fieldset" id="claim-window" aria-describedby="claim-window-hint{% if process.windowError %} claim-window-error{% endif %}">
-              <legend class="govuk-fieldset__legend govuk-fieldset__legend--m">
-                <h2 class="govuk-fieldset__heading">{{ processHeading }}</h2>
-              </legend>
-              <div id="claim-window-hint" class="govuk-hint">{{ processHint }}</div>
-              {% if process.windowError %}
-                <p id="claim-window-error" class="govuk-error-message"><span class="govuk-visually-hidden">Error:</span> {{ process.windowError }}</p>
-              {% endif %}
-              {{ govukInput({
-                id: "claimWindowHours", name: "claimWindowHours", inputmode: "numeric", spellcheck: false,
-                classes: "govuk-input--width-3" + (" govuk-input--error" if process.windowError else ""),
-                label: { text: hoursLabel }, value: process.values.hours,
-                errorMessage: { text: process.hoursError } if process.hoursError
-              }) }}
-              {{ govukInput({
-                id: "claimWindowMinutes", name: "claimWindowMinutes", inputmode: "numeric", spellcheck: false,
-                classes: "govuk-input--width-3" + (" govuk-input--error" if process.windowError else ""),
-                label: { text: minutesLabel }, value: process.values.minutes,
-                errorMessage: { text: process.minutesError } if process.minutesError
-              }) }}
-            </fieldset>
-          </div>
+          {{ numberInput("processingDays", processingDaysLabel, processingDaysHint, daysSuffix) }}
+          {{ numberInput("reminderIntervalHours", reminderIntervalLabel, reminderIntervalHint, hoursSuffix) }}
+          {{ numberInput("masterWindowCap", masterWindowCapLabel, masterWindowCapHint) }}
+          {{ windowFieldset("morning", morningWindowLegend) }}
+          {{ windowFieldset("afternoon", afternoonWindowLegend) }}
           {% if process.isNeverChanged %}<p class="govuk-body">{{ processNeverChanged }}</p>{% endif %}
           {{ lastChangedLine(process) }}
           {% if not process.reloadText %}
@@ -62,7 +72,6 @@
           <p class="govuk-body"><a id="reload-process-settings" class="govuk-link" href="/deed-polls/settings?reload=process-settings#process-settings">{{ processReloadLink }}</a></p>
         {% endif %}
       {% else %}
-        <h2 class="govuk-heading-m">{{ processHeading }}</h2>
         <p class="govuk-body">{{ processUnavailable }}</p>
       {% endif %}
     </section>
