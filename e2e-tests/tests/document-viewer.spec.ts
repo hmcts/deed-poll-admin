@@ -25,6 +25,7 @@ import { syntheticPdf } from "../../libs/deed-poll-api-client/src/mock/document-
 import { DOCX_BYTES, JPEG_BYTES, PNG_BYTES, tiff } from "../../libs/deed-poll-api-client/src/mock/preview-sources.js";
 import { testPdf } from "../../src/assets/js/document-viewer/test-pdfs.js";
 import { CASEWORKER_EMAIL, signInAsCaseworker, signInAsJudge } from "./idam-session.js";
+import { judgePersonaMaster } from "./masters.js";
 
 const MOCK = "http://localhost:3219";
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
@@ -381,9 +382,17 @@ async function seedCase(request: APIRequestContext, displayReference: string): P
 
 async function seedReferral(request: APIRequestContext): Promise<{ caseId: string; referralId: string }> {
   const caseId = await seedCase(request, `KBDP2026-J${String(Date.now()).slice(-5)}`);
+  // Assigned to the judge persona's Master, because since api D2 an unassigned referral is visible to no judge.
+  const master = await judgePersonaMaster(request, MOCK);
   const raised = await request.post(`${MOCK}/caseworker/cases/${caseId}/referrals`, {
     headers: bearer(CASEWORKER_EMAIL),
-    data: { reasons: ["Minor"], notes: "Please consider the supporting documents.", urgency: "Urgent", urgencyReason: "Hearing listed on Friday." }
+    data: {
+      reasons: ["Minor"],
+      notes: "Please consider the supporting documents.",
+      urgency: "Urgent",
+      urgencyReason: "Hearing listed on Friday.",
+      masterId: master.id
+    }
   });
   expect(raised.status(), await raised.text()).toBe(201);
   return { caseId, referralId: (await raised.json()).id };

@@ -186,7 +186,7 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Implement, delete the pool page and the claim route, run the per-task checks, and record the results.
 
 ### Task 4: e2e journeys
-- [ ] Rewrite the judicial journeys and update the deed-polls journeys as the Development Approach says; run them on the temporary private-port config; record the result; delete the config.
+- [x] Rewrite the judicial journeys and update the deed-polls journeys as the Development Approach says; run them on the temporary private-port config; record the result; delete the config.
 
 ### Task 5: Documentation and final verification
 - [ ] Update `CLAUDE.md` and regenerate the Welsh CSV with `yarn welsh:extract`.
@@ -332,3 +332,39 @@ express-session-postgres 85, express-session-redis 7. (Da1's final note said app
   section tests in), app 3,264 (−41: the pool page's and the claim route's tests deleted), all passing with Redis on
   6379. api-client not touched. The extractor reads the new strings; the CSV is left for Task 5's regeneration. The
   e2e journeys still drive the pool and the claim, and are Task 4's.
+
+**Task 4 (e2e journeys).**
+- New `e2e-tests/tests/masters.ts`: `judgePersonaMaster` (the judge persona's entry, "Master Judge" with
+  `judge@example.com`, added if missing, made available, linked through a judicial request carrying the email),
+  `newMaster(label)` (a unique entry and a unique judge linked to it, so the cap per Master never fills across runs
+  on a shared store), `referralCap`, `assignReferral` and `bearer`. Each takes the mock's address, defaulting to
+  `DEED_POLL_API_URL` or 3200, because `document-viewer.spec.ts` names its own mock.
+- `judicial.spec.ts` rewritten: a Team leader raises a referral through the form to the judge persona's Master; the
+  Master lands on My referrals from `/`, the pool URL redirects there, the urgent one is under Urgent ("Referred
+  dd-mm-yy"), the raised one under "Awaiting your direction" / "dd-mm-yy referrals" with its due date, read off the
+  page's headings (`placeOf`); the Welsh shape of both pages; the referral shows "Assigned to you" and "Direction due
+  by" and no claim; the direction flow with its validation; the directed one moves to "Directed, awaiting the office"
+  under the same day; another Master's referral is a 404 naming nobody. The change/withdraw journey and the
+  cross-persona lifecycle journey run on assignment (no navigation now), and the Team leader refusal covers the pool
+  redirect and My referrals.
+- `deed-polls.spec.ts`: the raise journey chooses a Master (the unanswered question is a third error), sees "With
+  {name}", reassigns once through "Assign to another Master" (banner, the 7-days sentence from the due date, notes
+  for the assignment and the reassignment), and hits the cap. The actioned-direction journey raises to the judge
+  persona's Master and directs as that judge with no claim; its notes now read "assigned to {name}". `referTo` uses a
+  Master of its own. New journey: the waiting-for-assignment count against api's total, its worklist link, and
+  assigning from the case page's panel.
+- **Two deviations from the plan's wording:** (1) the cap is reached by **filling a Master of the run's own to api's
+  cap**, the last place taken while the form is open, not by lowering the cap: the cap is one setting for the
+  service, and lowering it would refuse every journey's raise in a parallel worker. (2) the waiting-for-assignment
+  referral is **raised without a Master** (api still accepts that for one release), not made overdue with the mock's
+  clock: moving the clock past the processing window and sweeping releases *every* assigned referral in the shared
+  store, including those other workers are directing. The clock hook stays tested in the mock's own suite.
+- **One accessibility waiver, computed:** axe reports `color-contrast` on a disabled (full) Master's hint, which
+  govuk-frontend fades to half opacity. WCAG 1.4.3 exempts text of an inactive component, so `deed-polls.spec.ts`'s
+  axe helper waives `color-contrast` on the hint of each disabled radio on the page and nothing else; it now reports
+  one finding per element so a waiver cannot cover a second element under the same rule.
+- `emails.spec.ts`, `confirmation.spec.ts`, `persona-switcher.spec.ts` and `document-viewer.spec.ts` assign instead of
+  claiming; `signInAsJudge` expects My referrals.
+- Results: the five changed specs on the temporary private-port config (mock 3226, app 3326, Redis 6316/2): **34
+  passed**, setup included. `yarn test:document-viewer`: **2 passed**. The config was deleted and the Redis container
+  stopped afterwards. Per-task checks: format and lint clean, `yarn build --force` 8/8; no package's unit tests changed.

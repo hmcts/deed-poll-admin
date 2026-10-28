@@ -32,7 +32,7 @@ const PASSWORD = "Pa55word11";
 
 /** Where each persona's day starts — `landingPath` in `src/pages/index.ts`, which `/` resolves after sign-in. */
 const CASE_LIST = "/deed-polls";
-const JUDICIAL_POOL = "/judicial/referrals";
+const MY_REFERRALS = "/judicial/referrals/mine";
 
 /**
  * Where the signed-in session is parked between the setup project and the journeys.
@@ -96,12 +96,12 @@ export async function signInAsCaseworker(page: Page): Promise<void> {
 /**
  * The same, as the judge — and the landing path is the assertion rather than arrangement.
  *
- * A judge signing in lands on the pool and not the case list (`referrals-admin-3` decision 2), which is a
+ * A judge signing in lands on My referrals and not the case list (plan Db1: there is no pool), which is a
  * property of the *login flow* and not of any page: `/login`'s fallback `returnTo` is `/`, and `/` is where the
  * persona is resolved. Nothing but a real sign-in exercises that pair, so this call is where it is pinned.
  */
 export async function signInAsJudge(page: Page): Promise<void> {
-  await signIn(page, JUDGE_EMAIL, JUDICIAL_POOL);
+  await signIn(page, JUDGE_EMAIL, MY_REFERRALS);
 }
 
 /**

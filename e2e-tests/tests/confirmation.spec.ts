@@ -32,7 +32,7 @@
  * **The wait is arranged through `POST /__mock/referrals/{id}/confirmation-request`, and that is a fact about the
  * mock rather than a shortcut.** The write that sets `confirmationRequestedAt` at api's end is notify-3's *Request
  * confirmation to proceed* email, and the mock has no template for it, so there is no contract route out here that
- * can start a wait. Everything else is driven: the referral is raised, claimed and refused through the contract,
+ * can start a wait. Everything else is driven: the referral is raised, assigned and refused through the contract,
  * because a judge's refusal is what leads the office to ask the applicant at all.
  *
  * The caseworker signs in as `team-leader@example.com` for the first three, because nothing here is gated on a role —
@@ -49,15 +49,13 @@ import {
   TEAM_LEADER_EMAIL,
   TEAM_LEADER_STORAGE_STATE
 } from "./idam-session.js";
+import { newMaster } from "./masters.js";
 
 /** The mock api, which `playwright.config.ts` starts on 3200 beside the app on 3000. */
 const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
 
 /** The worklist, as the banner's link and the tab both address it — api's published filter key. */
 const WORKLIST_URL = "/deed-polls?filter=awaitingConfirmation";
-
-/** The judge who refused the non-publication request, which is what leads the office to ask the applicant. */
-const SEED_JUDGE = "e2e.confirmationjudge@example.com";
 
 /** The colleague who answers first in the race, as a subject rather than a session — see `bearer`. */
 const OTHER_CASEWORKER = "e2e.colleague@example.com";
@@ -389,7 +387,7 @@ test.describe("without the admin role", () => {
  * Cases waiting for an answer, one per number of days given.
  *
  * **Seeded, then driven, then asked.** The case is seeded because a create is not what is being tested; the
- * referral is raised, claimed and refused through the contract, because a Master's refusal is what leads the
+ * referral is raised, assigned and refused through the contract, because a Master's refusal is what leads the
  * office to ask the applicant at all and a seeded `Decided` referral would be a state api's own machine never
  * produced; and only the ask itself goes through the mock's control route, because the write that starts a wait is
  * notify-3's email and this mock has no template for it.
@@ -444,13 +442,14 @@ async function seedWaitingCases(
  * `daysAwaitingConfirmation` is a difference of UTC calendar days, `0` on the day the email went and never 1.
  */
 async function askApplicant(request: APIRequestContext, caseId: string, daysAgo: number): Promise<string> {
-  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor"] } });
+  // A Master of its own, so the cap per Master never refuses the raise however many runs share the store.
+  const master = await newMaster(request, "Confirmation");
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor"], masterId: master.id } });
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;
 
-  const judge = bearer(SEED_JUDGE);
-  const claimed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/claim`, { headers: judge });
-  expect(claimed.status(), await claimed.text()).toBe(200);
+  // The Master's linked judge, because api shows an assigned referral to nobody else.
+  const judge = bearer(master.judge);
 
   const directed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/direction`, {
     headers: judge,

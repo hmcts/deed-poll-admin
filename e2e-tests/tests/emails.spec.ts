@@ -37,6 +37,7 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Browser, expect, type Locator, type Page, test } from "@playwright/test";
 import { DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsTeamLeader, TEAM_LEADER_EMAIL, TEAM_LEADER_STORAGE_STATE } from "./idam-session.js";
+import { newMaster } from "./masters.js";
 
 /** The mock api, which `playwright.config.ts` starts on 3200 beside the app on 3000. */
 const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
@@ -57,9 +58,6 @@ const TEMPLATE = "application-rejected";
  * calls to discover it — decisions 8 and 9.
  */
 const MASTER_REASON = "The evidence supplied does not establish the applicant's identity.";
-
-/** The judge whose direction refuses the application. Not a signed-in session — see `bearer`. */
-const SEED_JUDGE = "e2e.emailjudge@example.com";
 
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
 test.use({ storageState: TEAM_LEADER_STORAGE_STATE });
@@ -285,7 +283,7 @@ async function seedCase(request: APIRequestContext, fields: Record<string, unkno
 }
 
 /**
- * Refer the case, claim it as a judge and refuse it — which is what entitles the case to this email.
+ * Refer the case to a Master, and have their judge refuse it — which is what entitles the case to this email.
  *
  * Every step is checked: a refusal part-way leaves the referral in whatever state it reached, and the symptom is a
  * tab that still says no Master has refused the application, which reads as the feature being broken rather than
@@ -296,13 +294,14 @@ async function seedCase(request: APIRequestContext, fields: Record<string, unkno
  * empty default (flag 7 on the plan).
  */
 async function refuseApplication(request: APIRequestContext, caseId: string, reason: string): Promise<void> {
-  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor"] } });
+  // A Master of its own, so the cap per Master never refuses the raise however many runs share the store.
+  const master = await newMaster(request, "Emails");
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor"], masterId: master.id } });
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;
 
-  const judge = bearer(SEED_JUDGE);
-  const claimed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/claim`, { headers: judge });
-  expect(claimed.status(), await claimed.text()).toBe(200);
+  // The Master's linked judge, because api shows an assigned referral to nobody else.
+  const judge = bearer(master.judge);
 
   const directed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/direction`, {
     headers: judge,
