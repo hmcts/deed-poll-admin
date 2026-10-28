@@ -54,6 +54,23 @@ describe("referrals/master-choices", () => {
       ]);
     });
 
+    it("should not offer a Master api sent with no name, because a radio with no label identifies nobody", () => {
+      const nameless = { ...master("m-4", "", 0), name: null };
+
+      const view = buildMasterChoices(list({ masters: [master("m-1", "Master Sullivan", 3), nameless] }), undefined, MORNING);
+
+      expect(view.choices.map((choice) => choice.id)).toEqual(["m-1"]);
+    });
+
+    it("should not offer a Master whose name is only whitespace, and should label the rest without their padding", () => {
+      const blank = master("m-4", "   ", 0);
+      const padded = master("m-5", "  Master Wren ", 0);
+
+      const view = buildMasterChoices(list({ masters: [blank, padded] }), undefined, MORNING);
+
+      expect(view.choices.map((choice) => [choice.id, choice.name])).toEqual([["m-5", "Master Wren"]]);
+    });
+
     it("should check the Master whose id was chosen, and nothing for an id that matches no Master", () => {
       expect(buildMasterChoices(list(), "m-1", MORNING).choices.map((choice) => choice.isChecked)).toEqual([true, false]);
       expect(buildMasterChoices(list(), "m-9", MORNING).choices.map((choice) => choice.isChecked)).toEqual([false, false]);

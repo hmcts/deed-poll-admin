@@ -7,7 +7,8 @@
  * so a caseworker looking for them learns they are full rather than wondering where they went.
  *
  * **An unavailable Master is not offered.** api refuses one with a 400, and a Master who has left is not a choice.
- * The list keeps api's order.
+ * Nor is a nameless one, a whitespace-only name included: api refuses a blank name on every write, but its list does
+ * not promise one, and a radio with no label identifies nobody. The list keeps api's order.
  */
 import { listMasters, type MasterList } from "@hmcts/deed-poll-api-client";
 import { type Caller, callApi } from "../api/deed-poll-api.js";
@@ -28,16 +29,21 @@ export function findMasterChoices(caller: Caller): Promise<MasterList> {
 export function buildMasterChoices(list: MasterList, selectedId: unknown, now: Date = new Date()): MasterChoices {
   return {
     window: list.window ? { slot: list.window.slot, isToday: list.window.date === LONDON_DAY.format(now), date: shortDay(list.window.date) } : null,
-    choices: list.masters
-      .filter((master) => master.available)
-      .map((master) => ({
-        id: master.id,
-        name: master.name ?? "",
-        held: master.assignedInWindow,
-        cap: list.cap,
-        isFull: master.assignedInWindow >= list.cap,
-        isChecked: master.id === selectedId
-      }))
+    choices: list.masters.flatMap((master) => {
+      const name = master.name?.trim();
+      return master.available && name
+        ? [
+            {
+              id: master.id,
+              name,
+              held: master.assignedInWindow,
+              cap: list.cap,
+              isFull: master.assignedInWindow >= list.cap,
+              isChecked: master.id === selectedId
+            }
+          ]
+        : [];
+    })
   };
 }
 
