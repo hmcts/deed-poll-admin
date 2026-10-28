@@ -129,7 +129,7 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 
 ### Task 3: Settings: referral process
 - [ ] Add failing schema, handler and template tests.
-- [ ] Implement the section, run all Validation Commands, and record the results.
+- [ ] Implement the section, run the per-task checks, and record the results.
 
 ### Task 4: Settings: Masters and bank holidays
 - [ ] Add failing schema, handler and template tests for both sections and the remove confirmation.
