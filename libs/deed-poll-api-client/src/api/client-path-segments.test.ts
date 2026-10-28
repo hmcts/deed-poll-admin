@@ -92,7 +92,7 @@ const OPERATIONS: Operation[] = [
     name: "createReferral",
     ids: ["case-1"],
     path: "/caseworker/cases/case-1/referrals",
-    call: ([a], c) => createReferral(a, { reasons: ["Minor"] }, c)
+    call: ([a], c) => createReferral(a, { reasons: ["Minor", "MinorCourtOrder"] }, c)
   },
   {
     name: "withdrawReferral",

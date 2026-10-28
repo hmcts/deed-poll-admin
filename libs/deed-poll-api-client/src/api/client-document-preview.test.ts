@@ -597,7 +597,7 @@ async function caseWithDocument(mimeType: string, bytes: Buffer, name = "documen
 /** A referral on the case, assigned to the Master entry for `subject` when one is named (api D2), else waiting. */
 async function referralOn(caseId: string, subject?: string): Promise<string> {
   const masterId = subject === undefined ? undefined : await masterFor(subject);
-  const created = await createReferral(caseId, { reasons: ["Minor"], masterId }, config);
+  const created = await createReferral(caseId, { reasons: ["Minor", "MinorCourtOrder"], masterId }, config);
   if (!created.ok) throw new Error(`referral was not created: ${created.error.message}`);
 
   return created.data.id;

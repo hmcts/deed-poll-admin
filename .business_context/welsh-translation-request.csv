@@ -360,6 +360,7 @@ src/pages/deed-polls/[id]/referrals/new.ts,notesHint,"Explain why this case need
 src/pages/deed-polls/[id]/referrals/new.ts,notesLabel,"Give the other reason","Give the other reason",YES,"",,""
 src/pages/deed-polls/[id]/referrals/new.ts,reasonsHint,"Select all that apply.","Select all that apply.",YES,"",,""
 src/pages/deed-polls/[id]/referrals/new.ts,reasonsLegend,"Why are you referring this case?","Why are you referring this case?",YES,"",,""
+src/pages/deed-polls/[id]/referrals/new.ts,reasonsRefused,"One or more of the reasons you selected could not be accepted. Check the reasons and try again.","One or more of the reasons you selected could not be accepted. Check the reasons and try again.",YES,"",,""
 src/pages/deed-polls/[id]/referrals/new.ts,referralRefused,"The referral could not be raised. Check the details and try again.","The referral could not be raised. Check the details and try again.",YES,"",,""
 src/pages/deed-polls/[id]/referrals/new.ts,submit,"Raise referral","Raise referral",YES,"",,""
 src/pages/deed-polls/[id]/referrals/new.ts,thisAfternoon,"this afternoon","this afternoon",YES,"",,""

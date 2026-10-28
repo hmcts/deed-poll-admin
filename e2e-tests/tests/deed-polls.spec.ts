@@ -570,7 +570,7 @@ test("caseworker refers a case to a Master, is refused a second referral, reassi
  */
 test("caseworker sees how many referrals are waiting for assignment, and assigns one to a Master", async ({ page, request }) => {
   const seeded = await seedCaseToAction(request);
-  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${seeded.id}/referrals`, { data: { reasons: ["Minor"] } });
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${seeded.id}/referrals`, { data: { reasons: ["Minor", "MinorCourtOrder"] } });
   expect(raised.status(), await raised.text()).toBe(201);
   const master = await newMaster(request, "Assign");
   const caseUrl = `/deed-polls/${seeded.id}`;
@@ -1935,7 +1935,7 @@ async function raiseElsewhere(request: APIRequestContext, master: Master): Promi
   });
   expect(created.status(), await created.text()).toBe(201);
   const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${(await created.json()).id}/referrals`, {
-    data: { reasons: ["Minor"], masterId: master.id }
+    data: { reasons: ["Minor", "MinorCourtOrder"], masterId: master.id }
   });
   expect(raised.status(), await raised.text()).toBe(201);
 }
@@ -1956,7 +1956,9 @@ async function referTo(request: APIRequestContext, caseId: string, upTo: "Claime
   // Raised with a Master of its own, which is what makes it `Claimed` since api D2, and keeps the cap per Master
   // from refusing it however many runs share the store.
   const master = await newMaster(request, "Returned");
-  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor"], masterId: master.id } });
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, {
+    data: { reasons: ["Minor", "MinorCourtOrder"], masterId: master.id }
+  });
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;
   if (upTo === "Claimed") return;

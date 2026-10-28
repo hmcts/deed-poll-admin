@@ -155,7 +155,7 @@ import type {
   WireSavedQuery,
   WireWitness
 } from "../api/wire.js";
-import { WIRE_SCHEMAS } from "../api/wire.js";
+import { REFERRAL_REASON, REFERRAL_STATE, URGENCY, WIRE_SCHEMAS } from "../api/wire.js";
 import { createBankHolidays } from "./bank-holidays.js";
 import { callerAccess } from "./caller-access.js";
 import { buildDocumentPreview, type DocumentPreviewMode, PREVIEW_BUSY_RETRY_AFTER_SECONDS } from "./document-preview.js";
@@ -3163,8 +3163,14 @@ function referralConditionalErrors(body: { reasons: readonly string[]; notes?: s
   if (body.urgency === "Urgent" && !body.urgencyReason?.trim()) {
     errors.push({ field: "urgencyReason", message: "urgencyReason is required when urgency is Urgent" });
   }
-  // api#155's two rules on a minor's details, in its words. It accepts `Minor` alone for one release, so this does too.
+  // api's three rules on a minor's details, in its words. `Minor` alone is refused on a create only, as api.
   const details = body.reasons.filter((reason) => reason.startsWith("Minor") && reason !== "Minor");
+  if (details.length === 0 && body.reasons.includes("Minor")) {
+    errors.push({
+      field: "reasons",
+      message: `reasons names Minor without saying what applies to the minor's application: name at least one of ${MOCK_MINOR_DETAILS.join(", ")}`
+    });
+  }
   if (details.length > 0 && !body.reasons.includes("Minor")) {
     errors.push({ field: "reasons", message: `reasons names a minor's detail (${details.join(", ")}) without Minor` });
   }
@@ -3176,6 +3182,9 @@ function referralConditionalErrors(body: { reasons: readonly string[]; notes?: s
 
   return errors;
 }
+
+/** api's `ReferralReason::isMinorDetail` members, in declaration order, as its refusal names them. */
+const MOCK_MINOR_DETAILS = REFERRAL_REASON.filter((reason) => reason.startsWith("Minor") && reason !== "Minor");
 
 /** api's `ReferralSchemas.CONTRADICTORY_MINOR_DETAILS`. */
 const MOCK_CONTRADICTORY_MINOR_DETAILS = [

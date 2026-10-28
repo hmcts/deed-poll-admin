@@ -444,7 +444,9 @@ async function seedWaitingCases(
 async function askApplicant(request: APIRequestContext, caseId: string, daysAgo: number): Promise<string> {
   // A Master of its own, so the cap per Master never refuses the raise however many runs share the store.
   const master = await newMaster(request, "Confirmation");
-  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor"], masterId: master.id } });
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, {
+    data: { reasons: ["Minor", "MinorCourtOrder"], masterId: master.id }
+  });
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;
 

@@ -387,7 +387,7 @@ async function seedReferral(request: APIRequestContext): Promise<{ caseId: strin
   const raised = await request.post(`${MOCK}/caseworker/cases/${caseId}/referrals`, {
     headers: bearer(CASEWORKER_EMAIL),
     data: {
-      reasons: ["Minor"],
+      reasons: ["Minor", "MinorCourtOrder"],
       notes: "Please consider the supporting documents.",
       urgency: "Urgent",
       urgencyReason: "Hearing listed on Friday.",

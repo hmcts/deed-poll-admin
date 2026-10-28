@@ -188,7 +188,7 @@ function seedReferral(
   return {
     state,
     create: {
-      reasons: minor ? ["Minor"] : ["NonPublication"],
+      reasons: minor ? ["Minor", "MinorParentalConsent"] : ["NonPublication"],
       notes: `[${marker}] Synthetic ${minor ? "minor application for judicial consideration" : "request to consider non-publication"}.`,
       urgency: urgent ? "Urgent" : "Normal",
       ...(urgent ? { urgencyReason: "Synthetic urgent travel scenario." } : {})

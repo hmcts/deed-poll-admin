@@ -896,13 +896,20 @@ describe("referrals", () => {
   it("should raise a referral Open and unclaimed, with its dates as Date objects", async () => {
     const id = await caseId();
 
-    const result = await createReferral(id, { reasons: ["Minor"], notes: "For the Master" }, config);
+    const result = await createReferral(id, { reasons: ["Minor", "MinorCourtOrder"], notes: "For the Master" }, config);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // Neither the state nor a holder is the caseworker's to choose, and api defaults an absent urgency to
     // Normal rather than storing none.
-    expect(result.data).toMatchObject({ state: "Open", reasons: ["Minor"], notes: "For the Master", urgency: "Normal", migrated: false, claimedBy: null });
+    expect(result.data).toMatchObject({
+      state: "Open",
+      reasons: ["Minor", "MinorCourtOrder"],
+      notes: "For the Master",
+      urgency: "Normal",
+      migrated: false,
+      claimedBy: null
+    });
     expect(result.data.createdOn).toBeInstanceOf(Date);
   });
 
@@ -910,7 +917,7 @@ describe("referrals", () => {
     const id = await caseId();
     const masterId = await masterFor("judge.a@example.com");
 
-    const result = await createReferral(id, { reasons: ["Minor"], masterId }, config);
+    const result = await createReferral(id, { reasons: ["Minor", "MinorCourtOrder"], masterId }, config);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -921,7 +928,7 @@ describe("referrals", () => {
   });
 
   it("should report an unknown Master as a validation failure on masterId", async () => {
-    const result = await createReferral(await caseId(), { reasons: ["Minor"], masterId: "00000000-0000-4000-8000-000000000000" }, config);
+    const result = await createReferral(await caseId(), { reasons: ["Minor", "MinorCourtOrder"], masterId: "00000000-0000-4000-8000-000000000000" }, config);
 
     expect(!result.ok && result.error.kind).toBe("validation");
     expect(!result.ok && result.error.fieldErrors?.map((error) => error.field)).toEqual(["masterId"]);
@@ -950,7 +957,7 @@ describe("referrals", () => {
       manager
     );
     const masterId = await masterFor("judge.a@example.com");
-    await referralOn(await caseId(), { reasons: ["Minor"], masterId });
+    await referralOn(await caseId(), { reasons: ["Minor", "MinorCourtOrder"], masterId });
     const id = await caseId();
     const waiting = await referralOn(id);
 
@@ -1646,7 +1653,7 @@ describe("the judicial surface", () => {
   const ANOTHER_JUDGE = "judge.b@example.com";
 
   it("should answer the deprecated pool with an empty page, whatever is waiting for assignment", async () => {
-    await referralOn(await caseId(), { reasons: ["Minor"] });
+    await referralOn(await caseId(), { reasons: ["Minor", "MinorCourtOrder"] });
     await referralOn(await caseId(), await toMaster(JUDGE));
 
     const result = await getJudicialPool({}, judge(JUDGE));
@@ -1931,7 +1938,7 @@ describe("the judicial surface", () => {
   it("should parse the rows into the same summary the pool publishes, dates included", async () => {
     const referralId = await referralOn(
       await caseId(),
-      await toMaster(JUDGE, { reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Risk to the applicant" })
+      await toMaster(JUDGE, { reasons: ["Minor", "MinorCourtOrder"], urgency: "Urgent", urgencyReason: "Risk to the applicant" })
     );
 
     const result = await getJudicialMyReferrals({}, judge(JUDGE));
@@ -1939,7 +1946,13 @@ describe("the judicial surface", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const [row] = result.data.referrals;
-    expect(row).toMatchObject({ id: referralId, state: "Claimed", reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Risk to the applicant" });
+    expect(row).toMatchObject({
+      id: referralId,
+      state: "Claimed",
+      reasons: ["Minor", "MinorCourtOrder"],
+      urgency: "Urgent",
+      urgencyReason: "Risk to the applicant"
+    });
     // Converted from api's zoneless date-time, like every other row this adapter parses.
     expect(row?.createdOn).toBeInstanceOf(Date);
     // api D2's two: when it was assigned, and when the direction is due.
@@ -2705,7 +2718,7 @@ function awaitingConfirmation(): { caseId: string; referralId: string } {
 }
 
 /** A referral raised over the contract, which is where every referral journey starts. */
-async function referralOn(id: string, body: ReferralCreate = { reasons: ["Minor"] }): Promise<string> {
+async function referralOn(id: string, body: ReferralCreate = { reasons: ["Minor", "MinorCourtOrder"] }): Promise<string> {
   const created = await createReferral(id, body, config);
   if (!created.ok) throw new Error(`referral was not created: ${created.error.message}`);
 
@@ -2756,7 +2769,7 @@ async function refusedCase(patch: Parameters<typeof createCase>[0] = {}): Promis
  * sees only what is assigned to them, so this is how a test puts a referral in a judge's hands now there is no claim.
  * The entry is named after the subject, so `claimedBy` reads as it did when the judge claimed it.
  */
-async function toMaster(subject: string, body: ReferralCreate = { reasons: ["Minor"] }): Promise<ReferralCreate> {
+async function toMaster(subject: string, body: ReferralCreate = { reasons: ["Minor", "MinorCourtOrder"] }): Promise<ReferralCreate> {
   return { ...body, masterId: await masterFor(subject) };
 }
 
