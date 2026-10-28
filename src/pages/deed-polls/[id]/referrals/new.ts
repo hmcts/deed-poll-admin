@@ -49,6 +49,8 @@ import { pathSegment } from "../../../../path-segment.js";
 // the issues arrived.
 // `minorDetails` is the group revealed beneath "Applicant is a minor": its own place in the summary, posting `reasons`.
 const FIELD_ORDER = ["reasons", "minorDetails", "notes", "urgency", "urgencyReason"];
+// The controls an api refusal of a reason can land on, both shown in this page's words rather than api's.
+const REASON_FIELDS = ["reasons", "minorDetails"];
 
 const en = {
   title: "Refer this case to a Master",
@@ -73,6 +75,10 @@ const en = {
   // api's rejections carry their own wording; this is for one that names no field, whose text is written for
   // whoever reads api's logs.
   referralRefused: "The referral could not be raised. Check the details and try again.",
+  // For an api refusal of the reasons. Its wording names api's members ("names no referral reason: 'MinorNoStepparentConsent'"),
+  // and this form's own checks run first, so reaching it means admin and api disagree about the reasons (a deploy
+  // between the two halves of a change, or a rule only api holds).
+  reasonsRefused: "One or more of the reasons you selected could not be accepted. Check the reasons and try again.",
   notesMax: MAX_REFERRAL_NOTES,
   urgencyReasonMax: MAX_REFERRAL_URGENCY_REASON
 };
@@ -108,7 +114,7 @@ export const POST = async (req: Request, res: Response) => {
       // logged and the page's own copy stands in for it. Per rejection, not per response: a 400 naming both
       // `notes` and a field with no control would otherwise show the notes message and drop the other, and
       // the caseworker would fix what they were shown and be refused again for the half they were not.
-      const messages = fieldMessages(error.errors);
+      const messages = withOwnReasonsCopy(fieldMessages(error.errors), error);
       const placed = Object.keys(messages).filter((field) => FIELD_ORDER.includes(field));
       const unplaceable = Object.keys(messages).filter((field) => !FIELD_ORDER.includes(field));
 
@@ -173,6 +179,20 @@ function reasonsFrom(value: unknown): unknown[] {
  */
 function fieldMessages(errors: FieldError[]): Record<string, string> {
   return Object.fromEntries(errors.map((error) => [error.field.split(/[.[]/)[0], error.message]));
+}
+
+/**
+ * api's rejection of a reason in the page's own words, with api's logged.
+ *
+ * api's text there is written for developers, naming its enum members. The minor's details post as `reasons` too, so
+ * a refusal of one arrives on `reasons`; `minorDetails` is included in case api ever addresses the group itself.
+ */
+function withOwnReasonsCopy(messages: Record<string, string>, error: InvalidInputError): Record<string, string> {
+  const refused = REASON_FIELDS.filter((field) => field in messages);
+  if (refused.length === 0) return messages;
+
+  console.error(`referral create refused on the reasons: ${forLog(refused.map((field) => messages[field]).join("; ") || error.message)}`);
+  return { ...messages, ...Object.fromEntries(refused.map((field) => [field, en.reasonsRefused])) };
 }
 
 /**
