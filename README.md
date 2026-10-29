@@ -164,8 +164,13 @@ yarn mock:api                   # The in-memory api, on port 3200 (yarn dev star
 yarn mock:seed                  # Fill the running mock with cases: every tab, a page of results, and nine
                                 # referrals (four Decided, so the dashboard's "returned — action needed"
                                 # banner is non-zero; two of those also awaiting the applicant's
-                                # confirmation, so that banner and tab are non-empty as well). Resets the
-                                # store first; `--keep` adds to it
+                                # confirmation, so that banner and tab are non-empty as well), and three
+                                # Masters (Master Wren unavailable; Master Judge on the judge persona's
+                                # email, so it links on that persona's first judicial request and finds
+                                # its two assigned referrals on My referrals; two more wait for
+                                # assignment; the directed ones are Master Sullivan's, linked to a seed
+                                # identity). Resets the store first; `--keep` adds to it and skips
+                                # Masters already listed
 ```
 
 The mock starts **empty**, so `yarn mock:seed` is what makes the list page, its filters and the dashboard's
@@ -192,12 +197,26 @@ belong to the current visit and are not persisted as business sign-off. See
 [plan 16](docs/plans/16-gazette-1-ready-list-review-and-send.md).
 
 Delivery Managers also reach **Service settings** (`/deed-polls/settings`) from the case list. It sets the
-referral claim window (30 minutes to 24 hours, effective immediately for every case), holds the London Gazette
-recipient for Delivery Managers who also have Gazette access, and links to Manage Case staff administration for
-adding staff and changing their access. Each section saves on its own. The page needs `MANAGE_PROCESS_CONFIG` from
+referral process (the processing window in days, the reminder interval, the cap per Master per window and the two
+referral windows' times, effective immediately for every referral), holds the London Gazette
+recipient for Delivery Managers who also have Gazette access, lists the Masters (adding one, and changing a Master's
+name, email or availability; a signed-in Master whose email changes signs in again before they see their referrals),
+lists the bank holidays (adding one, and removing one after a confirmation page), and links to Manage Case staff
+administration for adding staff and changing their access. Each section saves on its own. The page needs `MANAGE_PROCESS_CONFIG` from
 the API's `GET /me`, so an existing session sees the link within one token lifetime or after signing in again.
-Deploy the API's process-settings contract to every replica before this admin version. See
-[the settings plan](docs/plans/20261026-dm-settings-page.md).
+Deploy the API's D1 settings contract (Masters, bank holidays and the extended process settings) to every replica
+before this admin version; see [DEPLOYMENT.md](docs/DEPLOYMENT.md#what-a-deploy-of-this-app-needs-from-api). See
+[the settings plan](docs/plans/20261026-dm-settings-page.md) and
+[the Da1 plan](docs/plans/completed/20261028-da1-settings-contract-mock-and-page.md).
+
+Raising a referral asks which Master it should go to, showing each available Master's referrals for the current
+window against the cap. A full Master is listed but cannot be chosen, and a Master who is unavailable is not offered.
+Any caseworker can assign a referral that is waiting for assignment, or reassign one to another Master, from the
+referral page or the case page's Referrals panel, and the case list counts the referrals waiting for assignment.
+Masters have no pool and claim nothing: `/judicial/referrals` redirects to **My referrals**, grouped into Urgent,
+Awaiting your direction and Directed, awaiting the office. Deploy api D2 to every replica before this admin version;
+see [DEPLOYMENT.md](docs/DEPLOYMENT.md#what-a-deploy-of-this-app-needs-from-api) and
+[the Db1 plan](docs/plans/20261028-db1-assignment-contract-mock-and-pages.md).
 
 The seed includes 26 ready cases, cases excluded by the publication/sent-date rules, and 26 frozen
 history batches. The newest batch has 101 cases and a sorted 100-reference preview. No email is sent.
@@ -210,9 +229,9 @@ the local IDAM simulator (`yarn idam:build` if its image is missing, then `docke
 and seed it with `yarn idam:users`. Then provide a separate Redis instance on port 6316 (for example,
 `docker run --rm -p 6316:6379 redis:8-alpine`). Run `yarn test:gazette` from this repository root.
 The suite starts/stops its own app on 3316 and fresh mock on 3216, uses Redis database 1, and refuses
-to reuse occupied app/mock ports. All nine journeys, the service settings journey included, sign in through IDAM and include axe checks; the Delivery Manager
+to reuse occupied app/mock ports. All ten journeys, the two service settings journeys included (the referral-process save, and the Masters and bank holidays), sign in through IDAM and include axe checks; the Delivery Manager
 read and recipient-settings journeys also check Welsh. The dedicated config keeps the empty-state fixture, and the settings journey's
-claim-window save, out of the shared `yarn test:e2e` suite. It never resets an existing mock. These checks cover ready/history reads, recipient settings (including invalid and stale edits),
+referral-process save, out of the shared `yarn test:e2e` suite. It never resets an existing mock. These checks cover ready/history reads, recipient settings (including invalid and stale edits),
 all request outcomes and complete legacy membership, with Welsh and axe checks;
 the mandatory review/send journey covers all five outcomes, lost responses and duplicate confirmation tabs.
 

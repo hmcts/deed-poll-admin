@@ -26,6 +26,7 @@ import {
   TEAM_LEADER_EMAIL,
   TEAM_LEADER_STORAGE_STATE
 } from "./idam-session.js";
+import { judgePersonaMaster, type Master, newMaster, referralCap } from "./masters.js";
 
 /** The reference number's year comes from Date Received, so a fixed date keeps the shape assertable. */
 const DATE_RECEIVED = { day: "10", month: "3", year: "2026" };
@@ -46,15 +47,6 @@ const ADULT_CASES_TO_QUERY = 26;
 
 /** And the Minor ones, which share the forename and are what the second condition has to exclude. */
 const MINOR_CASES_TO_QUERY = 3;
-
-/**
- * The judge a claim and a direction are attributed to in the returned-for-action seed.
- *
- * Not a signed-in session: there is no judicial UI yet (admin-3), so the two transitions that put a referral
- * in `Decided` are driven through the routes api publishes, as `scripts/seed-local-cases.mjs` drives them. The
- * mock reads a subject out of the bearer token and models no roles, so a hand-built token is all a claim needs.
- */
-const SEED_JUDGE = "e2e.judge@example.com";
 
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
 test.use({ storageState: TEAM_LEADER_STORAGE_STATE });
@@ -340,7 +332,11 @@ test("administrator adds a witness, amends it, and deletes it", async ({ page })
  * Either role, so this file's administrator serves: api gates neither raising nor withdrawing on the admin
  * role, and nothing here is deleted.
  */
-test("caseworker refers a case to the judiciary, is refused a second referral, and withdraws the first", async ({ page }) => {
+test("caseworker refers a case to a Master, is refused a second referral, reassigns it, withdraws it, and is refused a full Master", async ({
+  page,
+  request
+}) => {
+  test.slow();
   /**
    * The one waived axe finding in this file, and it is govuk-frontend's rather than this page's.
    *
@@ -354,7 +350,10 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
    */
   const UPSTREAM_RADIO_REVEAL = ["aria-allowed-attr: #urgency-2"];
 
-  // Arrange: a case with nothing else on it. Driven, not asserted — the create journey is the first test.
+  // Arrange: two Masters of this run's own to choose between, and a case with nothing else on it. Driven, not
+  // asserted — the create journey is the first test.
+  const first = await newMaster(request, "First");
+  const second = await newMaster(request, "Second");
   await page.goto("/deed-polls/new");
   await fillNewCaseForm(page, { forename: "Ines", surname: "Kowalski" });
   await page.getByRole("button", { name: "Create case" }).click();
@@ -369,13 +368,18 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   await page.getByRole("button", { name: "Refer this case to a Master" }).click();
   await expect(page).toHaveURL(`${caseUrl}/referrals/new`);
 
-  // Nothing chosen: two questions, two messages, both linked from the summary. The unanswered urgency is the
-  // one worth pinning — the schema requires it where api leaves it optional, so a form that silently sent
-  // nothing would be accepted by api and recorded as a referral nobody said was ordinary.
+  // Nothing chosen: three questions, three messages, all linked from the summary. The unanswered urgency and
+  // Master are the ones worth pinning — the schema requires both where api leaves them optional, so a form that
+  // silently sent nothing would be accepted by api and recorded as a referral nobody had chosen a Master for.
   await page.getByRole("button", { name: "Raise referral" }).click();
   await expect(page.getByRole("alert")).toContainText("There is a problem");
   await expect(page.getByRole("link", { name: "Select at least one reason for referring this case" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Select how urgent this referral is" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Select which Master this referral should go to" })).toBeVisible();
+  // Each Master offered with their room in the current window, read off api's Masters list. The words for the
+  // window ("this morning", "the afternoon of …") depend on the hour the journey runs, so only the count is pinned.
+  await expect(masterRadio(page, first)).toBeEnabled();
+  await expect(page.locator(".govuk-radios__item", { has: masterRadio(page, first) })).toContainText("0 of ");
   await expectNoAccessibilityViolations(page, UPSTREAM_RADIO_REVEAL);
 
   // The reveals, which is what a browser is here for. Both are hidden until their trigger is chosen, so the
@@ -410,6 +414,8 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   await expect(page.getByRole("link", { name: "Select what applies to the minor's application" })).toHaveAttribute("href", "#minorDetails");
   await page.getByLabel("Transgender", { exact: true }).check();
   await page.getByLabel("Have parental consent", { exact: true }).check();
+  // Last, because the caseworker decides who after deciding what.
+  await masterRadio(page, first).check();
   await page.getByRole("button", { name: "Raise referral" }).click();
 
   await expect(page).toHaveURL(`${caseUrl}#referrals`);
@@ -419,7 +425,7 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   await expect(referrals).toContainText("Other");
   await expect(referrals).toContainText("Standard");
   // The caseworker's status label rather than api's member: the tag says where the referral is.
-  await expect(referrals.locator(".govuk-tag")).toHaveText("Awaiting a Master");
+  await expect(referrals.locator(".govuk-tag")).toHaveText(`With ${first.name}`);
   // The raise button is withheld while one is live, with the reason in its place rather than a button that
   // could only fail.
   await expect(page.getByRole("button", { name: "Refer this case to a Master" })).toHaveCount(0);
@@ -432,6 +438,7 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   await page.getByLabel("Applicant is a minor").check();
   await page.getByLabel("Court Order", { exact: true }).check();
   await page.getByLabel("Standard", { exact: true }).check();
+  await masterRadio(page, second).check();
   await page.getByRole("button", { name: "Raise referral" }).click();
   await expect(page.getByRole("alert")).toContainText("This case already has an open referral.");
   await expectNoAccessibilityViolations(page, UPSTREAM_RADIO_REVEAL);
@@ -443,6 +450,27 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   // Nothing was stored for the urgency it no longer has: the value the closed reveal still held was not an
   // answer, and this is the assertion that says so from outside the handler.
   await expect(urgencyReasonRow(page)).toContainText("Not provided");
+  // Who has it, and by when they owe a direction.
+  await expect(summaryRow(page, "Assigned to")).toContainText(first.name);
+  await expect(summaryRow(page, "Direction due by")).toContainText(/\d{2}-\d{2}-\d{2}/);
+  await expectNoAccessibilityViolations(page);
+
+  // ── reassigned once, to the second Master ──────────────────────────────────────────────────────────────────
+  const referralUrl = page.url();
+  await page.getByRole("link", { name: "Assign to another Master" }).click();
+  await expect(page).toHaveURL(`${referralUrl}/assign`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Assign this referral to another Master");
+  await expect(page.getByText(`This referral is with ${first.name}.`)).toBeVisible();
+  // The processing window comes from api's due date, never a number restated here.
+  await expect(page.getByText(/If you assign it to another Master, they will have \d+ days? from today to give a direction\./)).toBeVisible();
+  await expect(masterRadio(page, first)).toBeChecked();
+  await expectNoAccessibilityViolations(page);
+  await masterRadio(page, second).check();
+  await page.getByRole("button", { name: "Assign referral" }).click();
+
+  await expect(page).toHaveURL(`${referralUrl}?assigned=1`);
+  await expect(page.getByRole("alert")).toContainText(`Referral assigned to ${second.name}`);
+  await expect(summaryRow(page, "Assigned to")).toContainText(second.name);
   await expectNoAccessibilityViolations(page);
 
   await page.getByRole("button", { name: "Withdraw this referral" }).click();
@@ -476,7 +504,7 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   await page.getByRole("link", { name: "Back to case" }).click();
   await page.getByRole("tab", { name: "Notes" }).click();
   const notes = page.locator("#notes");
-  await expect(notes).toContainText("2 notes");
+  await expect(notes).toContainText("4 notes");
 
   // Newest first, which is the **grid's** order and not the payload's: the case detail's `notes` arrive
   // oldest-first from api and `buildNotesView` sorts them. The withdrawn note names the referral it was, because
@@ -484,15 +512,108 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   const noteRows = notes.locator("tbody tr");
   await expect(noteRows.nth(0)).toContainText("Referral to a Master withdrawn. It was raised on");
   await expect(noteRows.nth(0)).toContainText("reasons: Applicant is a minor: Transgender, Have parental consent; Other.");
-  // The reasons are api's stored members here rather than the caseworker's labels — the prose is api's
-  // (`ReferralNotes`), so "Minor" and not "Applicant is a minor". Reworded there, not here.
-  await expect(noteRows.nth(1)).toContainText("Referred to a Master. Reasons: Applicant is a minor: Transgender, Have parental consent; Other.");
-  await expect(noteRows.nth(1)).toContainText("Notes: The declarant is abroad until June.");
+  // The assignment and the reassignment, each its own note naming the Masters.
+  await expect(noteRows.nth(1)).toContainText(`reassigned from ${first.name} to ${second.name}.`);
+  // The raise and its assignment are written in one instant, so which of the two the grid puts first is the tie's,
+  // and they are found by their text rather than by position.
+  await expect(noteRows.filter({ hasText: `assigned to ${first.name}.` })).toHaveCount(1);
+  // The reasons in api's words (`ReferralReason.label()`), which since api#155 are the caseworker's labels.
+  const raisedNote = noteRows.filter({ hasText: "Referred to a Master. Reasons: Applicant is a minor: Transgender, Have parental consent; Other." });
+  await expect(raisedNote).toContainText("Notes: The declarant is abroad until June.");
   // The value left inside the closed urgency reveal reached neither the referral nor its note: the same
   // assertion as "Not provided" above, one layer further on, and the note is where a discarded answer would
   // otherwise resurface with no page to correct it.
   await expect(notes).not.toContainText("Hearing listed on Friday.");
   await expectNoAccessibilityViolations(page);
+
+  // ── a full Master ──────────────────────────────────────────────────────────────────────────────────────────
+  // **Filled to api's cap rather than the cap set low**: the cap is one setting for the whole service, so lowering
+  // it would refuse every other journey's raise running in a parallel worker. A Master of this run's own, one short
+  // of the cap, so the form offers them; the last place goes while the caseworker is on the form, which is the race
+  // api's 409 exists for.
+  const full = await newMaster(request, "Full");
+  const cap = await referralCap(request);
+  for (let held = 0; held < cap - 1; held++) await raiseElsewhere(request, full);
+
+  await page.goto(`${caseUrl}/referrals/new`);
+  await expect(masterRadio(page, full)).toBeEnabled();
+  await page.getByLabel("Applicant is a minor").check();
+  await page.getByLabel("Court Order", { exact: true }).check();
+  await page.getByLabel("Standard", { exact: true }).check();
+  await masterRadio(page, full).check();
+  await raiseElsewhere(request, full);
+  await page.getByRole("button", { name: "Raise referral" }).click();
+
+  // api's own sentence beside the radios, with everything typed kept.
+  await expect(page.getByRole("alert")).toContainText(`This Master already has ${cap} referrals for`);
+  await expect(page.getByRole("link", { name: /^This Master already has/ })).toHaveAttribute("href", /#masterId/);
+  await expect(page.getByLabel("Court Order", { exact: true })).toBeChecked();
+  await expect(page.getByLabel("Standard", { exact: true })).toBeChecked();
+  await expectNoAccessibilityViolations(page, UPSTREAM_RADIO_REVEAL);
+
+  // Drawn afresh, the full Master is still listed, saying so, and cannot be chosen.
+  await page.goto(`${caseUrl}/referrals/new`);
+  await expect(masterRadio(page, full)).toBeDisabled();
+  await expect(page.locator(".govuk-radios__item", { has: masterRadio(page, full) })).toContainText("Full for");
+});
+
+/**
+ * The referrals waiting for assignment, and assigning one — plan Db1.
+ *
+ * **Raised without a Master through the contract**, which api still accepts for referrals raised before this
+ * release, rather than made overdue with the mock's clock: moving the clock past the processing window and sweeping
+ * would return *every* assigned referral in the shared store to the office, including those the journeys in
+ * parallel workers are directing. Both reach the same state, `Open`, which is what the count reads.
+ *
+ * The count is compared with api's total at the same moment, never as arithmetic on a baseline, for the reason the
+ * returned-direction test gives: it is global and other workers move it.
+ */
+test("caseworker sees how many referrals are waiting for assignment, and assigns one to a Master", async ({ page, request }) => {
+  const seeded = await seedCaseToAction(request);
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${seeded.id}/referrals`, { data: { reasons: ["Minor", "MinorCourtOrder"] } });
+  expect(raised.status(), await raised.text()).toBe(201);
+  const master = await newMaster(request, "Assign");
+  const caseUrl = `/deed-polls/${seeded.id}`;
+
+  await page.goto("/deed-polls");
+  const banner = page.getByRole("region", { name: "Important" });
+  await expect(banner).toContainText("waiting to be assigned to a Master.");
+  await expectWaitingForAssignmentCountMatchesApi(page, request);
+  await expectNoAccessibilityViolations(page);
+
+  await banner.getByRole("link", { name: "View referrals waiting for assignment" }).click();
+  await expect(page).toHaveURL("/deed-polls?where=currentReferralState%3Ais%3AOpen");
+  const row = page.locator("tbody tr").filter({ hasText: seeded.surname });
+  await expect(row).toHaveCount(1);
+  await row.getByRole("link", { name: seeded.reference }).click();
+  await expect(page).toHaveURL(caseUrl);
+
+  // The case page says nobody has it, and offers the assignment.
+  await page.getByRole("tab", { name: "Referrals", exact: true }).click();
+  const referrals = page.locator("#referrals");
+  await expect(referrals.locator(".govuk-tag")).toHaveText("Waiting for assignment");
+  await referrals.getByRole("link", { name: /^Assign to a Master/ }).click();
+  await expect(page).toHaveURL(/\/referrals\/[0-9a-f-]{36}\/assign$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Assign this referral to a Master");
+  await expect(page.getByRole("radio", { checked: true })).toHaveCount(0);
+  await expectNoAccessibilityViolations(page);
+
+  // Nothing chosen is refused here, before api is asked.
+  await page.getByRole("button", { name: "Assign referral" }).click();
+  await expect(page.getByRole("link", { name: "Select which Master this referral should go to" })).toBeVisible();
+  await masterRadio(page, master).check();
+  await page.getByRole("button", { name: "Assign referral" }).click();
+
+  await expect(page).toHaveURL(/\/referrals\/[0-9a-f-]{36}\?assigned=1$/);
+  await expect(page.getByRole("alert")).toContainText(`Referral assigned to ${master.name}`);
+  await expect(summaryRow(page, "Referral status").locator(".govuk-tag")).toHaveText(`With ${master.name}`);
+  await expectNoAccessibilityViolations(page);
+
+  // Off the worklist, because api recomputed `currentReferralState` rather than anybody removing a row.
+  await page.goto("/deed-polls?where=currentReferralState%3Ais%3AOpen");
+  await expect(page.locator("tbody tr").filter({ hasText: seeded.surname })).toHaveCount(0);
+  await page.goto("/deed-polls");
+  await expectWaitingForAssignmentCountMatchesApi(page, request);
 });
 
 /**
@@ -511,7 +632,7 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
  * baseline it had read and assert the sum, which was only safe while nothing else in the suite produced a
  * `Decided` referral: `judicial.spec.ts` records a direction and the mark-as-actioned journey below drives one to
  * `Decided` and back, both in parallel workers, so the sum can be two short or two over by the time the banner
- * renders. Comparing the two sides at one moment — as `judicial.spec.ts` compares the pool's summary — pins the
+ * renders. Comparing the two sides at one moment — as the waiting-for-assignment count is compared — pins the
  * claim that matters, that the banner states api's total for that condition, and the rows below pin that this
  * journey's cases are in it.
  *
@@ -588,9 +709,8 @@ test("caseworker sees how many applications have a returned direction, and follo
  *
  * **What only a browser can show here, and why this earns its keep on top of the page tests:**
  *
- * - **The two writes are api's state machine, driven for real.** The claim and the direction go through the
- *   judicial routes with a judge's token (`claimAndDirect`), exactly as `scripts/seed-local-cases.mjs` drives
- *   them, so `Decided` is a state api produced rather than one a stub asserted. A `vi.fn()` returning
+ * - **The two writes are api's state machine, driven for real.** The raise assigns it to the judge persona's
+ *   Master, and the direction goes through the judicial routes with that judge's token (`directAsJudge`), so `Decided` is a state api produced rather than one a stub asserted. A `vi.fn()` returning
  *   `state: "Decided"` cannot show that the closure is refused for anything else, that `currentReferralState`
  *   recomputes, or that the count falls without anybody decrementing it (decision 7).
  * - **`decidedBy` outliving the closure is a claim about two round trips.** Closing changes the modifier to the
@@ -640,6 +760,8 @@ test("caseworker actions a returned direction, and the returned-direction count 
 
   // Nothing of this run's is waiting for action yet, which is the number the closure at the end returns to.
   expect(await returnedForActionTotal(request, seeded.surname)).toBe(0);
+  // The judge persona's Master, so the signed-in judge of step 6a can read what step 2 directs.
+  const master = await judgePersonaMaster(request);
 
   // 1. Raised by the caseworker, through the form — the reveals and the refusals on it are the journey above's.
   await page.goto(caseUrl);
@@ -650,10 +772,11 @@ test("caseworker actions a returned direction, and the returned-direction count 
   await page.getByLabel("Applicant is a minor").check();
   await page.getByLabel("Court Order", { exact: true }).check();
   await page.getByLabel("Standard", { exact: true }).check();
+  await page.getByRole("radio", { name: master.name, exact: true }).check();
   await page.getByRole("button", { name: "Raise referral" }).click();
 
   await expect(page).toHaveURL(`${caseUrl}#referrals`);
-  await expect(referrals.locator(".govuk-tag")).toHaveText("Awaiting a Master");
+  await expect(referrals.locator(".govuk-tag")).toHaveText(`With ${master.name}`);
 
   // The referral's id, read off the row that links to it: it is the mock's, and this is the only place the page
   // states it.
@@ -661,15 +784,14 @@ test("caseworker actions a returned direction, and the returned-direction count 
   expect(referralUrl).toMatch(new RegExp(`^${caseUrl}/referrals/[0-9a-f-]{36}$`));
   const referralId = (referralUrl as string).split("/").pop() as string;
 
-  // 2. Claimed and directed through api's judicial contract, because that is what makes it the caseworker's turn
+  // 2. Directed through api's judicial contract, because that is what makes it the caseworker's turn
   // again. Not driven through the judicial UI: that persona's journey is `judicial.spec.ts`, and a second copy of
   // it here would double a three-step flow this test says nothing about.
   //
   // **As the judge fixture and not an invented subject**, which is what makes step 6a possible at all: api narrows
-  // a `Decided` referral to the judge who decided it, so a claim attributed to anybody else would answer the
-  // signed-in judge 404 — and this journey's two judicial notes would then be unreadable on the surface they were
-  // written for.
-  await claimAndDirect(request, referralId, direction);
+  // a `Decided` referral to the judge who decided it, so a direction attributed to anybody else would answer the
+  // signed-in judge 404. Step 1 assigned it to the judge persona's Master for the same reason.
+  await directAsJudge(request, referralId, direction);
   expect(await returnedForActionTotal(request, seeded.surname)).toBe(1);
 
   // 3. And the caseworker finds out from the dashboard, which is the whole of the alerting (decision 7).
@@ -712,7 +834,8 @@ test("caseworker actions a returned direction, and the returned-direction count 
   // page test pins.
   await expect(summaryRow(page, "Changes to the standard publications in the Gazette")).toContainText("No");
   await expect(summaryRow(page, "Decided by")).toContainText(JUDGE_EMAIL);
-  await expect(summaryRow(page, "Claimed by a Master")).toContainText(JUDGE_EMAIL);
+  // Assigned rather than claimed (plan Db1), so the progress names the Master the caseworker chose.
+  await expect(summaryRow(page, "Assigned to")).toContainText(master.name);
   // 6. And no withdrawal, absent from the markup rather than disabled: api answers 409 with a sentence of its own
   // for this state, so a button here could only collect a refusal.
   await expect(page.getByRole("button", { name: "Withdraw this referral" })).toHaveCount(0);
@@ -806,10 +929,10 @@ test("caseworker actions a returned direction, and the returned-direction count 
   // notice, so "not published" and "nothing recorded" must not read alike.
   await expect(noteRows.nth(1)).toContainText("Changes to standard publication in the Gazette: No.");
   await expect(noteRows.nth(1)).toContainText(JUDGE_EMAIL);
-  await expect(noteRows.nth(2)).toContainText("claimed by a Master.");
-  await expect(noteRows.nth(2)).toContainText(JUDGE_EMAIL);
-  await expect(noteRows.nth(3)).toContainText("Referred to a Master. Reasons: Applicant is a minor: Court Order.");
-  await expect(noteRows.nth(3)).toContainText(TEAM_LEADER_EMAIL);
+  // The raise and its assignment, written in one instant by the caseworker who chose the Master, so found by their
+  // text: which of the two the grid puts first is the tie's.
+  await expect(noteRows.filter({ hasText: `assigned to ${master.name}.` })).toContainText(TEAM_LEADER_EMAIL);
+  await expect(noteRows.filter({ hasText: "Referred to a Master. Reasons: Applicant is a minor: Court Order." })).toContainText(TEAM_LEADER_EMAIL);
 
   // **The direction is summarised in the note and kept whole on the referral**, which is the pair that makes the
   // pointer honest: api allows a direction twice what a note may hold, so a copy would be truncated and read as
@@ -1747,7 +1870,7 @@ async function returnedForActionTotal(request: APIRequestContext, surname?: stri
 /**
  * The dashboard banner's number, against api's total for the same condition read at the same moment.
  *
- * **Re-read on each attempt rather than compared once**, as `judicial.spec.ts` compares the pool's summary: the
+ * **Re-read on each attempt rather than compared once**, as `expectWaitingForAssignmentCountMatchesApi` compares its count: the
  * count is global, so another worker's direction or closure can move api's side between a render and an
  * assertion about it, and reloading inside the poll makes the two sides the same moment. Compared by
  * backreference so a failure prints both numbers and so nothing here pins a total this suite does not control.
@@ -1781,6 +1904,48 @@ async function expectWorklistTotalMatchesApi(page: Page, request: APIRequestCont
 }
 
 /**
+ * The waiting-for-assignment sentence's number against api's total for `currentReferralState:is:Open`, re-read
+ * together for the reason `expectReturnedForActionCountMatchesApi` gives. An absent sentence is zero.
+ */
+async function expectWaitingForAssignmentCountMatchesApi(page: Page, request: APIRequestContext): Promise<void> {
+  await expect
+    .poll(async () => {
+      await page.reload();
+      const sentence = page.getByText(/waiting to be assigned to a Master\.$/);
+      const shown = (await sentence.count()) === 0 ? "0" : ((await sentence.textContent()) ?? "").match(/^(\d+) referrals? (is|are) waiting/)?.[1];
+      const response = await request.get(`${MOCK_API_URL}/caseworker/cases?where=currentReferralState:is:Open&size=1`);
+
+      return `${shown} / api total ${(await response.json()).total}`;
+    })
+    .toMatch(/^(\d+) \/ api total \1$/);
+}
+
+/** A referral on a case of its own, assigned to `master`: one of the places the cap counts. */
+async function raiseElsewhere(request: APIRequestContext, master: Master): Promise<void> {
+  const created = await request.post(`${MOCK_API_URL}/__mock/cases`, {
+    data: {
+      type: "Adult",
+      state: "Received",
+      newForename: "Ada",
+      newSurname: "Fullby",
+      // A reference, because the Reference cell is a link and one with no text fails axe on every list page.
+      displayReference: `KBDP2026-${String(Math.floor(Math.random() * 100_000)).padStart(5, "0")}`,
+      dateReceived: "2026-08-04T00:00:00.000"
+    }
+  });
+  expect(created.status(), await created.text()).toBe(201);
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${(await created.json()).id}/referrals`, {
+    data: { reasons: ["Minor", "MinorCourtOrder"], masterId: master.id }
+  });
+  expect(raised.status(), await raised.text()).toBe(201);
+}
+
+/** A Master's radio on the raise or assign form, by its name: the label is the Master's name and nothing else. */
+function masterRadio(page: Page, master: Master): Locator {
+  return page.getByRole("radio", { name: master.name, exact: true });
+}
+
+/**
  * Raise a referral on a case and transition it as far as `upTo`.
  *
  * Every step is checked: a refusal part-way leaves the referral in whatever state it reached, and the only
@@ -1788,25 +1953,27 @@ async function expectWorklistTotalMatchesApi(page: Page, request: APIRequestCont
  * the way to the wire, the failure this whole feature's tests exist to tell apart.
  */
 async function referTo(request: APIRequestContext, caseId: string, upTo: "Claimed" | "Decided"): Promise<void> {
-  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor", "MinorCourtOrder"] } });
+  // Raised with a Master of its own, which is what makes it `Claimed` since api D2, and keeps the cap per Master
+  // from refusing it however many runs share the store.
+  const master = await newMaster(request, "Returned");
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, {
+    data: { reasons: ["Minor", "MinorCourtOrder"], masterId: master.id }
+  });
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;
-
-  const claimed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/claim`, { headers: bearer(SEED_JUDGE) });
-  expect(claimed.status(), await claimed.text()).toBe(200);
   if (upTo === "Claimed") return;
 
   // The direction is what makes it the caseworker's turn again: `Claimed → Decided`, and the caseworker's
   // `close` has not happened, which is the whole of "returned — action needed".
   const directed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/direction`, {
-    headers: bearer(SEED_JUDGE),
+    headers: bearer(master.judge),
     data: { decision: "Approved", changesToStandardPublication: false }
   });
   expect(directed.status(), await directed.text()).toBe(200);
 }
 
 /**
- * A judge claims the referral and records a direction on it — `Open → Claimed → Decided`.
+ * The judge persona records a direction on a referral assigned to their Master — `Claimed → Decided`.
  *
  * **Driven through api's judicial routes rather than through the judicial UI**, which `judicial.spec.ts` covers
  * end to end: what the caseworker's journey needs is a direction api itself produced, and a second traversal of a
@@ -1814,17 +1981,14 @@ async function referTo(request: APIRequestContext, caseId: string, upTo: "Claime
  * either — the mock recomputes `currentReferralState` on every transition, so a fixture that set the state
  * directly would teach the count a number api's own state machine cannot reach.
  *
- * Both steps are checked for the reason `referTo`'s are: a refusal part-way leaves the referral short of
- * `Decided`, and the journey then fails several pages later on a control that is correctly absent.
+ * Checked for the reason `referTo`'s steps are: a refusal leaves the referral short of `Decided`, and the journey
+ * then fails several pages later on a control that is correctly absent.
  *
- * **Attributed to `JUDGE_EMAIL` and not to `SEED_JUDGE`**, which `referTo` still uses: api's judicial surface
- * narrows a `Decided` referral to the judge who decided it, so the journey can only read the judge's side of the
- * timeline if the judge whose session it restores is the one these two writes are credited to.
+ * **Attributed to `JUDGE_EMAIL`**, unlike `referTo`'s Masters of their own: api's judicial surface narrows a
+ * `Decided` referral to the judge who decided it, so the journey can only read the judge's side of the timeline if
+ * the judge whose session it restores is the one this write is credited to.
  */
-async function claimAndDirect(request: APIRequestContext, referralId: string, direction: JudicialDirection): Promise<void> {
-  const claimed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/claim`, { headers: bearer(JUDGE_EMAIL) });
-  expect(claimed.status(), await claimed.text()).toBe(200);
-
+async function directAsJudge(request: APIRequestContext, referralId: string, direction: JudicialDirection): Promise<void> {
   const directed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/direction`, {
     headers: bearer(JUDGE_EMAIL),
     data: direction
@@ -2035,7 +2199,7 @@ async function expectMasterSeesDirectionWithoutNotes(browser: Browser, referralI
     await expect(page.getByRole("heading", { name: "Case notes" })).toHaveCount(0);
     const body = page.locator("body");
     await expect(body).not.toContainText("Master’s direction recorded for referral");
-    await expect(body).not.toContainText("claimed by a Master.");
+    await expect(body).not.toContainText(", assigned to ");
     await expect(body).not.toContainText("Referred to a Master. Reasons:");
     await expect(body).not.toContainText(TEAM_LEADER_EMAIL);
     await expectNoAccessibilityViolations(page);
@@ -2118,9 +2282,24 @@ function caseHeader(page: Page): Locator {
  */
 async function expectNoAccessibilityViolations(page: Page, allowed: string[] = []): Promise<void> {
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
-  const findings = results.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.target).join(", ")}`);
+  // One finding per element, so a waiver for one element never covers another reported under the same rule.
+  const findings = results.violations.flatMap((violation) => violation.nodes.map((node) => `${violation.id}: ${node.target}`));
+  const waived = [...allowed, ...(await inactiveRadioHints(page))];
 
-  expect(findings.filter((finding) => !allowed.includes(finding))).toEqual([]);
+  expect(findings.filter((finding) => !waived.includes(finding))).toEqual([]);
+}
+
+/**
+ * The one waiver computed rather than listed: the contrast of a **disabled** radio's own hint — a full Master on
+ * the raise and assign forms (plan Db1). govuk-frontend fades a disabled item to half opacity, and WCAG 1.4.3
+ * exempts the text of an inactive user interface component from the contrast minimum. Computed from the page
+ * because which Masters are full, and so their item ids, depends on what the store holds; any other element's
+ * contrast still fails.
+ */
+async function inactiveRadioHints(page: Page): Promise<string[]> {
+  const ids = await page.locator(".govuk-radios__input:disabled").evaluateAll((inputs) => inputs.map((input) => input.id));
+
+  return ids.map((id) => `color-contrast: #${id}-item-hint`);
 }
 
 /**

@@ -1,0 +1,24 @@
+{% extends "layouts/app.njk" %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
+
+{# Cancel is a link, so the only control on this page that can act is the warning button. #}
+{% block page_content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+    <h1 class="govuk-heading-xl">{{ removeBankHolidayHeading }}</h1>
+    {{ govukSummaryList({ rows: [
+      { key: { text: bankHolidayDateColumn }, value: { text: holiday.date } },
+      { key: { text: bankHolidayNameColumn }, value: { text: holiday.name } }
+    ] }) }}
+    {{ govukWarningText({ text: removeBankHolidayWarning, iconFallbackText: warningIcon }) }}
+    <form method="post" action="{{ holiday.path }}" novalidate>
+      <div class="govuk-button-group">
+        {{ govukButton({ text: removeBankHolidaySave, classes: "govuk-button--warning" }) }}
+        <a class="govuk-link" href="{{ settingsPath }}">{{ cancel }}</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

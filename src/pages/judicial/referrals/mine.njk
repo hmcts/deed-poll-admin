@@ -1,78 +1,85 @@
 {% extends "layouts/app.njk" %}
 {% from "govuk/components/table/macro.njk" import govukTable %}
-{% from "govuk/components/tag/macro.njk" import govukTag %}
 {% from "govuk/components/pagination/macro.njk" import govukPagination %}
-{% from "judicial/referrals/list-navigation.njk" import judicialListNavigation %}
 
 {#
-  A judge's own referrals. Five columns, no filter bar and no sortable headers: api decides membership from the
-  token's subject and fixes the order (`referrals-admin-6` decisions 1 and 2), so everything a judge does here is
-  choosing a row.
+  A Master's own referrals in three sections (Steve, 2026-10-28): Urgent, then "Awaiting your direction" and
+  "Directed, awaiting the office" under one heading per day referred. The handler groups api's order and resolves
+  every sentence; this template only draws what it was given, and draws no section that is empty.
 
-  **A status column, where the pool has none.** The pool is `Open` only, so a column of identical tags there
-  would be furniture; here the two states are the whole point — what this judge still owes, and what they have
-  answered and the court has not yet actioned.
+  No case reference and no applicant anywhere, because api's row carries none (decision 3). That is why each row's
+  link is qualified by its date and reasons — "View" alone would be the accessible name of every link on the page.
 
-  No case reference and no applicant anywhere, because api's row carries none (decision 3): the summary is the
-  pool's, so a name on this page would be a field the DTO does not have and a call per row to get it. That is why
-  each row's link is qualified by its date and status rather than by a reference — "View" alone would be the
-  accessible name of every link on the page.
-
-  Every tag prints its word and colours it; the colour reinforces the word and never replaces it.
+  `referredOn` is printed only in the Urgent section: elsewhere the day is the heading the row sits under. A
+  directed row has no due date, so its section has no dates column.
 #}
+{% macro referralTable(rows, caption, labels, showReferred, showDates) %}
+  {% set tableRows = [] %}
+  {% for row in rows %}
+    {% set reasonsCell %}
+      <ul class="govuk-list govuk-!-margin-bottom-0">
+        {% for reason in row.reasons %}<li>{{ reason }}</li>{% endfor %}
+      </ul>
+    {% endset %}
+    {% set datesCell %}
+      <ul class="govuk-list govuk-!-margin-bottom-0">
+        {% if showReferred %}<li>{{ row.referredOnText }}</li>{% endif %}
+        {% if row.dueByText %}<li>{{ row.dueByText }}</li>{% endif %}
+      </ul>
+    {% endset %}
+    {% set actionCell %}
+      <a class="govuk-link" href="{{ row.id | referralPath }}">{{ labels.view }}<span class="govuk-visually-hidden"> {{ row.viewHint }}</span></a>
+    {% endset %}
+    {% if showDates %}
+      {% set tableRows = (tableRows.push([{ html: reasonsCell }, { html: datesCell }, { html: actionCell }]), tableRows) %}
+    {% else %}
+      {% set tableRows = (tableRows.push([{ html: reasonsCell }, { html: actionCell }]), tableRows) %}
+    {% endif %}
+  {% endfor %}
+  {% if showDates %}
+    {% set head = [{ text: labels.reasonsHeading }, { text: labels.datesHeading }, { text: labels.actionHeading }] %}
+  {% else %}
+    {% set head = [{ text: labels.reasonsHeading }, { text: labels.actionHeading }] %}
+  {% endif %}
+  {{ govukTable({ head: head, rows: tableRows, caption: caption, captionClasses: "govuk-visually-hidden" }) }}
+{% endmacro %}
+
 {% block content %}
 <div class="govuk-grid-row">
   <div class="govuk-grid-column-two-thirds">
 
     <h1 class="govuk-heading-xl">{{ heading }}</h1>
 
-    {{ judicialListNavigation(nav, navCurrent) }}
-
     <p class="govuk-body">{{ intro }}</p>
 
-    {% if rows.length == 0 %}
+    {% set labels = { view: view, reasonsHeading: reasonsHeading, datesHeading: datesHeading, actionHeading: actionHeading } %}
+
+    {% if isEmpty %}
       <p class="govuk-body">{{ empty }}</p>
     {% else %}
-      {% set tableRows = [] %}
-      {% for row in rows %}
-        {% set statusCell %}
-          {{ govukTag({ text: row.status, classes: row.statusTagClasses }) }}
-        {% endset %}
-        {% set urgencyCell %}
-          {% if row.isUrgent %}{{ govukTag({ text: row.urgency, classes: "govuk-tag--red" }) }}{% else %}{{ row.urgency }}{% endif %}
-        {% endset %}
-        {% set reasonsCell %}
-          <ul class="govuk-list govuk-!-margin-bottom-0">
-            {% for reason in row.reasons %}<li>{{ reason }}</li>{% endfor %}
-          </ul>
-        {% endset %}
-        {% set actionCell %}
-          <a class="govuk-link" href="{{ row.id | referralPath }}">{{ view }}<span class="govuk-visually-hidden"> {{ row.viewHint }}</span></a>
-        {% endset %}
-        {% set tableRows = (tableRows.push([
-          { html: statusCell },
-          { html: urgencyCell },
-          { html: reasonsCell },
-          { text: row.raisedOn },
-          { html: actionCell }
-        ]), tableRows) %}
-      {% endfor %}
+      {% if urgent.length %}
+        <h2 class="govuk-heading-l">{{ urgentHeading }}</h2>
+        {{ referralTable(urgent, urgentHeading, labels, true, true) }}
+      {% endif %}
 
-      {{ govukTable({
-        head: [
-          { text: statusHeading },
-          { text: urgencyHeading },
-          { text: reasonsHeading },
-          { text: raisedHeading },
-          { text: actionHeading }
-        ],
-        rows: tableRows,
-        caption: heading,
-        captionClasses: "govuk-visually-hidden"
-      }) }}
+      {% if awaiting.length %}
+        <h2 class="govuk-heading-l">{{ awaitingHeading }}</h2>
+        {% for group in awaiting %}
+          <h3 class="govuk-heading-m">{{ group.heading }}</h3>
+          {{ referralTable(group.rows, group.heading, labels, false, true) }}
+        {% endfor %}
+      {% endif %}
+
+      {% if directed.length %}
+        <h2 class="govuk-heading-l">{{ directedHeading }}</h2>
+        {% for group in directed %}
+          <h3 class="govuk-heading-m">{{ group.heading }}</h3>
+          {{ referralTable(group.rows, group.heading, labels, false, false) }}
+        {% endfor %}
+      {% endif %}
     {% endif %}
 
-    {# api's counts, not a count of the rows above: ten is this page's size and a judge may hold more. #}
+    {# api's counts, not a count of the rows above. #}
     {% if pagingSummary %}
       <p class="govuk-body">{{ pagingSummary }}</p>
     {% endif %}

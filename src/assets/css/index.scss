@@ -13,10 +13,6 @@
 @use "components/case-tabs";
 @use "components/hmcts-header";
 
-// The two judicial lists' navigation, rendered through `src/pages/judicial/referrals/list-navigation.njk`.
-// Inert on every other page, since each rule is scoped to a class only that partial emits.
-@use "components/judicial-nav";
-
 // The non-production persona switcher strip, rendered in `src/pages/layouts/persona-switcher.njk`. In the
 // global stylesheet because the layout renders it on every page; inert wherever the gate keeps the markup
 // away, since every rule is scoped to a class only that partial emits.

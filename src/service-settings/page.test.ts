@@ -1,29 +1,62 @@
 import {
   ConflictError,
   ForbiddenError,
+  findBankHolidays,
   findGazetteSettings,
+  findMasters,
   findProcessSettings,
   InvalidInputError,
   MANAGE_PROCESS_CONFIG,
+  saveBankHoliday,
   saveGazetteSettings,
+  saveNewMaster,
   saveProcessSettings,
   UnauthorizedError
 } from "@hmcts/deed-poll";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
-import { saveGazetteSection, saveProcessSection, showSettings } from "./page.js";
+import { addBankHolidaySection, addMasterSection, saveGazetteSection, saveProcessSection, showSettings } from "./page.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  findBankHolidays: vi.fn(),
   findGazetteSettings: vi.fn(),
+  findMasters: vi.fn(),
   findProcessSettings: vi.fn(),
+  saveBankHoliday: vi.fn(),
   saveGazetteSettings: vi.fn(),
+  saveNewMaster: vi.fn(),
   saveProcessSettings: vi.fn()
 }));
 
 const CALLER = { accessToken: "dm-token" };
-const PROCESS = { referralClaimExpiryMinutes: 150, revision: 4, updatedBy: "Dee Manager", updatedAt: new Date("2026-10-20T09:30:00Z") };
+const PROCESS = {
+  referralClaimExpiryMinutes: 10080,
+  reminderIntervalHours: 48,
+  masterWindowCap: 10,
+  morningWindowStart: "07:00",
+  morningWindowEnd: "10:30",
+  afternoonWindowStart: "14:00",
+  afternoonWindowEnd: "14:30",
+  revision: 4,
+  updatedBy: "Dee Manager",
+  updatedAt: new Date("2026-10-20T09:30:00Z")
+};
+const STORED_VALUES = {
+  processingDays: "7",
+  reminderIntervalHours: "48",
+  masterWindowCap: "10",
+  morningWindowStart: "07:00",
+  morningWindowEnd: "10:30",
+  afternoonWindowStart: "14:00",
+  afternoonWindowEnd: "14:30",
+  revision: "4"
+};
 const GAZETTE = { recipientEmail: "lg@example.com", revision: 2, updatedBy: "Admin", updatedAt: new Date("2026-10-08T10:00:00Z") };
+const MASTER = { id: "6f1c1d4e-2a5b-4c3d-8e9f-0a1b2c3d4e5f", name: "Master Wren", email: "wren@example.test", available: false, linked: true, revision: 3 };
+const HOLIDAY = { date: "2026-12-25", name: "Christmas Day" };
+const EMPTY_MASTER_ADD = { values: { name: "", email: "" }, errors: {} };
+const EMPTY_HOLIDAY_ADD = { values: { day: "", month: "", year: "", name: "" }, errors: {} };
 const PROCESS_ONLY = { staff: true, judicial: false, capabilities: [MANAGE_PROCESS_CONFIG] };
 
 beforeEach(() => {
@@ -32,6 +65,10 @@ beforeEach(() => {
   vi.mocked(findGazetteSettings).mockResolvedValue(GAZETTE);
   vi.mocked(saveProcessSettings).mockResolvedValue(PROCESS);
   vi.mocked(saveGazetteSettings).mockResolvedValue(GAZETTE);
+  vi.mocked(findMasters).mockResolvedValue([MASTER]);
+  vi.mocked(findBankHolidays).mockResolvedValue([HOLIDAY]);
+  vi.mocked(saveNewMaster).mockResolvedValue(MASTER);
+  vi.mocked(saveBankHoliday).mockResolvedValue(HOLIDAY);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
@@ -48,7 +85,7 @@ function model(res: ReturnType<typeof pageResponse>) {
 }
 
 describe("service settings GET", () => {
-  it("should read both sections with the caller's token and show the claim window in hours and minutes", async () => {
+  it("should read both sections with the caller's token and show the processing window in days", async () => {
     const res = pageResponse();
 
     await showSettings(request(), res);
@@ -59,7 +96,8 @@ describe("service settings GET", () => {
     expect(res.render.mock.calls[0]?.[0]).toBe("deed-polls/settings/index");
     expect(model(res).process).toEqual({
       isAvailable: true,
-      values: { hours: "2", minutes: "30", revision: "4" },
+      values: STORED_VALUES,
+      errors: {},
       isNeverChanged: false,
       updatedBy: "Dee Manager",
       updatedAt: "20 October 2026 at 10:30"
@@ -68,19 +106,44 @@ describe("service settings GET", () => {
     expect(model(res).errorList).toEqual([]);
   });
 
-  it("should say the claim window has never been changed when api reports no attribution", async () => {
-    vi.mocked(findProcessSettings).mockResolvedValue({ referralClaimExpiryMinutes: 120, revision: 0, updatedBy: null, updatedAt: null });
+  it("should say the referral process has never been changed when api reports no attribution", async () => {
+    vi.mocked(findProcessSettings).mockResolvedValue({ ...PROCESS, revision: 0, updatedBy: null, updatedAt: null });
     const res = pageResponse();
 
     await showSettings(request(), res);
 
     expect(model(res).process).toEqual({
       isAvailable: true,
-      values: { hours: "2", minutes: "0", revision: "0" },
+      values: { ...STORED_VALUES, revision: "0" },
+      errors: {},
       isNeverChanged: true,
       updatedBy: undefined,
       updatedAt: undefined
     });
+  });
+
+  it.each([
+    [1440, "1"],
+    [43200, "30"],
+    [1470, "1.02"],
+    [1439, "1.00"],
+    [1441, "1.00"]
+  ])("should show a processing window of %i minutes as %j days, never rounding a part-day", async (minutes, days) => {
+    vi.mocked(findProcessSettings).mockResolvedValue({ ...PROCESS, referralClaimExpiryMinutes: minutes });
+    const res = pageResponse();
+
+    await showSettings(request(), res);
+
+    expect(model(res).process.values.processingDays).toBe(days);
+  });
+
+  it("should draw a window time api holds no value for as an empty control", async () => {
+    vi.mocked(findProcessSettings).mockResolvedValue({ ...PROCESS, afternoonWindowEnd: null });
+    const res = pageResponse();
+
+    await showSettings(request(), res);
+
+    expect(model(res).process.values.afternoonWindowEnd).toBe("");
   });
 
   it("should neither read nor show the Gazette section when the caller does not hold ACCESS_GAZETTE", async () => {
@@ -133,65 +196,82 @@ describe("service settings GET", () => {
 });
 
 describe("process section POST", () => {
-  const body = { claimWindowHours: " 3 ", claimWindowMinutes: "", revision: "4" };
+  const body = { ...STORED_VALUES, processingDays: " 14 ", morningWindowStart: "07:15" };
 
-  it("should save the total in minutes with the original revision and redirect to the saved section", async () => {
+  it("should save every field, the window in minutes, with the original revision and redirect to the saved section", async () => {
     const res = pageResponse();
 
     await saveProcessSection(request({ body: { ...body, updatedBy: "forged" } }), res);
 
-    expect(saveProcessSettings).toHaveBeenCalledExactlyOnceWith({ referralClaimExpiryMinutes: 180, revision: 4 }, CALLER);
+    expect(saveProcessSettings).toHaveBeenCalledExactlyOnceWith(
+      {
+        referralClaimExpiryMinutes: 20160,
+        reminderIntervalHours: 48,
+        masterWindowCap: 10,
+        morningWindowStart: "07:15",
+        morningWindowEnd: "10:30",
+        afternoonWindowStart: "14:00",
+        afternoonWindowEnd: "14:30",
+        revision: 4
+      },
+      CALLER
+    );
     expect(res.redirect).toHaveBeenCalledWith(303, "/deed-polls/settings?saved=process-settings#process-settings");
     expect(findProcessSettings).not.toHaveBeenCalled();
     expect(findGazetteSettings).not.toHaveBeenCalled();
   });
 
   it.each([
-    ["hours", { claimWindowHours: "+2", claimWindowMinutes: "0" }, { hoursError: "Enter hours as a whole number from 0 to 24" }, "#claimWindowHours"],
-    ["minutes", { claimWindowHours: "1", claimWindowMinutes: "60" }, { minutesError: "Enter minutes as a whole number from 0 to 59" }, "#claimWindowMinutes"],
+    ["processing window", { processingDays: "31" }, "processingDays", "Enter the processing window as a whole number of days from 1 to 30"],
+    ["reminder interval", { reminderIntervalHours: "+2" }, "reminderIntervalHours", "Enter the reminder interval as a whole number of hours from 1 to 168"],
+    ["cap", { masterWindowCap: "" }, "masterWindowCap", "Enter the referrals per Master as a whole number from 1 to 100"],
+    ["morning start", { morningWindowStart: "7:00" }, "morningWindowStart", expect.stringContaining("morning window’s start")],
+    ["afternoon end", { afternoonWindowEnd: "14:20" }, "afternoonWindowEnd", expect.stringContaining("afternoon window’s end")],
+    ["morning ordering", { morningWindowEnd: "06:00" }, "morningWindowEnd", "The morning window must end after it starts"],
+    ["window ordering", { afternoonWindowStart: "10:00" }, "afternoonWindowStart", "The afternoon window must start after the morning window ends"],
     [
-      "range",
-      { claimWindowHours: "24", claimWindowMinutes: "1" },
-      { windowError: "The claim window must be between 30 minutes and 24 hours" },
-      "#claimWindowHours"
-    ],
-    [
-      "both blank",
-      { claimWindowHours: "", claimWindowMinutes: " " },
-      { windowError: "Enter how long a Master can hold a claimed referral" },
-      "#claimWindowHours"
+      "afternoon ordering",
+      { afternoonWindowEnd: "13:00", afternoonWindowStart: "13:00" },
+      "afternoonWindowEnd",
+      "The afternoon window must end after it starts"
     ]
-  ])("should refuse an invalid %s with no write, keeping the typed text and original revision", async (_name, input, errors, href) => {
+  ])("should refuse an invalid %s with no write, keeping the typed text and original revision", async (_name, change, control, message) => {
     const res = pageResponse();
+    const input = { ...body, ...change };
 
-    await saveProcessSection(request({ body: { ...input, revision: "4" } }), res);
+    await saveProcessSection(request({ body: input }), res);
 
     expect(saveProcessSettings).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(model(res).process).toEqual({
-      isAvailable: true,
-      values: { hours: input.claimWindowHours, minutes: input.claimWindowMinutes, revision: "4" },
-      ...errors
-    });
-    expect(model(res).errorList).toEqual([{ text: Object.values(errors)[0], href }]);
+    expect(model(res).process).toEqual({ isAvailable: true, values: input, errors: { [control]: message } });
+    expect(model(res).errorList).toEqual([{ text: message, href: `#${control}` }]);
     expect(findProcessSettings).not.toHaveBeenCalled();
     expect(findGazetteSettings).toHaveBeenCalledExactlyOnceWith(CALLER);
+  });
+
+  it("should list every refused control in the page's order", async () => {
+    const res = pageResponse();
+
+    await saveProcessSection(request({ body: { ...body, afternoonWindowEnd: "x", processingDays: "0" } }), res);
+
+    expect(model(res).errorList.map((each: { href: string }) => each.href)).toEqual(["#processingDays", "#afternoonWindowEnd"]);
   });
 
   it("should redraw a repeated control empty and refuse it", async () => {
     const res = pageResponse();
 
-    await saveProcessSection(request({ body: { claimWindowHours: ["1", "2"], claimWindowMinutes: "0", revision: "4" } }), res);
+    await saveProcessSection(request({ body: { ...body, processingDays: ["1", "2"] } }), res);
 
     expect(saveProcessSettings).not.toHaveBeenCalled();
-    expect(model(res).process.values.hours).toBe("");
-    expect(model(res).process.hoursError).toBeDefined();
+    expect(model(res).process.values.processingDays).toBe("");
+    expect(model(res).process.errors.processingDays).toBeDefined();
   });
 
   it("should require a reload for a missing revision rather than read a fresh one", async () => {
     const res = pageResponse();
+    const { revision: _revision, ...withoutRevision } = body;
 
-    await saveProcessSection(request({ body: { claimWindowHours: "2", claimWindowMinutes: "0" } }), res);
+    await saveProcessSection(request({ body: withoutRevision }), res);
 
     expect(saveProcessSettings).not.toHaveBeenCalled();
     expect(model(res).process.reloadText).toBe("Reload the settings before saving");
@@ -206,16 +286,32 @@ describe("process section POST", () => {
     await saveProcessSection(request({ body }), res);
 
     expect(res.status).toHaveBeenCalledWith(409);
-    expect(model(res).process).toMatchObject({ values: { hours: " 3 ", minutes: "", revision: "4" }, reloadText: expect.stringContaining("has changed") });
+    expect(model(res).process).toMatchObject({ values: body, errors: {}, reloadText: expect.stringContaining("has changed") });
     expect(findProcessSettings).not.toHaveBeenCalled();
     expect(saveProcessSettings).toHaveBeenCalledTimes(1);
     expect(res.redirect).not.toHaveBeenCalled();
   });
 
   it.each([
-    [[{ field: "referralClaimExpiryMinutes", message: "x" }], { windowError: "The claim window must be between 30 minutes and 24 hours" }],
-    [[{ field: "revision", message: "x" }], { reloadText: "Reload the settings before saving" }],
-    [[], { reloadText: "The claim window could not be saved. Reload the settings and try again." }]
+    [
+      [{ field: "referralClaimExpiryMinutes", message: "x" }],
+      { errors: { processingDays: "Enter the processing window as a whole number of days from 1 to 30" } }
+    ],
+    [[{ field: "masterWindowCap", message: "x" }], { errors: { masterWindowCap: "Enter the referrals per Master as a whole number from 1 to 100" } }],
+    [[{ field: "afternoonWindowStart", message: "x" }], { errors: { afternoonWindowStart: "The afternoon window must start after the morning window ends" } }],
+    [[{ field: "morningWindowEnd", message: "x" }], { errors: { morningWindowEnd: "The morning window must end after it starts" } }],
+    [
+      [{ field: "reminderIntervalHours", message: "x" }],
+      { errors: { reminderIntervalHours: "Enter the reminder interval as a whole number of hours from 1 to 168" } }
+    ],
+    [
+      [{ field: "morningWindowStart", message: "x" }],
+      { errors: { morningWindowStart: "Enter the morning window’s start as a time like 07:00, on the hour or at 15, 30 or 45 minutes past" } }
+    ],
+    [[{ field: "afternoonWindowEnd", message: "x" }], { errors: { afternoonWindowEnd: "The afternoon window must end after it starts" } }],
+    [[{ field: "revision", message: "x" }], { errors: {}, reloadText: "Reload the settings before saving" }],
+    [[{ field: "constructor", message: "x" }], { errors: {}, reloadText: "The referral process could not be saved. Reload the settings and try again." }],
+    [[], { errors: {}, reloadText: "The referral process could not be saved. Reload the settings and try again." }]
   ])("should map api's 400 naming %j to its control", async (errors, expected) => {
     vi.mocked(saveProcessSettings).mockRejectedValue(new InvalidInputError("private prose", errors));
     const res = pageResponse();
@@ -223,11 +319,11 @@ describe("process section POST", () => {
     await saveProcessSection(request({ body }), res);
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(model(res).process).toEqual({ isAvailable: true, values: { hours: " 3 ", minutes: "", revision: "4" }, ...expected });
+    expect(model(res).process).toEqual({ isAvailable: true, values: body, ...expected });
   });
 
   it.each([
-    ["local validation", () => undefined, { claimWindowHours: "x", claimWindowMinutes: "0", revision: "4" }, 400],
+    ["local validation", () => undefined, { ...body, processingDays: "x" }, 400],
     ["api 400", () => vi.mocked(saveProcessSettings).mockRejectedValue(new InvalidInputError("x", [])), body, 400],
     ["api 409", () => vi.mocked(saveProcessSettings).mockRejectedValue(new ConflictError("x")), body, 409]
   ])("should degrade the Gazette section with no form when its read fails after %s, keeping the primary errors", async (_name, arrange, input, status) => {
@@ -349,5 +445,205 @@ describe("Gazette section POST", () => {
 
     expect(model(res).process).toEqual({ isAvailable: false });
     expect(model(res).errorList).toHaveLength(1);
+  });
+});
+
+describe("service settings: Masters and bank holidays lists", () => {
+  it("should read both lists with the caller's token, linking each row by an encoded path and showing dates as dd-mm-yy", async () => {
+    const res = pageResponse();
+
+    await showSettings(request(), res);
+
+    expect(findMasters).toHaveBeenCalledExactlyOnceWith(CALLER);
+    expect(findBankHolidays).toHaveBeenCalledExactlyOnceWith(CALLER);
+    expect(model(res).masters).toEqual({
+      isAvailable: true,
+      rows: [
+        {
+          changePath: "/deed-polls/settings/masters/6f1c1d4e-2a5b-4c3d-8e9f-0a1b2c3d4e5f",
+          name: "Master Wren",
+          email: "wren@example.test",
+          isAvailable: false,
+          isLinked: true
+        }
+      ]
+    });
+    expect(model(res).bankHolidays).toEqual({
+      isAvailable: true,
+      rows: [{ removePath: "/deed-polls/settings/bank-holidays/2026-12-25/remove", date: "25-12-26", name: "Christmas Day" }]
+    });
+    expect(model(res).masterAdd).toEqual(EMPTY_MASTER_ADD);
+    expect(model(res).holidayAdd).toEqual(EMPTY_HOLIDAY_ADD);
+  });
+
+  it("should degrade each list on its own to an unavailable state, keeping the rest of the page", async () => {
+    vi.mocked(findMasters).mockRejectedValue(new Error("api down"));
+    vi.mocked(findBankHolidays).mockRejectedValue(new Error("api down"));
+    const res = pageResponse();
+
+    await showSettings(request(), res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(model(res).masters).toEqual({ isAvailable: false });
+    expect(model(res).bankHolidays).toEqual({ isAvailable: false });
+    expect(model(res).process.isAvailable).toBe(true);
+    expect(console.error).toHaveBeenCalledWith("masters unavailable: api down");
+  });
+
+  it.each(["master-added", "master-changed", "bank-holiday-added", "bank-holiday-removed"])("should show the %s banner", async (saved) => {
+    const res = pageResponse();
+
+    await showSettings(request({ query: { saved } }), res);
+
+    expect(model(res).savedSection).toBe(saved);
+  });
+
+  it("should ignore a saved key the page did not send", async () => {
+    const res = pageResponse();
+
+    await showSettings(request({ query: { saved: "masters" } }), res);
+
+    expect(model(res).savedSection).toBeUndefined();
+  });
+});
+
+describe("service settings: add a Master", () => {
+  it("should add the trimmed name and email and redirect to the Masters section", async () => {
+    const res = pageResponse();
+
+    await addMasterSection(request({ body: { name: " Master Wren ", email: " wren@example.test " } }), res);
+
+    expect(saveNewMaster).toHaveBeenCalledExactlyOnceWith({ name: "Master Wren", email: "wren@example.test" }, CALLER);
+    expect(res.redirect).toHaveBeenCalledWith(303, "/deed-polls/settings?saved=master-added#masters");
+  });
+
+  it("should redraw the typed values with each control's error and write nothing when the form is refused", async () => {
+    const res = pageResponse();
+
+    await addMasterSection(request({ body: { name: " ", email: "wren" } }), res);
+
+    expect(saveNewMaster).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(model(res).masterAdd).toEqual({
+      values: { name: " ", email: "wren" },
+      errors: { name: "Enter the Master’s name, up to 200 characters", email: "Enter the Master’s email address, like name@example.com" }
+    });
+    expect(model(res).errorList).toEqual([
+      { text: "Enter the Master’s name, up to 200 characters", href: "#master-name" },
+      { text: "Enter the Master’s email address, like name@example.com", href: "#master-email" }
+    ]);
+    expect(findProcessSettings).toHaveBeenCalledOnce();
+    expect(findMasters).toHaveBeenCalledOnce();
+  });
+
+  it("should say another Master has the address when api answers 409", async () => {
+    vi.mocked(saveNewMaster).mockRejectedValue(new ConflictError("Another Master already has this email address.", [{ field: "email", message: "x" }]));
+    const res = pageResponse();
+
+    await addMasterSection(request({ body: { name: "Master Wren", email: "WREN@example.test" } }), res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(model(res).masterAdd).toEqual({
+      values: { name: "Master Wren", email: "WREN@example.test" },
+      errors: { email: "Another Master already has this email address" }
+    });
+  });
+
+  it("should put api's 400 on the control it names, in this page's words", async () => {
+    vi.mocked(saveNewMaster).mockRejectedValue(new InvalidInputError("Enter the Master's email address", [{ field: "email", message: "api's words" }]));
+    const res = pageResponse();
+
+    await addMasterSection(request({ body: { name: "Master Wren", email: "wren@example.test" } }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(model(res).masterAdd.errors).toEqual({ email: "Enter the Master’s email address, like name@example.com" });
+    expect(model(res).masterAdd.refusedText).toBeUndefined();
+  });
+
+  it("should refuse in general terms when api's 400 names no control", async () => {
+    vi.mocked(saveNewMaster).mockRejectedValue(new InvalidInputError("Only name, email and available", [{ field: "other", message: "x" }]));
+    const res = pageResponse();
+
+    await addMasterSection(request({ body: { name: "Master Wren", email: "wren@example.test" } }), res);
+
+    expect(model(res).masterAdd).toMatchObject({ errors: {}, refusedText: "The Master could not be saved. Reload the settings and try again." });
+  });
+
+  it("should let any other failure reach the error pages", async () => {
+    vi.mocked(saveNewMaster).mockRejectedValue(new ForbiddenError("nope"));
+
+    await expect(addMasterSection(request({ body: { name: "Master Wren", email: "wren@example.test" } }), pageResponse())).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+  });
+});
+
+describe("service settings: add a bank holiday", () => {
+  const BODY = { "date-day": "1", "date-month": "1", "date-year": "2029", name: "New Year’s Day" };
+
+  it("should add the date as api's yyyy-MM-dd and redirect to the bank holidays section", async () => {
+    const res = pageResponse();
+
+    await addBankHolidaySection(request({ body: BODY }), res);
+
+    expect(saveBankHoliday).toHaveBeenCalledExactlyOnceWith({ date: "2029-01-01", name: "New Year’s Day" }, CALLER);
+    expect(res.redirect).toHaveBeenCalledWith(303, "/deed-polls/settings?saved=bank-holiday-added#bank-holidays");
+  });
+
+  it("should redraw the typed parts with the date's error and write nothing for a day that does not exist", async () => {
+    const res = pageResponse();
+
+    await addBankHolidaySection(request({ body: { ...BODY, "date-day": "30", "date-month": "2" } }), res);
+
+    expect(saveBankHoliday).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(model(res).holidayAdd).toEqual({
+      values: { day: "30", month: "2", year: "2029", name: "New Year’s Day" },
+      errors: { date: "Enter the bank holiday’s date as a real date, like 25 12 2029" }
+    });
+    expect(model(res).errorList).toEqual([{ text: "Enter the bank holiday’s date as a real date, like 25 12 2029", href: "#bank-holiday-date-day" }]);
+  });
+
+  it("should say the date is already a bank holiday when api answers 409", async () => {
+    vi.mocked(saveBankHoliday).mockRejectedValue(new ConflictError("This date is already a bank holiday."));
+    const res = pageResponse();
+
+    await addBankHolidaySection(request({ body: BODY }), res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(model(res).holidayAdd).toEqual({
+      values: { day: "1", month: "1", year: "2029", name: "New Year’s Day" },
+      errors: { date: "This date is already a bank holiday" }
+    });
+  });
+
+  it("should put api's 400 on the date when api names it", async () => {
+    vi.mocked(saveBankHoliday).mockRejectedValue(new InvalidInputError("date", [{ field: "date", message: "x" }]));
+    const res = pageResponse();
+
+    await addBankHolidaySection(request({ body: BODY }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(Object.keys(model(res).holidayAdd.errors)).toEqual(["date"]);
+    expect(model(res).errorList).toEqual([{ text: model(res).holidayAdd.errors.date, href: "#bank-holiday-date-day" }]);
+  });
+
+  it("should put api's 400 on the name when api names it", async () => {
+    vi.mocked(saveBankHoliday).mockRejectedValue(new InvalidInputError("name", [{ field: "name", message: "x" }]));
+    const res = pageResponse();
+
+    await addBankHolidaySection(request({ body: BODY }), res);
+
+    expect(model(res).holidayAdd.errors).toEqual({ name: "Enter the bank holiday’s name, up to 200 characters" });
+    expect(model(res).errorList).toEqual([{ text: "Enter the bank holiday’s name, up to 200 characters", href: "#bank-holiday-name" }]);
+  });
+
+  it("should refuse in general terms when api's 400 names no control", async () => {
+    vi.mocked(saveBankHoliday).mockRejectedValue(new InvalidInputError("unknown", [{ field: "other", message: "x" }]));
+    const res = pageResponse();
+
+    await addBankHolidaySection(request({ body: BODY }), res);
+
+    expect(model(res).holidayAdd).toMatchObject({ errors: {}, refusedText: "The bank holiday could not be saved. Reload the settings and try again." });
   });
 });

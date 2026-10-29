@@ -19,6 +19,8 @@ import type { z } from "zod";
 import { assertApiBaseUrl } from "./transport.js";
 import {
   WIRE_SCHEMAS,
+  type WireBankHoliday,
+  type WireBankHolidayCreate,
   type WireCallerAccess,
   type WireCaseDetail,
   type WireCaseEmails,
@@ -50,6 +52,10 @@ import {
   type WireJudicialPool,
   type WireJudicialReferralDetail,
   type WireJudicialReferralSummary,
+  type WireMaster,
+  type WireMasterCreate,
+  type WireMasterList,
+  type WireMasterUpdate,
   type WireNote,
   type WirePreviewGazette,
   type WireProcessSettings,
@@ -281,8 +287,63 @@ export function getProcessSettings(config: ApiConfig): Promise<ApiResult<Process
 export function updateProcessSettings(input: UpdateProcessSettings, config: ApiConfig): Promise<ApiResult<ProcessSettings>> {
   return request(config, "PUT", "/caseworker/process-settings", WIRE_SCHEMAS.ProcessSettingsResponse, {
     referralClaimExpiryMinutes: input.referralClaimExpiryMinutes,
+    reminderIntervalHours: input.reminderIntervalHours,
+    masterWindowCap: input.masterWindowCap,
+    morningWindowStart: input.morningWindowStart,
+    morningWindowEnd: input.morningWindowEnd,
+    afternoonWindowStart: input.afternoonWindowStart,
+    afternoonWindowEnd: input.afternoonWindowEnd,
     revision: input.revision
   });
+}
+
+/**
+ * Every Master, available or not, in api's order (name, then id), with the current referral window's load since
+ * plan D2: the window a referral assigned now counts towards, the per-Master cap and each Master's
+ * `assignedInWindow`. Any staff role may read it.
+ */
+export function listMasters(config: ApiConfig): Promise<ApiResult<MasterList>> {
+  return request(config, "GET", "/caseworker/masters", WIRE_SCHEMAS.MasterListResponse);
+}
+
+/** Delivery Manager only. An email another Master holds, in any case, is a 409. */
+export function createMaster(input: MasterCreate, config: ApiConfig): Promise<ApiResult<Master>> {
+  return request(config, "POST", "/caseworker/masters", WIRE_SCHEMAS.MasterResponse, {
+    name: input.name,
+    email: input.email,
+    available: input.available
+  });
+}
+
+/**
+ * A keyed patch with the revision the list returned: a stale one is a 409 with no change. Changing a linked Master's
+ * email unlinks them until the new address signs in.
+ */
+export function updateMaster(id: string, patch: MasterUpdate, config: ApiConfig): Promise<ApiResult<Master>> {
+  return request(config, "PATCH", `/caseworker/masters/${encodeURIComponent(id)}`, WIRE_SCHEMAS.MasterResponse, {
+    name: patch.name,
+    email: patch.email,
+    available: patch.available,
+    revision: patch.revision
+  });
+}
+
+/** Every listed England and Wales bank holiday, earliest first. Any staff role may read it. */
+export function listBankHolidays(config: ApiConfig): Promise<ApiResult<BankHoliday[]>> {
+  return request(config, "GET", "/caseworker/process-settings/bank-holidays", WIRE_SCHEMAS.BankHolidayResponse.array());
+}
+
+/** Delivery Manager only. A date already listed is a 409. */
+export function addBankHoliday(input: BankHolidayCreate, config: ApiConfig): Promise<ApiResult<BankHoliday>> {
+  return request(config, "POST", "/caseworker/process-settings/bank-holidays", WIRE_SCHEMAS.BankHolidayResponse, {
+    date: input.date,
+    name: input.name
+  });
+}
+
+/** Delivery Manager only. 204; a date that is not listed is `not-found`. */
+export function removeBankHoliday(date: string, config: ApiConfig): Promise<ApiResult<void>> {
+  return requestNoContent(config, "DELETE", `/caseworker/process-settings/bank-holidays/${encodeURIComponent(date)}`);
 }
 
 /** Admin-only audit history. Omitted paging stays omitted so api applies its own defaults. */
@@ -647,7 +708,7 @@ export function getReferral(caseId: string, referralId: string, config: ApiConfi
 }
 
 /**
- * Raise a referral, unclaimed into the shared pool. 201.
+ * Raise a referral, assigned to the Master `masterId` names or, without one, waiting for assignment. 201.
  *
  * `conflict` when the case already has a referral that is neither closed nor withdrawn — api allows many
  * referrals over a case's life but only one live at a time, and it answers 409 rather than 400 because a
@@ -655,6 +716,19 @@ export function getReferral(caseId: string, referralId: string, config: ApiConfi
  */
 export function createReferral(caseId: string, referral: ReferralCreate, config: ApiConfig): Promise<ApiResult<Referral>> {
   return request(config, "POST", `/caseworker/cases/${encodeURIComponent(caseId)}/referrals`, WIRE_SCHEMAS.ReferralResponse, referral);
+}
+
+/**
+ * Assign a referral to a Master, or move it to another (plan D2): any caseworker, while it is `Open` (waiting for
+ * assignment) or `Claimed` (waiting for a direction). The Master it already has is a no-op 200. A reassignment
+ * restarts the Master's processing window.
+ *
+ * `validation` with an error on `masterId` for an unknown or unavailable Master. `conflict` for a referral no longer
+ * waiting for a direction, and also for a Master at the cap, which alone carries an error on `masterId`: that field
+ * is the one way to tell the two apart, never api's prose.
+ */
+export function assignReferral(caseId: string, referralId: string, masterId: string, config: ApiConfig): Promise<ApiResult<Referral>> {
+  return request(config, "PUT", `${referralPath(caseId, referralId)}/assignment`, WIRE_SCHEMAS.ReferralResponse, { masterId });
 }
 
 /**
@@ -841,8 +915,9 @@ export function deselectSavedQuery(id: string, config: ApiConfig): Promise<ApiRe
 }
 
 /**
- * One page of the shared judicial pool: the referrals waiting to be picked up, urgent first then
- * longest-waiting.
+ * One page of the former shared judicial pool. **Deprecated by api since plan D2**: referrals are assigned by the
+ * office, so this always answers an empty page with a total of 0. Kept for api's one deprecated release; nothing
+ * should call it now, and it goes with the operation.
  *
  * The five judicial operations are a sibling namespace to the caseworker surface rather than a section of it,
  * which is why none of them takes a case id: api keys the judicial surface on the referral so a judge cannot
@@ -866,8 +941,9 @@ export function getJudicialPool(query: JudicialPoolQuery, config: ApiConfig): Pr
 }
 
 /**
- * One page of the referrals this judge has in hand: the ones they are holding, and the directions the office has
- * not yet actioned.
+ * One page of the referrals this judge has in hand: the ones assigned to them, and the directions the office has
+ * not yet actioned. Since plan D2 in api's `MINE_ORDER`: undirected before directed, urgent first among the
+ * undirected only, then oldest first, then the id.
  *
  * **`/mine` is a literal path segment and not a query parameter, and that is the security decision.** A
  * `?claimedBy=` would make whose list this is something a caller types, and a judge who typed a colleague's would
@@ -902,8 +978,8 @@ export function getJudicialMyReferrals(query: JudicialPoolQuery, config: ApiConf
  * One referral as the judge who may see it reads it: the referral, the application with its witnesses and
  * documents, and the application's timeline, in one call because they are one screen.
  *
- * `not-found` for a referral this judge may not see — an `Open` one is visible to any of them, a claimed or
- * decided one only to its holder — and indistinguishable from an id that never existed, so no referral is
+ * `not-found` for a referral this judge may not see — since plan D2 an `Open` one (waiting for assignment) is
+ * visible to none of them, an assigned or decided one only to its Master — and indistinguishable from an id that never existed, so no referral is
  * discoverable by watching status codes.
  */
 export function getJudicialReferral(referralId: string, config: ApiConfig): Promise<ApiResult<JudicialReferralDetail>> {
@@ -911,6 +987,9 @@ export function getJudicialReferral(referralId: string, config: ApiConfig): Prom
 }
 
 /**
+ * **Deprecated by api since plan D2**, kept for its one release: an `Open` referral is now visible to no judge, so
+ * this is `not-found` for it, and `conflict` for one already assigned to this judge. Nothing should call it now.
+ *
  * Pick a referral up out of the pool. No body — the sub-resource names the transition and the holder comes
  * from the token.
  *
@@ -1357,7 +1436,9 @@ function classifyFailure(response: Response, payload: unknown): ApiError {
   if (status === 401) return { kind: "unauthorized", status, message };
   if (status === 403) return { kind: "forbidden", status, message };
   if (status === 404) return { kind: "not-found", status, message };
-  if (status === 409) return { kind: "conflict", status, message };
+  // A 409 can name a field too: a Master's email another Master holds is api's conflict on `email`, which a stale
+  // revision is not, and the field is the only structured way to tell the two apart.
+  if (status === 409) return { kind: "conflict", status, message, ...(fieldErrors.length > 0 ? { fieldErrors } : {}) };
 
   // api's abuse limiter, not an outage: the caseworker is told how long to wait rather than that the
   // service has broken.
@@ -1418,7 +1499,7 @@ export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiError 
  * - `validation` — api rejected the content; `fieldErrors` map onto an error summary
  * - `not-found` — no such case, note or document
  * - `forbidden` / `unauthorized` — the caller's token is missing, expired, or lacks a role
- * - `conflict` — the record's state does not allow this
+ * - `conflict` — the record's state does not allow this; `fieldErrors` when api names the field
  * - `rate-limited` — api's abuse limiter refused this caller; `retryAfterSeconds` says for how long, or
  *   `null` when api did not say in a form this reads
  * - `unavailable` / `timeout` — nobody's fault; try again shortly
@@ -1702,9 +1783,15 @@ export type GazetteSettings = WireGazetteSettings;
 export type UpdateGazetteSettings = WireUpdateGazetteSettings;
 export type ProcessSettings = WireProcessSettings;
 export type UpdateProcessSettings = WireUpdateProcessSettings;
+export type Master = WireMaster;
+export type MasterList = WireMasterList;
+export type MasterCreate = WireMasterCreate;
+export type MasterUpdate = WireMasterUpdate;
+export type BankHoliday = WireBankHoliday;
+export type BankHolidayCreate = WireBankHolidayCreate;
 
 export { GAZETTE_RECIPIENT_EMAIL_PATTERN, validateGazetteRecipientEmail } from "./gazette-recipient-email.js";
-export { PROCESS_SETTINGS_LIMITS } from "./wire.js";
+export { BANK_HOLIDAY_LIMITS, MASTER_LIMITS, PROCESS_SETTINGS_LIMITS, WINDOW_TIME_PATTERN } from "./wire.js";
 
 export type GazettePreview = WireGazettePreview;
 export type GazetteStatus = WireGazetteStatus;

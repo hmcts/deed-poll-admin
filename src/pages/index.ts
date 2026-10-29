@@ -4,7 +4,7 @@
  * **A redirect rather than a second copy of any list.** `/deed-polls` is the case collection's canonical URL
  * because everything nested hangs off it — `/deed-polls/:id`, `/deed-polls/:id/notes/…` — and the list's own
  * filter links are absolute (`/deed-polls?filter=…`), so rendering the list here would produce a page whose
- * every link navigates away from itself. The same is true of `/judicial/referrals`.
+ * every link navigates away from itself. The same is true of `/judicial/referrals/mine`.
  *
  * This replaced the template's marketing home page, which described `hmcts/expressjs-monorepo-template`
  * rather than this service. `/` needs a handler rather than nothing: it is what anyone visiting the
@@ -16,7 +16,7 @@
  * See loose end 15 — when that is fixed, the header becomes a second consumer of this redirect.
  *
  * **Judicial routing, and why this file is the only place it can happen** (`referrals-admin-3` decision 2). A
- * judge's home is `/judicial/referrals`, and their role is only knowable once they have signed in — so `/` is
+ * judge's home is My referrals, `/judicial/referrals/mine` since api D2 removed the pool, and their role is only knowable once they have signed in — so `/` is
  * the hinge: an anonymous visitor is sent to log in and *back here*, and the persona is resolved on the second
  * pass. This costs a hop that the previous version of this file deliberately avoided by redirecting anonymous
  * visitors straight to `/deed-polls`, which is exactly the bug: it pinned the caseworker's list as the
@@ -34,7 +34,7 @@ import { sessionUser } from "../auth/session.js";
 
 const CASE_LIST_PATH = "/deed-polls";
 
-const JUDICIAL_POOL_PATH = "/judicial/referrals";
+const MY_REFERRALS_PATH = "/judicial/referrals/mine";
 
 export const GET = (req: Request, res: Response) => {
   // Back here after signing in, not to either home: which one is right is not knowable yet, and `/login`'s own
@@ -58,7 +58,7 @@ export const GET = (req: Request, res: Response) => {
  * **What that costs, stated rather than glossed.** No navigation *into* the judicial area exists — the two
  * judicial lists have their own navigation between themselves (`referrals-admin-6`), but it renders only on pages
  * inside the area, the shared chrome renders no service-navigation, and `judicial.spec.ts` asserts the case list
- * carries no `/judicial` link — so a dual-role user reaches their pool only by typing `/judicial/referrals`. The
+ * carries no `/judicial` link — so a dual-role user reaches their referrals only by typing `/judicial/referrals/mine`. The
  * gate admits them (`requireJudicial` in `src/auth/require-role.ts`, pinned by its test), so this is a missing route
  * into a permitted area and not a refusal. An earlier version of this docblock claimed the judge's area was "one
  * link away", which was never true and made the default look free. Whether such a user exists is
@@ -70,5 +70,5 @@ export const GET = (req: Request, res: Response) => {
  * be a page built for a state no role assignment produces.
  */
 function landingPath(user: CurrentUser): string {
-  return user.judicial && user.capabilities.length === 0 ? JUDICIAL_POOL_PATH : CASE_LIST_PATH;
+  return user.judicial && user.capabilities.length === 0 ? MY_REFERRALS_PATH : CASE_LIST_PATH;
 }

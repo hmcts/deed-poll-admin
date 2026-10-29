@@ -2,11 +2,13 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getCase, listCases, patchCase } from "../api/client.js";
 import { type RunningMockApi, startMockApi } from "../mock/server.js";
-import { type SeedJournal, seedCases } from "./run.js";
+import { type SeedCredentials, type SeedJournal, seedCases } from "./run.js";
 
+/** The judge's Masters-list entry: since api D2 the seeder assigns referrals to it, and the judicial preflight links it. */
+const SEED_MASTER_EMAIL = "seed-judge@masters.test";
 const CREDENTIALS = {
   caseworkerToken: "mock-caseworker",
-  judgeToken: `x.${Buffer.from(JSON.stringify({ sub: "seed-judge" })).toString("base64url")}.signature`
+  judgeToken: `x.${Buffer.from(JSON.stringify({ sub: "seed-judge", email: SEED_MASTER_EMAIL, roles: ["caseworker-deedpoll-judicial"] })).toString("base64url")}.signature`
 };
 const CREATE = "SEED-runner-test-01/create";
 let mock: RunningMockApi;
@@ -33,6 +35,7 @@ describe("seed runner checkpoints", { timeout: 20_000 }, () => {
     [503, true]
   ] as const)("should preserve the pending-write classification for HTTP %i", async (status, remainsPending) => {
     mock = await startMockApi();
+    const credentials = await credentialsFor(mock);
     const events: string[] = [];
     const url = await intercept((req, res) => {
       if (req.method !== "POST") return false;
@@ -48,7 +51,7 @@ describe("seed runner checkpoints", { timeout: 20_000 }, () => {
       saved.push(structuredClone(journal));
     };
 
-    await expect(seedCases(journal, CREDENTIALS, persist, () => {})).rejects.toThrow(`(${status})`);
+    await expect(seedCases(journal, credentials, persist, () => {})).rejects.toThrow(`(${status})`);
 
     expect(events).toEqual(remainsPending ? ["pending", "write"] : ["pending", "write", "cleared"]);
     expect(journal.pending).toBe(remainsPending ? CREATE : undefined);
@@ -56,13 +59,47 @@ describe("seed runner checkpoints", { timeout: 20_000 }, () => {
     expect(journal.steps).toEqual({});
     expect(journal.cases).toEqual({});
     if (remainsPending) {
-      await expect(seedCases(journal, CREDENTIALS, persist, () => {})).rejects.toThrow("Uncertain write");
+      await expect(seedCases(journal, credentials, persist, () => {})).rejects.toThrow("Uncertain write");
       expect(events).toEqual(["pending", "write"]);
     }
   });
 
+  it("should refuse judicial actions without the judge's Masters-list id before any request", async () => {
+    mock = await startMockApi();
+    const requests = vi.spyOn(globalThis, "fetch");
+
+    await expect(
+      seedCases(
+        newJournal(mock.url),
+        CREDENTIALS,
+        async () => {},
+        () => {}
+      )
+    ).rejects.toThrow("Masters-list id");
+
+    expect(requests).not.toHaveBeenCalled();
+  });
+
+  it("should assign the claimed and directed referrals to the judge's Masters-list entry", async () => {
+    mock = await startMockApi();
+    const credentials = await credentialsFor(mock);
+    const journal = newJournal(mock.url);
+
+    await seedCases(
+      journal,
+      credentials,
+      async () => {},
+      () => {}
+    );
+
+    const assigned = Object.keys(journal.steps).filter((step) => step.endsWith("/assign"));
+    expect(assigned).toHaveLength(5);
+    expect(Object.keys(journal.steps).some((step) => step.endsWith("/claim"))).toBe(false);
+  });
+
   it("should finish both preflights before the first write and stop on a judicial refusal", async () => {
     mock = await startMockApi();
+    const credentials = await credentialsFor(mock);
     const requests: string[] = [];
     const url = await intercept((req, res) => {
       requests.push(`${req.method} ${req.url}`);
@@ -74,7 +111,7 @@ describe("seed runner checkpoints", { timeout: 20_000 }, () => {
     const journal = newJournal(url);
     const persist = vi.fn(async () => {});
 
-    await expect(seedCases(journal, CREDENTIALS, persist, () => {})).rejects.toThrow("judicial preflight");
+    await expect(seedCases(journal, credentials, persist, () => {})).rejects.toThrow("judicial preflight");
 
     expect(requests).toHaveLength(2);
     expect(requests[0]).toMatch(/^GET \/caseworker\/cases\?/);
@@ -85,6 +122,7 @@ describe("seed runner checkpoints", { timeout: 20_000 }, () => {
 
   it("should leave the durable checkpoint uncertain when saving a successful response fails", async () => {
     mock = await startMockApi();
+    const credentials = await credentialsFor(mock);
     const journal = newJournal(mock.url);
     const saved: SeedJournal[] = [];
     const persist = async () => {
@@ -92,13 +130,13 @@ describe("seed runner checkpoints", { timeout: 20_000 }, () => {
       saved.push(structuredClone(journal));
     };
 
-    await expect(seedCases(journal, CREDENTIALS, persist, () => {})).rejects.toThrow("Checkpoint disk failure");
+    await expect(seedCases(journal, credentials, persist, () => {})).rejects.toThrow("Checkpoint disk failure");
 
     expect(saved[0].pending).toBe(CREATE);
     expect(saved[0].steps).toEqual({});
     expect(journal.steps).toHaveProperty(CREATE);
     const requests = vi.spyOn(globalThis, "fetch");
-    await expect(seedCases(saved[0], CREDENTIALS, persist, () => {})).rejects.toThrow("Uncertain write");
+    await expect(seedCases(saved[0], credentials, persist, () => {})).rejects.toThrow("Uncertain write");
     expect(requests).not.toHaveBeenCalled();
     const result = await listCases({}, { baseUrl: mock.url });
     expect(result.ok && result.data.total).toBe(1);
@@ -106,15 +144,16 @@ describe("seed runner checkpoints", { timeout: 20_000 }, () => {
 
   it("should verify completed cases again and leave a manual edit untouched", async () => {
     mock = await startMockApi();
+    const credentials = await credentialsFor(mock);
     const journal = newJournal(mock.url);
     const persist = async () => {};
-    await seedCases(journal, CREDENTIALS, persist, () => {});
+    await seedCases(journal, credentials, persist, () => {});
     const id = journal.cases["SEED-runner-test-01"].id;
     const config = { baseUrl: mock.url, accessToken: CREDENTIALS.caseworkerToken };
     expect((await patchCase(id, { urgency: "Urgent", urgencyreason: "Manual test edit" }, config)).ok).toBe(true);
     const requests = vi.spyOn(globalThis, "fetch");
 
-    await expect(seedCases(journal, CREDENTIALS, persist, () => {})).rejects.toThrow("read-back differs");
+    await expect(seedCases(journal, credentials, persist, () => {})).rejects.toThrow("read-back differs");
 
     expect(requests.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
     const result = await getCase(id, config);
@@ -146,4 +185,16 @@ async function intercept(handle: (req: IncomingMessage, res: ServerResponse) => 
 
 function newJournal(baseUrl: string): SeedJournal {
   return { version: 1, environment: "test", baseUrl, batch: "runner-test", asOf: "2026-10-02", steps: {}, cases: {} };
+}
+
+/** The fixture judge's Masters-list entry, added to this mock by a Delivery Manager, with credentials naming it. */
+async function credentialsFor(api: RunningMockApi): Promise<SeedCredentials> {
+  const manager = `x.${Buffer.from(JSON.stringify({ sub: "manager", roles: ["caseworker-deedpoll-delivery-manager"] })).toString("base64url")}.signature`;
+  const response = await fetch(`${api.url}/caseworker/masters`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${manager}`, "content-type": "application/json" },
+    body: JSON.stringify({ name: "Seed Judge", email: SEED_MASTER_EMAIL })
+  });
+  const { id } = (await response.json()) as { id: string };
+  return { ...CREDENTIALS, masterId: id };
 }

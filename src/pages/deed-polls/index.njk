@@ -47,6 +47,9 @@
     so one count failing says nothing about the other: the pair of them failing is two warnings, which is the
     honest rendering of two unanswered questions.
   #}
+  {% if waitingForAssignmentFailed %}
+    {{ govukWarningText({ text: waitingForAssignmentUnavailable, iconFallbackText: warningIcon }) }}
+  {% endif %}
   {% if awaitingConfirmationFailed %}
     {{ govukWarningText({ text: awaitingConfirmationUnavailable, iconFallbackText: warningIcon }) }}
   {% endif %}
@@ -56,12 +59,18 @@
     notification banner on a page, and two stacked "Important" banners would be two of them; each `if` is still
     independent, so a count that read zero or failed removes its own paragraph and leaves the other's alone.
   #}
-  {% if returnedForAction or awaitingConfirmation %}
+  {% if returnedForAction or waitingForAssignment or awaitingConfirmation %}
     {% set worklistHtml %}
       {% if returnedForAction %}
         <p class="govuk-notification-banner__heading">{{ returnedForAction }}</p>
         <p class="govuk-body">
           <a class="govuk-notification-banner__link" href="{{ returnedForActionHref }}">{{ returnedForActionLink }}</a>
+        </p>
+      {% endif %}
+      {% if waitingForAssignment %}
+        <p class="govuk-notification-banner__heading">{{ waitingForAssignment }}</p>
+        <p class="govuk-body">
+          <a class="govuk-notification-banner__link" href="{{ waitingForAssignmentHref }}">{{ waitingForAssignmentLink }}</a>
         </p>
       {% endif %}
       {% if awaitingConfirmation %}

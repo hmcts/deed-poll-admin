@@ -36,6 +36,7 @@ import {
   countAwaitingConfirmation,
   countGazetteReadyCases,
   countReturnedForAction,
+  countWaitingForAssignment,
   type FieldError,
   fieldControlName,
   filterFor,
@@ -59,7 +60,8 @@ import {
   serialiseConditions,
   serialiseSort,
   unusedConditionRows,
-  WAITING_COLUMN_LABEL
+  WAITING_COLUMN_LABEL,
+  waitingForAssignmentConditions
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
@@ -80,6 +82,13 @@ const QUERIES_PATH = "/deed-polls/queries";
  * worklist is the same query for every caseworker on every tab.
  */
 const RETURNED_FOR_ACTION_PATH = `${LIST_PATH}${caseListSearch({ conditions: returnedForActionConditions() })}`;
+
+/**
+ * The "waiting for assignment" worklist (plan Db1): a `where` on `currentReferralState`, as the returned-for-action
+ * one is and for its reason, since api publishes no tab for it. A case holds at most one live referral, so the count
+ * of cases is the count of referrals.
+ */
+const WAITING_FOR_ASSIGNMENT_PATH = `${LIST_PATH}${caseListSearch({ conditions: waitingForAssignmentConditions() })}`;
 
 /**
  * The "awaiting confirmation" worklist: api's own filter key, as a link — `notify-3b` decision 3.
@@ -142,6 +151,12 @@ const en = {
   awaitingConfirmationLink: "View applications awaiting confirmation",
   awaitingConfirmationUnavailable:
     "The number of applications waiting for the applicant to confirm could not be loaded, so this page cannot say whether any are waiting. Try again shortly.",
+  // Plan Db1: referrals no Master has, raised without one before assignment existed or returned by api's sweep.
+  waitingForAssignmentFor: (count: number) =>
+    count === 1 ? "1 referral is waiting to be assigned to a Master." : `${count} referrals are waiting to be assigned to a Master.`,
+  waitingForAssignmentLink: "View referrals waiting for assignment",
+  waitingForAssignmentUnavailable:
+    "The number of referrals waiting to be assigned to a Master could not be loaded, so this page cannot say whether any are waiting. Try again shortly.",
   // GOV.UK's own fallback for the warning icon, which is decorative and needs a text equivalent.
   warningIcon: "Warning",
   newCase: "New case",
@@ -355,13 +370,14 @@ async function savedQueryEntries(caller: Caller, { filter, q, conditions, sort }
  * a returned direction, and the reverse.
  */
 async function worklistCounts(caller: Caller, canAccessGazette: boolean): Promise<WorklistCounts> {
-  const [returnedForAction, awaitingConfirmation, gazette] = await Promise.all([
+  const [returnedForAction, waitingForAssignment, awaitingConfirmation, gazette] = await Promise.all([
     worklistCount("returned-for-action", () => countReturnedForAction(caller)),
+    worklistCount("waiting-for-assignment", () => countWaitingForAssignment(caller)),
     worklistCount("awaiting-confirmation", () => countAwaitingConfirmation(caller)),
     canAccessGazette ? worklistCount("gazette", () => countGazetteReadyCases(caller)) : undefined
   ]);
 
-  return { returnedForAction, awaitingConfirmation, gazette };
+  return { returnedForAction, waitingForAssignment, awaitingConfirmation, gazette };
 }
 
 /**
@@ -417,6 +433,10 @@ function render(res: Response, view: ListView, { savedQueries, counts, showSetti
     // logged it; this is what the caseworker is told.
     returnedForActionFailed: counts.returnedForAction === null,
     returnedForActionHref: RETURNED_FOR_ACTION_PATH,
+    // The third worklist, beside the first and in the same three states (plan Db1).
+    waitingForAssignment: counts.waitingForAssignment ? content.waitingForAssignmentFor(counts.waitingForAssignment) : "",
+    waitingForAssignmentFailed: counts.waitingForAssignment === null,
+    waitingForAssignmentHref: WAITING_FOR_ASSIGNMENT_PATH,
     // The second worklist, in the same three states and read the same way — `notify-3b` decision 3. Two keys
     // per count rather than one shared list, so neither count's failure can change how the other renders.
     awaitingConfirmation: counts.awaitingConfirmation ? content.awaitingConfirmationFor(counts.awaitingConfirmation) : "",
@@ -641,6 +661,8 @@ interface WorklistCounts {
   gazette: number | null | undefined;
   /** Cases whose live referral has a returned direction nobody has actioned. */
   returnedForAction: number | null;
+  /** Cases whose live referral no Master has. */
+  waitingForAssignment: number | null;
   /** Cases whose applicant has been asked to confirm and has not replied. */
   awaitingConfirmation: number | null;
 }

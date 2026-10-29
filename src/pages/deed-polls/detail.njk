@@ -290,6 +290,12 @@
               {% if directionChangedNotices[r.id] %}
                 {{ govukInsetText({ text: directionChangedNotices[r.id], classes: "govuk-!-margin-top-2 govuk-!-margin-bottom-0" }) }}
               {% endif %}
+              {# Plan Db1: an `Open` or `Claimed` referral can be assigned or reassigned from the row it is on. #}
+              {% if r.assignAction %}
+                <p class="govuk-body govuk-!-font-size-16 govuk-!-margin-top-1 govuk-!-margin-bottom-0">
+                  <a class="govuk-link" href="{{ case.id | casePath }}/referrals/{{ r.id | pathSegment }}/assign">{{ assignLinks[r.assignAction] }}<span class="govuk-visually-hidden"> {{ assignLinkHint }} {{ r.createdOn }}</span></a>
+                </p>
+              {% endif %}
             {% endset %}
             {% set referralRows = (referralRows.push([
               { html: raisedCell },

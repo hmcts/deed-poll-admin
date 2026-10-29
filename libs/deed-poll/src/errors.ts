@@ -91,9 +91,13 @@ export class UnauthorizedError extends Error {
  * means a handler did not catch one it should have.
  */
 export class ConflictError extends Error {
-  constructor(message: string) {
+  /** api's field, when its 409 names one: a Master's duplicate email does, a stale revision does not. */
+  readonly errors: FieldError[];
+
+  constructor(message: string, errors: FieldError[] = []) {
     super(message);
     this.name = "ConflictError";
+    this.errors = errors;
   }
 }
 

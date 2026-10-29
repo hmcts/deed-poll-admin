@@ -1,31 +1,31 @@
 /**
- * The judicial persona, end to end in a browser — `docs/plans/completed/referrals-admin-3-judicial-screen.md`.
+ * The judicial persona, end to end in a browser — `docs/plans/completed/referrals-admin-3-judicial-screen.md`, and
+ * since plan Db1 a Master with no pool and no claim.
  *
- * **Two tests: the judge's whole day, and the caseworker who must not have it.** The journey is one story —
- * land on the pool, open a referral, read the application, claim it, direct it through check-your-answers — so
- * the validation, accessibility and Welsh checks are made at the points it already passes through, per
- * `.claude/rules/e2e-testing.md`.
+ * **A referral reaches a Master by assignment.** A caseworker raises it with a Master chosen, and api D2 shows it to
+ * that Master's linked judge and nobody else: an `Open` referral is no judge's. So every journey here starts by
+ * putting a referral in the judge persona's hands through its Masters-list entry (`./masters.ts`), and the judge's
+ * home is **My referrals**, in three sections read off api's order: Urgent, Awaiting your direction and Directed,
+ * awaiting the office, the last two under one heading per day referred.
  *
  * **What only a browser can show here, and why this file earns its keep:**
  *
  * - **The persona boundary is real.** The page tests never ask about the role — the gate is mounted on the area
  *   in `app.ts`, not written into any page — so an ungated judicial page and a gated one render identically
- *   under test. `src/app.test.ts` pins the mount from the filesystem; this pins that a signed-in administrator
+ *   under test. `src/app.test.ts` pins the mount from the filesystem; this pins that a signed-in Team leader
  *   actually gets a refusal from the running app.
  * - **The three-step direction flow carries its state through the request and nothing else.** The check step is
  *   rendered from the values it was posted and "Change your answers" is a submit, not a link (decision 7). A
  *   `vi.fn()` cannot show that the second round trip arrives with what the first one held; a form and a browser
  *   can.
- * - **The claim race is a refusal a judge reads, not a fault.** api checks visibility before the hold, so a
- *   referral taken out from under this judge is a **404** — rendered as decision 10's "no longer available",
- *   never as "somebody else has it". The journey takes one out from under itself to prove the copy.
+ * - **A referral assigned to another Master is a refusal a judge reads, not a fault.** api answers it 404, the same
+ *   as withdrawn, closed and never-there, so the page must say it is no longer available without naming a holder.
  * - **The disclosure boundary, asserted from outside.** The case is seeded carrying a fee reference; the judicial
  *   screen must not contain it. That is api's boundary rather than this app's (decision 4), and this is the check
  *   that the whole rendered page — not just the view model — honours it.
  *
  * The judge signs in as `judge@example.com`, the only fixture holding `caseworker-deedpoll-judicial` and
- * deliberately holding nothing else. `yarn idam:users` seeds it; `idam-access-config#995` is what makes the role
- * assignable in AAT and is not needed here, because nothing local reads that repo.
+ * deliberately holding nothing else. `yarn idam:users` seeds it.
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Browser, expect, type Locator, type Page, test } from "@playwright/test";
@@ -36,223 +36,150 @@ import {
   JUDGE_STORAGE_STATE,
   RUNS_AGAINST_DEPLOYED_STACK,
   signInAsJudge,
+  TEAM_LEADER_EMAIL,
   TEAM_LEADER_STORAGE_STATE
 } from "./idam-session.js";
+import { bearer, judgePersonaMaster, type Master, newMaster } from "./masters.js";
 
 /** The mock api, which `playwright.config.ts` starts on 3200 beside the app on 3000. */
 const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
 
+/** The old pool's address. Every referral page still lives under it; the bare path redirects to My referrals. */
 const POOL_PATH = "/judicial/referrals";
 
-/** The judge's own list — `referrals-admin-6`, and a literal segment rather than a referral id. */
+/** The Master's own list, and since plan Db1 their home. */
 const MINE_PATH = "/judicial/referrals/mine";
 
 /** Where a caseworker's day starts, and where the office half of the lifecycle journey happens. */
 const CASE_LIST_PATH = "/deed-polls";
 
-/** api's `JudicialReferralService.POOL_PAGE_SIZE`, which the pool page renders and pages by. */
-const POOL_PAGE_SIZE = 10;
-
-/**
- * The other judge, who takes a referral out from under this one.
- *
- * Not a signed-in session and deliberately not the `judge@example.com` fixture: the point is a *different*
- * holder, which is what makes api's answer a 404 rather than a 409. The mock reads the subject out of the bearer
- * token and models no roles, so a hand-built token is all a claim needs — the same construction
- * `deed-polls.spec.ts` uses for its seed judge.
- */
-const OTHER_JUDGE = "e2e.otherjudge@example.com";
+const URGENT_SECTION = "Urgent";
+const AWAITING_SECTION = "Awaiting your direction";
+const DIRECTED_SECTION = "Directed, awaiting the office";
 
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
 test.use({ storageState: JUDGE_STORAGE_STATE });
 
-test("judge works the pool: opens a referral, is beaten to one, claims another and directs it", async ({ page, browser, request }) => {
-  // Arrange: two applications, each with an urgent referral waiting. Two cases rather than two referrals on one,
-  // because api allows a case only one live referral at a time.
-  //
-  // **Urgent, and that is what keeps this journey's rows findable.** The pool is ordered urgent-first then
-  // longest-waiting within the band, so a referral raised later sorts *after* one raised earlier and cannot move
-  // it: nothing another worker raises — including the urgent referral the lifecycle journey below seeds — changes
-  // the position of a row already in the urgent band while this test is reading it.
-  const beaten = await seedReferral(request, { reason: "DomesticAbuse" });
-  const mine = await seedReferral(request, { reason: "NonPublication", note: "Applicant asked for the hearing to be listed early." });
+test("a caseworker raises a referral to the judge's Master, who finds it under its day on My referrals and directs it", async ({ page, browser, request }) => {
+  // Three times the default: a caseworker's context, a Welsh sign-in and seven axe scans make this one journey long.
+  test.slow();
 
-  // The pool is the judge's home, reached from `/` rather than by URL: the redirect is decision 2, and the
-  // sign-in half of it is asserted in `signInAsJudge`.
+  // Arrange: the judge persona's Masters-list entry, an urgent referral already assigned to it, and a case for the
+  // caseworker to refer. A Master of its own holds a third referral, which this judge must not be able to read.
+  const master = await judgePersonaMaster(request);
+  const urgent = await seedReferral(request, { reason: "DomesticAbuse", masterId: master.id, urgent: true });
+  const raisedCase = await seedCase(request, { note: "Applicant asked for the hearing to be listed early." });
+  const elsewhere = await newMaster(request, "Elsewhere");
+  const theirs = await seedReferral(request, { reason: "Minor", masterId: elsewhere.id, urgent: false });
+
+  // ── the caseworker raises it, choosing the judge persona's Master ──────────────────────────────────────────
+  const referralId = await raiseThroughTheForm(browser, raisedCase.caseId, master);
+  const raised = await judicialReferral(request, referralId);
+
+  // ── the Master's home ───────────────────────────────────────────────────────────────────────────────────────
+  // Reached from `/` rather than by URL, because `/` is where each persona's home is decided.
   await page.goto("/");
-  await expect(page).toHaveURL(POOL_PATH);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referrals for a direction");
-  // States the order instead of offering a control over it — there is no filter bar, search or sortable header
-  // on this page, because the queue is api's (decision 3).
-  await expect(page.getByText("The most urgent referrals are first, then those waiting longest.")).toBeVisible();
+  await expect(page).toHaveURL(MINE_PATH);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("My referrals");
+  await expect(page.getByText("These are the referrals assigned to you.")).toBeVisible();
+  // api's order, so there is nothing to compose: no filter bar, no search and no sortable headers.
   await expect(page.getByRole("searchbox")).toHaveCount(0);
-  // api's count off the paging envelope, not a count of the ten rows on screen.
-  //
-  // Re-read on each attempt rather than compared once, because the pool is shared and global: `deed-polls.spec`
-  // raises and withdraws referrals in a parallel worker, so api's total can move either way between a render and
-  // an assertion about it. Reloading inside the poll makes the two sides of the comparison the same moment.
-  // The two numbers are compared by backreference rather than by equality so a failure prints both of them, and
-  // so the assertion does not pin a page size or a total this journey does not control.
-  await expect
-    .poll(async () => {
-      await page.reload();
-      const summary = (await page.getByText(/of \d+ referrals/).textContent())?.trim();
 
-      return `${summary} / api total ${await poolTotal(request)}`;
-    })
-    .toMatch(/of (\d+) referrals \/ api total \1$/);
+  // The pool is gone, and a bookmark of it lands here rather than on a page that no longer exists.
+  await page.goto(POOL_PATH);
+  await expect(page).toHaveURL(MINE_PATH);
+
+  // The urgent one is in the Urgent section, saying when it was referred, since no day heading says it there.
+  const urgentRow = myReferralsRow(page, urgent.referralId);
+  await expect(urgentRow).toHaveCount(1);
+  expect(await placeOf(urgentRow)).toEqual({ section: URGENT_SECTION, day: null });
+  await expect(urgentRow).toContainText(`Referred ${shortDate(urgent.createdOn)}`);
+  await expect(urgentRow).toContainText(`Direction due by ${shortDate(urgent.directionDueBy)}`);
+  await expect(urgentRow).toContainText("Domestic abuse considerations");
+
+  // The caseworker's one is undirected and standard, so it sits under the day it was referred.
+  const raisedRow = myReferralsRow(page, referralId);
+  expect(await placeOf(raisedRow)).toEqual({ section: AWAITING_SECTION, day: `${shortDate(raised.createdOn)} referrals` });
+  await expect(raisedRow).toContainText("Non-publication request");
+  await expect(raisedRow).toContainText(`Direction due by ${shortDate(raised.directionDueBy)}`);
+
+  // Another Master's referral is not on this one's list.
+  await expect(myReferralsRow(page, theirs.referralId)).toHaveCount(0);
+  // No applicant and no reference anywhere in the list: api's row carries neither.
+  await expectNoApplicationData(page, raisedCase);
   await expectNoAccessibilityViolations(page);
 
-  // Checked here rather than at the end of the journey, and the position is load-bearing twice over: the pool's
-  // column headers only exist while something is waiting in it, and by the end this journey has taken both of its
-  // own referrals out — leaving a page whose `cy` keys are the empty state's instead of the table's. The referral
-  // it also visits has to still be `Open`, for the reason api narrows a claimed one to its holder.
-  await expectWelshKeysResolve(browser, mine.referralId);
+  // Checked while both referrals are undirected, because a section's `cy` keys only render while it has rows.
+  await expectWelshKeysResolve(browser, referralId);
 
-  // The row, and its cells: the urgency word (never the tag colour alone), the business's wording for the reason
-  // the court picked, and the wait the queue is ordered by.
-  const beatenRow = await poolRow(page, request, beaten.referralId);
-  await expect(beatenRow).toContainText("Urgent");
-  await expect(beatenRow).toContainText("Domestic abuse considerations");
-  await expect(beatenRow).toContainText(beaten.waitingSince);
-  // No applicant and no reference anywhere in the queue — api's pool row carries neither, so a judge cannot read
-  // a list of applications they have not been asked to look at (api-3 decision 2).
-  await expect(page.locator("tbody")).not.toContainText(beaten.reference);
-
-  await beatenRow.getByRole("link").click();
-  await expect(page).toHaveURL(`${POOL_PATH}/${beaten.referralId}`);
-  await expect(claimButton(page)).toBeVisible();
-  await expect(directButton(page)).toHaveCount(0);
-
-  // The race, made deterministic: another judge claims it while this one is looking at the page. The claim
-  // control is still on screen, which is the situation the refusal exists for.
-  await claimAs(request, beaten.referralId, OTHER_JUDGE);
-
-  await claimButton(page).click();
-
-  // Back to the pool, because that is where the next piece of work is — and the sentence is decision 10's. It
-  // must not say or imply who has it: api answers withdrawn, closed, somebody else's and never-there
-  // identically, and a message that guessed would enumerate exactly what that hides.
-  await expect(page).toHaveURL(`${POOL_PATH}?claim=unavailable`);
-  const refusal = page.getByRole("alert");
-  await expect(refusal).toContainText("This referral is no longer available. Choose another referral from the list.");
-  await expect(refusal).not.toContainText(OTHER_JUDGE);
-  await expect(refusal).not.toContainText("another Master");
-  await expectNoAccessibilityViolations(page);
-
-  // And the stale link the judge may still be holding — a bookmark, or the back button — is its own page rather
-  // than the shared "Page not found", because following a pool that has moved on is not a mistyped URL. **404
-  // and not 403**: the resource is genuinely gone, and a 200 would say the page rendered what was asked for.
-  const stale = await page.goto(`${POOL_PATH}/${beaten.referralId}`);
-  expect(stale?.status()).toBe(404);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("This referral is no longer available");
-  await expect(page.locator("body")).not.toContainText(OTHER_JUDGE);
-  await expectNoAccessibilityViolations(page);
-  await page.getByRole("link", { name: "Back to referrals for a direction" }).click();
-  await expect(page).toHaveURL(POOL_PATH);
-
-  // On to one nobody has taken.
-  await (await poolRow(page, request, mine.referralId)).getByRole("link").click();
-  await expect(page).toHaveURL(`${POOL_PATH}/${mine.referralId}`);
+  // ── the referral ────────────────────────────────────────────────────────────────────────────────────────────
+  await raisedRow.getByRole("link").click();
+  await expect(page).toHaveURL(`${POOL_PATH}/${referralId}`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to a Master");
 
   // The application — `JudicialApplicationView`, the one General section a Master asked for. The reference is the
   // caption above the heading rather than a row in it.
-  await expect(page.locator(".govuk-caption-l")).toContainText(mine.reference);
+  await expect(page.locator(".govuk-caption-l")).toContainText(raisedCase.reference);
   await expect(summaryRow(page, "Type")).toContainText("Adult");
   await expect(summaryRow(page, "Old surname")).toContainText("Kowalski");
   await expect(summaryRow(page, "New surname")).toContainText("Nakamura");
 
   // **The disclosure check, from outside the view model.** The case carries a fee reference; the judicial screen
-  // must not. api's DTO is what keeps it off — not a filter here (decision 4) — so this asserts the boundary
-  // holds all the way to the rendered page, and it is the one assertion in this file whose failure is a
-  // disclosure bug rather than a display one.
-  await expect(page.locator("body")).not.toContainText(mine.feeReference);
+  // must not. api's DTO is what keeps it off — not a filter here (decision 4).
+  await expect(page.locator("body")).not.toContainText(raisedCase.feeReference);
 
-  // The referral's own fields after the application.
-  await expect(referralRow(page, "Status")).toContainText("Open");
+  // The referral's own fields after the application: assigned to this Master, and when the direction is due.
+  await expect(referralRow(page, "Status")).toContainText("Claimed");
+  await expect(referralRow(page, "Assigned to you")).toBeVisible();
+  await expect(referralRow(page, "Direction due by")).toContainText(shortDate(raised.directionDueBy));
   await expect(summaryRow(page, "Reasons for referral")).toContainText("Non-publication request");
-  await expect(summaryRow(page, "Notes from the court")).toContainText("Please consider the applicant's circumstances.");
-  await expect(summaryRow(page, "Reason for urgency")).toContainText("Hearing listed on Friday.");
   await expect(page.getByRole("heading", { name: "Supporting documents" })).toBeVisible();
+  // Nothing to claim: it is already theirs.
+  await expect(page.getByRole("button", { name: "Claim this referral" })).toHaveCount(0);
 
   // **No case notes, since the Master asked for them to go.** The case carries a note typed by the office, seeded so
   // this has something real to fail against: neither it, its heading nor the caseworker who wrote it reaches the page.
   await expect(page.getByRole("heading", { name: "Case notes" })).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText("Applicant asked for the hearing to be listed early.");
   await expect(page.locator("body")).not.toContainText(CASEWORKER_EMAIL);
-  // A judge's writes are exactly claim and direct, so there is no note control — and no link to the case,
-  // because api's judicial surface takes no case id and there is nowhere to link to.
+  await expect(page.locator("body")).not.toContainText(TEAM_LEADER_EMAIL);
+  // No note control and no link to the case, because api's judicial surface takes no case id.
   await expect(page.getByRole("button", { name: "Add a note" })).toHaveCount(0);
   await expect(page.locator('a[href^="/deed-polls"]')).toHaveCount(0);
   await expectNoAccessibilityViolations(page);
 
-  await claimButton(page).click();
-
-  // The referral view re-reads it, so the state on screen is the one api has just published rather than one
-  // assumed by the handler that did the claiming.
-  await expect(page).toHaveURL(`${POOL_PATH}/${mine.referralId}`);
-  await expect(referralRow(page, "Status")).toContainText("Claimed");
-  await expect(summaryRow(page, "Claimed")).toBeVisible();
-  await expect(claimButton(page)).toHaveCount(0);
-  await expect(directButton(page)).toBeVisible();
-
-  // **Claiming twice — two tabs, or back-then-resubmit — and the one 409 a claim can produce.** api checks
-  // visibility before state, so a referral another judge took is the 404 above; this judge can still see this one
-  // and cannot claim it, which leaves only "it is already theirs". Posted through the app with the browser's
-  // session rather than driven through the button, which is gone the moment the claim succeeds. It must land on
-  // the referral and not the pool — the referral has left that list — and the sentence must name the state: an
-  // "already been claimed" bounce to the pool would tell a judge somebody else has work that is in fact theirs.
-  const reclaim = await page.request.post(`${POOL_PATH}/${mine.referralId}/claim`, { maxRedirects: 0 });
-  expect(reclaim.status()).toBe(302);
-  expect(reclaim.headers().location).toBe(`${POOL_PATH}/${mine.referralId}?claim=held`);
-
-  await page.goto(`${POOL_PATH}/${mine.referralId}?claim=held`);
-  const reclaimRefusal = page.getByRole("alert");
-  await expect(reclaimRefusal).toContainText("This referral is not waiting to be claimed.");
-  await expect(reclaimRefusal).not.toContainText("already been claimed");
-  await expect(reclaimRefusal).not.toContainText("another Master");
-  // Still theirs, and still directable: the refusal is a correction to the request, not to the state below it.
-  await expect(referralRow(page, "Status")).toContainText("Claimed");
-  await expect(directButton(page)).toBeVisible();
-  await expectNoAccessibilityViolations(page);
-
+  // ── the direction ───────────────────────────────────────────────────────────────────────────────────────────
   await directButton(page).click();
-  await expect(page).toHaveURL(`${POOL_PATH}/${mine.referralId}/direction`);
+  await expect(page).toHaveURL(`${POOL_PATH}/${referralId}/direction`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Record a direction");
   // The reference captions the form, because a judge must see which application they are directing before they
-  // attest to it — and it is on `JudicialCaseView`, so it is theirs to see.
-  await expect(page.locator(".govuk-caption-l")).toHaveText(mine.reference);
+  // attest to it.
+  await expect(page.locator(".govuk-caption-l")).toHaveText(raisedCase.reference);
 
   // **Neither pair of radios defaults.** A pre-selected Gazette answer would be this page deciding publication
-  // on the judge's behalf, which is the one call api-2 decision 6 puts in their hands — and it is only visible
-  // here, before anything has been submitted.
+  // on the judge's behalf.
   await expect(page.getByRole("radio", { checked: true })).toHaveCount(0);
   await expectNoAccessibilityViolations(page);
 
   // Nothing answered: two questions, two messages, both linked from the summary to the control they belong to.
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("alert")).toContainText("There is a problem");
-  const decisionError = page.getByRole("link", { name: "Select whether the application is approved or rejected" });
-  await expect(decisionError).toHaveAttribute("href", "#decision");
+  await expect(page.getByRole("link", { name: "Select whether the application is approved or rejected" })).toHaveAttribute("href", "#decision");
   await expect(page.getByRole("link", { name: "Select whether there are any changes to the standard publications in the Gazette" })).toHaveAttribute(
     "href",
     "#changesToStandardPublication"
   );
-  // Still the form, not the check step: nothing can be attested to that has not been answered.
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Record a direction");
   await expectNoAccessibilityViolations(page);
 
   // Changes to the standard publication with nothing to say what they are: refused beside the textarea, because
-  // "Yes" alone does not tell the office whether to publish nothing or only the last name (Master Sullivan's
-  // feedback, Steve, 2026-10-27). The questions are asked in the Masters' order: decision, Gazette, then the text.
+  // "Yes" alone does not tell the office whether to publish nothing or only the last name.
   await fillDirection(page, { decision: "Approved", directions: "", gazette: "Yes" });
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("link", { name: "Enter the directions or reasons, saying what changes about the Gazette publication" })).toHaveAttribute(
     "href",
     "#directionsText"
   );
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Record a direction");
   await expectNoAccessibilityViolations(page);
 
   await fillDirection(page, { decision: "Approved", directions: "Approved on the papers. Publish the last name only.", gazette: "Yes" });
@@ -263,17 +190,13 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   await expect(summaryRow(page, "Decision")).toContainText("Approved");
   await expect(summaryRow(page, "Directions/Reasons")).toContainText("Approved on the papers. Publish the last name only.");
   await expect(summaryRow(page, "Changes to the standard publications in the Gazette")).toContainText("Yes");
-  // The declaration is above the submit and pressing the button is the attestation — the Design System's
-  // check-answers pattern, not a tick box in front of a button that already confirms.
   await expect(page.getByText("By recording this direction you confirm it is your direction on this application.")).toBeVisible();
   await expect(page.getByText("You can change or withdraw your direction until the office closes the referral.")).toBeVisible();
   await expect(page.getByRole("checkbox")).toHaveCount(0);
   await expectNoAccessibilityViolations(page);
 
   // **Change is a submit, and this is the assertion that the state travels in the request.** Nothing is stored
-  // between the two steps — no draft, client or server (decision 7) — so a link back to the form would arrive
-  // empty. Re-posting the three fields is what brings them back, and the form must not be marked up with errors
-  // for a direction the judge has already said they want to change.
+  // between the two steps, so a link back to the form would arrive empty.
   await page.getByRole("button", { name: "Change your answers" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Record a direction");
   await expect(page.getByRole("radio", { name: "Approved" })).toBeChecked();
@@ -288,26 +211,34 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
 
   await page.getByRole("button", { name: "Confirm and record the direction" }).click();
 
-  // One atomic call, and back to the referral it was recorded against — the banner explains why the state has
-  // changed, and the direction below it is the change.
-  await expect(page).toHaveURL(`${POOL_PATH}/${mine.referralId}?direction=recorded`);
-  // `role="alert"` rather than the `region` a default notification banner carries: `govukNotificationBanner`
-  // swaps the role for `type: "success"`, so the recorded direction is announced rather than merely present.
+  await expect(page).toHaveURL(`${POOL_PATH}/${referralId}?direction=recorded`);
   await expect(page.getByRole("alert")).toContainText("Your direction has been recorded.");
   await expect(referralRow(page, "Status")).toContainText("Decided");
   await expect(page.getByRole("heading", { name: "Direction recorded" })).toBeVisible();
   await expect(summaryRow(page, "Decision")).toContainText("Rejected");
   await expect(summaryRow(page, "Directions/Reasons")).toContainText("Approved on the papers. Publish the last name only.");
   await expect(summaryRow(page, "Changes to the standard publications in the Gazette")).toContainText("Yes");
-  // Neither control applies to a decided referral, and both are absent from the markup rather than disabled —
-  // the shape every other refusal in this app takes.
-  await expect(claimButton(page)).toHaveCount(0);
+  // A directed referral has no due date and nothing more to record.
+  await expect(referralRow(page, "Direction due by")).toHaveCount(0);
   await expect(directButton(page)).toHaveCount(0);
   await expectNoAccessibilityViolations(page);
 
-  // And it has left the shared pool, which is what a claim and a direction are for.
-  await page.goto(POOL_PATH);
-  await expect(page.locator(`a[href="${POOL_PATH}/${mine.referralId}"]`)).toHaveCount(0);
+  // Back on My referrals, it has moved to the directed section, under the same day.
+  await page.getByRole("link", { name: "Back to My referrals" }).click();
+  await expect(page).toHaveURL(MINE_PATH);
+  expect(await placeOf(myReferralsRow(page, referralId))).toEqual({ section: DIRECTED_SECTION, day: `${shortDate(raised.createdOn)} referrals` });
+
+  // ── another Master's referral ───────────────────────────────────────────────────────────────────────────────
+  // **404 and not 403**: api answers another Master's referral as it answers a withdrawn or a never-there one, and
+  // the page must say so without saying who has it.
+  const refused = await page.goto(`${POOL_PATH}/${theirs.referralId}`);
+  expect(refused?.status()).toBe(404);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("This referral is no longer available");
+  await expect(page.locator("body")).not.toContainText(elsewhere.name);
+  await expect(page.locator("body")).not.toContainText("another Master");
+  await expectNoAccessibilityViolations(page);
+  await page.getByRole("link", { name: "Back to My referrals" }).click();
+  await expect(page).toHaveURL(MINE_PATH);
 });
 
 /**
@@ -319,15 +250,16 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
  *
  * **What only a browser shows here:** that the change journey's flag survives every round trip — form, check step,
  * confirm — so the confirm reaches api's `PUT` rather than recording a second direction, and that a withdrawal
- * really leaves the referral claimed by this judge with the direction form offered again.
+ * really leaves the referral with this judge with the direction form offered again.
  *
  * The document is uploaded through the caseworker contract route, as an office would attach it, and downloaded
  * through the judge's own session: the judicial route is the only door a judge has to it.
  */
 test("judge changes a direction they gave, then withdraws it and directs again", async ({ page, request }) => {
-  const seeded = await seedReferral(request, { reason: "Minor" });
+  const master = await judgePersonaMaster(request);
+  const seeded = await seedReferral(request, { reason: "Minor", masterId: master.id, urgent: false });
   const uploaded = await request.post(`${MOCK_API_URL}/caseworker/cases/${seeded.caseId}/documents`, {
-    headers: bearer(CASEWORKER_EMAIL),
+    headers: bearer({ sub: CASEWORKER_EMAIL }),
     multipart: {
       file: { name: "birth-certificate.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 e2e") },
       documentTypeId: "11111111-1111-4111-8111-111111111111",
@@ -338,7 +270,6 @@ test("judge changes a direction they gave, then withdraws it and directs again",
 
   // Directed through the UI rather than seeded, so the director is the signed-in judge's own IDAM subject.
   await page.goto(`${POOL_PATH}/${seeded.referralId}`);
-  await claimButton(page).click();
   await directButton(page).click();
   await fillDirection(page, { decision: "Approved", directions: "Approved on the papers.", gazette: "No" });
   await page.getByRole("button", { name: "Continue" }).click();
@@ -387,20 +318,21 @@ test("judge changes a direction they gave, then withdraws it and directs again",
   await expect(referralRow(page, "Status")).toContainText("Decided");
   await expect(summaryRow(page, "Directions/Reasons")).toContainText("Further evidence of the change is needed.");
 
-  // ── withdraw it: a confirmation, then the referral claimed by this judge and waiting for a new direction ────
+  // ── withdraw it: a confirmation, then the referral with this judge and waiting for a new direction ──────────
   await page.getByRole("link", { name: "Withdraw your direction" }).click();
   await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}/withdraw`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Withdraw your direction");
-  await expect(page.getByText("Until you do, this referral stays claimed by you.")).toBeVisible();
+  await expect(page.getByText("Until you do, this referral stays with you.")).toBeVisible();
   await expectNoAccessibilityViolations(page);
   await page.getByRole("button", { name: "Withdraw direction" }).click();
 
   await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}?direction=withdrawn`);
   await expect(page.getByRole("alert")).toContainText("Your direction has been withdrawn. Record a new direction.");
   await expect(referralRow(page, "Status")).toContainText("Claimed");
+  await expect(referralRow(page, "Direction due by")).toBeVisible();
   await expect(page.getByRole("link", { name: "Change your direction" })).toHaveCount(0);
 
-  // ── and direct again, as for any claimed referral ───────────────────────────────────────────────────────────
+  // ── and direct again, as for any referral waiting for a direction ───────────────────────────────────────────
   await directButton(page).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Record a direction");
   await fillDirection(page, { decision: "Approved", directions: "Approved after reconsideration.", gazette: "No" });
@@ -413,130 +345,67 @@ test("judge changes a direction they gave, then withdraws it and directs again",
 });
 
 /**
- * The journey business testing found broken, end to end — `docs/plans/referrals-admin-6-judicial-my-referrals.md`.
+ * One referral's life across both personas — `docs/plans/referrals-admin-6-judicial-my-referrals.md`, rebuilt for
+ * assignment.
  *
- * **One test, because it is one referral's life.** A judge claims it, loses sight of it, finds it again on **My
- * referrals**, directs it, and the row goes when the office actions the direction. The journey above ends where the
- * feedback began: a successful claim takes a referral off the pool, which was the only judicial list, so a judge
- * who navigated away could reach it again only through browser history or a remembered UUID.
- *
- * **What only a browser can show here, and it is decision 1 rather than any single page's rendering:**
+ * **What only a browser can show here:**
  *
  * - **"Mine" survives the session becoming somebody else and back.** api answers it from the token's IDAM
- *   subject, so the list is the same after a round trip through the caseworker persona — which is exactly what a
- *   list derived from session state, from browser history or from rows previously seen could not manage. A unit
- *   test cannot tell the two implementations apart: both return the same rows for a session that never changed.
- * - **The two lists agree about which one a referral is on.** The claim removes the row from the pool and the
- *   detail page's own link changes to name the other list in the same request. Rendering either half alone passes
- *   with the other half wrong, and a judge sent "back" to a list their referral has left is this plan's bug
- *   arriving from the other direction.
+ *   subject, so the list is the same after a round trip through the caseworker persona — which a list derived from
+ *   session state, browser history or rows previously seen could not manage.
  * - **Terminal removal is cross-persona.** The row leaves only when a *caseworker* marks the direction actioned,
  *   so nothing the judge's own session does can be what removes it.
  *
  * **It signs itself in and must keep doing so.** Do not give it `JUDGE_STORAGE_STATE`: a persona switch calls
  * `signIn`, which regenerates the session id and destroys the server-side session behind the restored cookie — so
- * the journey above, which shares that state, would be signed out mid-run and the symptom would be a timeout on an
- * unrelated locator. `persona-switcher.spec.ts` records the same reasoning at length.
- *
- * The personas are the same IDAM users the fixtures are, so switching to **Judge** returns to
- * `judge@example.com` — the subject that claimed the referral. `PERSONA_SWITCHER_ENABLED=true` on
- * `dev:nowatch:web` is what makes the strip render at all.
+ * the journeys above, which share that state, would be signed out mid-run. `persona-switcher.spec.ts` records the
+ * same reasoning at length. `PERSONA_SWITCHER_ENABLED=true` on `dev:nowatch:web` is what makes the strip render.
  */
-test.describe("across the two judicial lists and both personas", () => {
+test.describe("across both personas", () => {
   test.use({ storageState: undefined });
 
-  test("a judge claims a referral, finds it again on My referrals, directs it, and loses the row when the office actions it", async ({ page, request }) => {
+  test("a Master finds an assigned referral on My referrals, directs it, and loses the row when the office actions it", async ({ page, request }) => {
     // **The storage-state opt-out, asserted rather than assumed.** A context that had restored the shared judge
-    // session would still land on the pool from `/login` — `signInAsJudge` would pass — and the first persona
-    // switch would then destroy a session the journey above is using. That failure appears in another file, so it
-    // is pinned here, where the decision is.
+    // session would still land on My referrals, and the first persona switch would then destroy a session the
+    // journeys above are using.
     expect(await page.context().cookies()).toEqual([]);
 
-    // One urgent referral waiting, and the case behind it: the office half of this journey needs the case id,
-    // because api's judicial surface carries none (api-3 decision 2).
-    const seeded = await seedReferral(request, { reason: "Minor" });
+    const master = await judgePersonaMaster(request);
+    const seeded = await seedReferral(request, { reason: "Minor", masterId: master.id, urgent: true });
 
     await signInAsJudge(page);
 
-    // Decision 4's navigation, on the page a judge lands on: both destinations named, and the one they are on
-    // marked with `aria-current` rather than by weight alone — the state has to reach somebody who cannot see the
-    // underline.
-    const nav = page.getByRole("navigation", { name: "Referral lists" });
-    await expect(navLink(page, "Referrals for a direction")).toHaveAttribute("aria-current", "page");
-    await expect(navLink(page, "My referrals")).toHaveAttribute("href", MINE_PATH);
-    await expect(navLink(page, "My referrals")).not.toHaveAttribute("aria-current", "page");
-
-    await (await poolRow(page, request, seeded.referralId)).getByRole("link").click();
-    await claimButton(page).click();
-
-    await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}`);
-    await expect(referralRow(page, "Status")).toContainText("Claimed");
-    // Decision 5, and the first half of the fix: the referral has left the pool, so the way back cannot be the
-    // pool. The link is resolved from the state api published a moment ago, not from where the judge came from.
-    await expect(page.getByRole("link", { name: "Back to My referrals" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Back to referrals for a direction" })).toHaveCount(0);
-
-    // **Navigating away is the whole of the original defect.** The pool no longer has it, and before this plan
-    // nothing else did.
-    await page.goto(POOL_PATH);
-    await expect(page.locator(`a[href="${POOL_PATH}/${seeded.referralId}"]`)).toHaveCount(0);
-
-    // Recovered from the page the judge is standing on, by keyboard: the navigation is a list of links, so this is
-    // also what shows there is no keyboard trap between the two lists.
-    await navLink(page, "My referrals").focus();
-    await page.keyboard.press("Enter");
-
-    await expect(page).toHaveURL(MINE_PATH);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("My referrals");
-    await expect(navLink(page, "My referrals")).toHaveAttribute("aria-current", "page");
-    await expect(navLink(page, "Referrals for a direction")).not.toHaveAttribute("aria-current", "page");
-    // Says what the two statuses mean and what takes a row off the list, because both are surprising otherwise.
-    await expect(page.getByText("A referral stays here until the court has actioned your direction")).toBeVisible();
-    // api's queue, so there is nothing to compose: no filter bar, no search and no sortable headers (decision 2).
-    await expect(page.getByRole("searchbox")).toHaveCount(0);
-    await expect(nav.getByRole("link")).toHaveCount(2);
-
-    const claimed = await myReferralsRow(page, request, seeded.referralId);
-    // The judge's own two words, not the caseworker's "With a Master": what they still owe, and what they have
-    // answered. The urgency word is printed and not left to the tag colour.
-    await expect(claimed).toContainText("Direction needed");
-    await expect(claimed).toContainText("Urgent");
-    await expect(claimed).toContainText("Applicant is a minor");
-    await expect(claimed).toContainText(seeded.waitingSince);
+    const assigned = myReferralsRow(page, seeded.referralId);
+    expect(await placeOf(assigned)).toEqual({ section: URGENT_SECTION, day: null });
+    await expect(assigned).toContainText("Applicant is a minor");
+    await expect(assigned).toContainText(`Referred ${shortDate(seeded.createdOn)}`);
     await expectNoApplicationData(page, seeded);
     await expectNoAccessibilityViolations(page);
+    // The judicial lists' navigation went with the pool: one list needs no navigation.
+    await expect(page.getByRole("navigation", { name: "Referral lists" })).toHaveCount(0);
 
-    // **The other rendering this page has.** A judge holding nothing is the ordinary state at the start of a day,
-    // but it cannot be arranged here — the mock's store is shared with every other spec and outlives the run, so
-    // `judge@example.com` holds whatever earlier claims are still open. A page past the end reaches the same
-    // branch, which is what the axe check needs: no table, and a sentence instead. The sentence itself is
-    // `mine.njk.test.ts`'s, since on page 99 it is true of the page rather than of the judge.
+    // **The other rendering this page has.** A judge holding nothing cannot be arranged on a shared store, but a
+    // page past the end reaches the same branch, which is what the axe check needs.
     await page.goto(`${MINE_PATH}?page=99`);
     await expect(page.getByRole("table")).toHaveCount(0);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("My referrals");
-    await expect(navLink(page, "My referrals")).toHaveAttribute("aria-current", "page");
     await expectNoAccessibilityViolations(page);
 
-    // ── to the caseworker and back, which is decision 1 asserted from outside ──────────────────────────────────
-    // A session that has been another identity and come back must get the same list, because the list is api's
-    // answer about a token and not this app's memory of anything.
+    // ── to the caseworker and back ─────────────────────────────────────────────────────────────────────────────
     await switchTo(page, "Caseworker").click();
     await expect(page).toHaveURL(CASE_LIST_PATH);
-    // Decision 4 from the other side, on the one page it could have leaked onto: the navigation is local to the two
-    // judicial lists, so a caseworker is offered no door the `/judicial/**` gate would then shut.
+    // A caseworker is offered no door the `/judicial/**` gate would then shut.
     await expect(page.locator(`a[href^="${POOL_PATH}"]`)).toHaveCount(0);
     await switchTo(page, "Master").click();
-    await expect(page).toHaveURL(POOL_PATH);
+    await expect(page).toHaveURL(MINE_PATH);
 
-    const recovered = await myReferralsRow(page, request, seeded.referralId);
-    await expect(recovered).toContainText("Direction needed");
-
+    const recovered = myReferralsRow(page, seeded.referralId);
+    await expect(recovered).toHaveCount(1);
     await recovered.getByRole("link").click();
     await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}`);
     await expect(referralRow(page, "Status")).toContainText("Claimed");
 
-    // The direction, in the fewest steps that reach it: the form, the check step and the attestation are the
-    // journey above's subject, and repeating their assertions here would pin them twice.
+    // The direction, in the fewest steps that reach it: the form and the attestation are the first journey's.
     await directButton(page).click();
     await fillDirection(page, { decision: "Approved", directions: "Approved on the papers.", gazette: "No" });
     await page.getByRole("button", { name: "Continue" }).click();
@@ -544,25 +413,16 @@ test.describe("across the two judicial lists and both personas", () => {
 
     await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}?direction=recorded`);
     await expect(referralRow(page, "Status")).toContainText("Decided");
-    // Still the judge's own work until the office has acted on it, so the way back is still My referrals — the
-    // state decides the destination, and `Decided` is on that list too.
+    // Still the judge's own work until the office has acted on it.
     await page.getByRole("link", { name: "Back to My referrals" }).click();
     await expect(page).toHaveURL(MINE_PATH);
-
-    const decided = await myReferralsRow(page, request, seeded.referralId);
-    await expect(decided).toContainText("Direction recorded");
-    await expectNoApplicationData(page, seeded);
-    await expectNoAccessibilityViolations(page);
-    // Which page it was on, read off the URL `myReferralsRow` navigated to: after the closure the row is gone, and
-    // a removal can only pull the rows behind it earlier — so pages 1 to this one are where it could still appear.
-    const wasOnPage = Number(new URL(page.url()).searchParams.get("page"));
+    expect(await placeOf(myReferralsRow(page, seeded.referralId))).toEqual({ section: DIRECTED_SECTION, day: `${shortDate(seeded.createdOn)} referrals` });
 
     // ── the office actions the direction, which is the only thing that removes the row ─────────────────────────
     await switchTo(page, "Caseworker").click();
     await page.goto(`${CASE_LIST_PATH}/${seeded.caseId}/referrals/${seeded.referralId}`);
 
-    // The same referral in the caseworker's vocabulary, which is the other half of `referrals-admin-4`: a judge
-    // reads what they still owe, the office reads what it has been sent.
+    // The same referral in the caseworker's vocabulary: the office reads what it has been sent.
     await expect(summaryRow(page, "Referral status")).toContainText("Direction received");
     await page.getByRole("button", { name: "Mark direction as actioned" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Confirm the direction has been actioned");
@@ -573,57 +433,44 @@ test.describe("across the two judicial lists and both personas", () => {
 
     // ── back as the judge, and the row has gone ────────────────────────────────────────────────────────────────
     await switchTo(page, "Master").click();
+    await expect(page).toHaveURL(MINE_PATH);
+    await expect(myReferralsRow(page, seeded.referralId)).toHaveCount(0);
 
-    for (let number = 1; number <= wasOnPage; number++) {
-      await page.goto(`${MINE_PATH}?page=${number}`);
-      await expect(page.locator(`a[href="${POOL_PATH}/${seeded.referralId}"]`), `My referrals page ${number}`).toHaveCount(0);
-    }
-
-    // Out of sight entirely rather than merely off a list, which is what makes the removal api's membership rule
-    // and not a display choice: a closed referral is the same 404 as one that never existed, and the page says so
-    // without saying who had it.
+    // Out of sight entirely rather than merely off a list: a closed referral is the same 404 as one that never
+    // existed, and the page says so without saying who had it.
     const gone = await page.goto(`${POOL_PATH}/${seeded.referralId}`);
     expect(gone?.status()).toBe(404);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("This referral is no longer available");
     await expect(page.locator("body")).not.toContainText(CASEWORKER_EMAIL);
-    // A refused read publishes no state, so there is no list to claim it is on and this page returns to the pool —
-    // decision 5's last case, and the reason it is not a guess at My referrals.
-    await page.getByRole("link", { name: "Back to referrals for a direction" }).click();
-    await expect(page).toHaveURL(POOL_PATH);
+    await page.getByRole("link", { name: "Back to My referrals" }).click();
+    await expect(page).toHaveURL(MINE_PATH);
   });
 });
 
 /**
  * The persona boundary, from the other side.
  *
- * **The administrator rather than the roleless caseworker, deliberately.** `caseworker-deedpoll-team-leader` is the
- * most privileged account this service has, and the mistake worth pinning is the assumption that it is a
- * superset — `currentUser` sets `isJudicial` as an alternative to `isAdmin`, not a level below it. The roleless
- * caseworker is refused a fortiori, and both directions of the middleware itself are unit-tested in
- * `src/auth/require-role.test.ts`; what needs a browser is that the gate is *mounted* on the running app.
+ * **The Team leader rather than the roleless caseworker, deliberately.** `caseworker-deedpoll-team-leader` holds
+ * the staff capabilities, and the mistake worth pinning is the assumption that it is a superset of the judicial
+ * role. Both directions of the middleware itself are unit-tested in `src/auth/require-role.test.ts`; what needs a
+ * browser is that the gate is *mounted* on the running app.
  *
  * Its own `describe` because that is the only place Playwright honours a second `test.use` in one file.
  */
 test.describe("without the judicial role", () => {
   test.use({ storageState: TEAM_LEADER_STORAGE_STATE });
 
-  test("administrator is refused the judicial area and is not sent to it", async ({ page }) => {
-    // `/` resolves the persona, and an administrator's is the case list — a judge's pool is not one link away
-    // from it, because the judicial lists' navigation renders only on pages inside the judicial area and the
-    // caseworker chrome has nothing to put such a link in (admin-3 decision 8, still true after admin-6).
+  test("Team leader is refused the judicial area and is not sent to it", async ({ page }) => {
+    // `/` resolves the persona, and a Team leader's is the case list.
     await page.goto("/");
     await expect(page).toHaveURL("/deed-polls");
     await expect(page.locator(`a[href^="${POOL_PATH}"]`)).toHaveCount(0);
 
-    // Every judicial URL, including one naming a referral id that exists nowhere: the gate is the area's and
-    // fires before anything is resolved, so the refusal is 403 rather than a 404 that would say whether there
-    // was something there. The 404 *view* on a 403 status is `src/errors.ts`'s deliberate choice.
+    // Every judicial URL, including the old pool's redirect and one naming a referral id that exists nowhere: the
+    // gate is the area's and fires before anything is resolved, so the refusal is 403 rather than a 404 that would
+    // say whether there was something there. The 404 *view* on a 403 status is `src/errors.ts`'s deliberate choice.
     for (const path of [
       POOL_PATH,
-      `${POOL_PATH}?page=2`,
-      // The judge's own list is gated by the area it lives in and not by anything in the page, so it is on this
-      // list for the same reason the pool is: nothing in `mine.ts` asks about the role, and an ungated build would
-      // render it to this administrator identically.
       MINE_PATH,
       `${MINE_PATH}?page=2`,
       `${POOL_PATH}/00000000-0000-0000-0000-000000000000`,
@@ -633,30 +480,46 @@ test.describe("without the judicial role", () => {
 
       expect(response?.status(), `${path} should be refused`).toBe(403);
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Page not found");
-      // Nothing from the judicial chrome reaches them, which is the whole of the persona split — neither list's
-      // heading and neither of the navigation's two labels.
-      await expect(page.locator("body")).not.toContainText("Referrals for a direction");
       await expect(page.locator("body")).not.toContainText("My referrals");
     }
   });
 });
 
 /**
- * An application with an urgent referral waiting on it, and the facts the journey needs back.
+ * An application with a referral assigned to `masterId`, and the facts the journey needs back.
  *
- * **The case goes through `POST /__mock/cases` and the referral through the contract route**, which is the split
- * `deed-polls.spec.ts` uses and for its reason: what a create does is not what is being tested here, but a
- * referral's state is api's state machine and a fixture that wrote it directly would teach this screen a pool
- * api's own rules cannot produce.
+ * **The case goes through `POST /__mock/cases` and the referral through the contract route**, with the Master
+ * chosen as the raise form chooses one: a referral's state is api's state machine, and a fixture that wrote it
+ * directly would teach this screen an assignment api's own rules cannot produce.
+ */
+async function seedReferral(request: APIRequestContext, options: { reason: string; masterId: string; urgent: boolean }): Promise<SeededReferral> {
+  const seeded = await seedCase(request, {});
+
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${seeded.caseId}/referrals`, {
+    headers: bearer({ sub: CASEWORKER_EMAIL }),
+    data: {
+      // A minor's referral names what kind it is, as api refuses `Minor` alone since api#156.
+      reasons: options.reason === "Minor" ? ["Minor", "MinorCourtOrder"] : [options.reason],
+      notes: "Please consider the applicant's circumstances.",
+      masterId: options.masterId,
+      ...(options.urgent ? { urgency: "Urgent", urgencyReason: "Hearing listed on Friday." } : { urgency: "Normal" })
+    }
+  });
+  expect(raised.status(), await raised.text()).toBe(201);
+  const referral = await raised.json();
+
+  return { ...seeded, referralId: referral.id, createdOn: referral.createdOn, directionDueBy: referral.directionDueBy };
+}
+
+/**
+ * A case with nothing referred yet.
  *
  * **The names, reference and fee reference are unique per call**, because the mock's store is shared with every
- * other spec in the run and outlives the run itself — `reuseExistingServer`. The fee reference in particular has
- * to be unique: the disclosure assertion is "this string is nowhere on the page", which an earlier run's copy of
- * a fixed value could not falsify but a *shared* value in some other case's row could.
- *
- * Received in July, so the dates collide with no other seeder's.
+ * other spec in the run and outlives the run itself: the disclosure assertion is "this string is nowhere on the
+ * page", which a *shared* value in some other case's row could falsify. Received in July, so the dates collide
+ * with no other seeder's.
  */
-async function seedReferral(request: APIRequestContext, options: { reason: string; note?: string }): Promise<SeededReferral> {
+async function seedCase(request: APIRequestContext, options: { note?: string }): Promise<SeededCase> {
   const token = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const reference = `KBDP2026-${String(Math.floor(Math.random() * 10_000)).padStart(4, "0")}`;
   const feeReference = `FEE-${token}`;
@@ -676,141 +539,83 @@ async function seedReferral(request: APIRequestContext, options: { reason: strin
       feeReference
     }
   });
-  // Asserted, because a rejected seed leaves the journey looking for a row that was never created and the
-  // failure surfaces several steps later as an empty pool.
   expect(created.status(), await created.text()).toBe(201);
   const caseId = (await created.json()).id;
 
   if (options.note) {
     // A note the office typed, so the judicial screen's absence check has something real to fail against.
     const noted = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/notes`, {
-      headers: bearer(CASEWORKER_EMAIL),
+      headers: bearer({ sub: CASEWORKER_EMAIL }),
       data: { note: options.note }
     });
     expect(noted.status(), await noted.text()).toBe(201);
   }
 
-  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, {
-    headers: bearer(CASEWORKER_EMAIL),
-    data: {
-      reasons: [options.reason],
-      notes: "Please consider the applicant's circumstances.",
-      // Urgent so the pool's order cannot move this row underneath the test — see the arrangement comment in
-      // the journey.
-      urgency: "Urgent",
-      urgencyReason: "Hearing listed on Friday."
+  return { caseId, reference, feeReference };
+}
+
+/**
+ * The caseworker's half: the raise form, as a Team leader in a context of their own, choosing `master` on the
+ * Master question. Returns the referral's id, read off the row that links to it.
+ *
+ * A restored Team leader session rather than a sign-in, which is safe because this only reads the session.
+ */
+async function raiseThroughTheForm(browser: Browser, caseId: string, master: Master): Promise<string> {
+  const context = await browser.newContext({ storageState: TEAM_LEADER_STORAGE_STATE });
+
+  try {
+    const page = await context.newPage();
+    await page.goto(`${CASE_LIST_PATH}/${caseId}/referrals/new`);
+    await page.getByLabel("Non-publication request").check();
+    await page.getByLabel("Standard", { exact: true }).check();
+    await page.getByRole("radio", { name: master.name, exact: true }).check();
+    await page.getByRole("button", { name: "Raise referral" }).click();
+
+    await expect(page).toHaveURL(`${CASE_LIST_PATH}/${caseId}#referrals`);
+    const referrals = page.locator("#referrals");
+    await expect(referrals.locator(".govuk-tag")).toHaveText(`With ${master.name}`);
+    const href = await referrals.getByRole("link", { name: /view this referral/ }).getAttribute("href");
+
+    return (href ?? "").split("/").pop() ?? "";
+  } finally {
+    await context.close();
+  }
+}
+
+/** The referral as the judge persona's api sees it, for the two dates its rows print. */
+async function judicialReferral(request: APIRequestContext, referralId: string): Promise<{ createdOn: string; directionDueBy: string }> {
+  const response = await request.get(`${MOCK_API_URL}${POOL_PATH}/${referralId}`, { headers: bearer({ sub: JUDGE_EMAIL }) });
+  expect(response.status(), await response.text()).toBe(200);
+
+  return response.json();
+}
+
+/**
+ * One referral's row on **My referrals**, having navigated there.
+ *
+ * Located by the row's link `href`, which is the one thing that identifies it: api's summary carries no reference
+ * and no applicant. The page asks api for its maximum page size, so on a fresh mock every row is on page 1.
+ */
+function myReferralsRow(page: Page, referralId: string): Locator {
+  return page.locator("tbody tr").filter({ has: page.locator(`a[href="${POOL_PATH}/${referralId}"]`) });
+}
+
+/**
+ * Which section and day heading a row sits under: the nearest `h2` before its table, and the nearest `h3` after
+ * that `h2`, if any. Read off the document because the grouping is the thing under test.
+ */
+async function placeOf(row: Locator): Promise<{ section: string | null; day: string | null }> {
+  await expect(row).toHaveCount(1);
+  if (new URL(row.page().url()).pathname !== MINE_PATH) throw new Error("placeOf reads My referrals");
+
+  return row.evaluate((element) => {
+    let day: string | null = null;
+    for (let node = element.closest("table")?.previousElementSibling ?? null; node; node = node.previousElementSibling) {
+      if (node.tagName === "H3" && day === null) day = node.textContent?.trim() ?? null;
+      if (node.tagName === "H2") return { section: node.textContent?.trim() ?? null, day };
     }
+    return { section: null, day };
   });
-  expect(raised.status(), await raised.text()).toBe(201);
-  const referral = await raised.json();
-
-  return { caseId, referralId: referral.id, reference, feeReference, waitingSince: formatTimestamp(referral.createdOn) };
-}
-
-/** How many referrals api has waiting for a direction — the number the pool's summary states. */
-async function poolTotal(request: APIRequestContext): Promise<number> {
-  const response = await request.get(`${MOCK_API_URL}${POOL_PATH}?size=1`);
-  expect(response.status(), await response.text()).toBe(200);
-
-  return (await response.json()).total;
-}
-
-/**
- * One referral's row in the pool, having navigated to the page it is on.
- *
- * **Located by the row's link `href`, which is the one thing that identifies it.** A pool row carries no
- * reference and no applicant by api's decision 2, and its other three cells — an urgency, a set of reasons and a
- * formatted minute — are shared with every other row this file seeds. There is nothing for `getByRole` to bind
- * to that is unique, so the href is not a fallback here but the actual key.
- *
- * **The page comes from api rather than from a walk of the pagination**, because the pool is shared and global:
- * `yarn mock:seed` and every earlier local run leave referrals in it, so page 1 is not where this journey's row
- * is. Asking api which page it is on is the same question the UI's own paging answers, and it keeps the journey
- * from clicking Next an unbounded number of times.
- */
-async function poolRow(page: Page, request: APIRequestContext, referralId: string): Promise<Locator> {
-  const wanted = await poolPageOf(request, referralId);
-  if (new URL(page.url()).searchParams.get("page") !== String(wanted)) {
-    await page.goto(`${POOL_PATH}?page=${wanted}`);
-  }
-
-  const row = page.locator("tbody tr").filter({ has: page.locator(`a[href="${POOL_PATH}/${referralId}"]`) });
-  await expect(row, `referral ${referralId} should be on pool page ${wanted}`).toHaveCount(1);
-
-  return row;
-}
-
-/**
- * One referral's row on **My referrals**, having navigated to the page it is on.
- *
- * `poolRow`'s reasoning — the row's link `href` is the only thing that identifies it, because api's summary carries
- * no reference and no applicant — and one more of its own: this list is keyed on the judge's own subject, so every
- * claim `judge@example.com` still holds is on it. The mock's store outlives the run (`reuseExistingServer`), so
- * after a few local runs page 1 is not where this journey's row is.
- *
- * Asking api which page holds it is the same question the UI's own paging answers, and it keeps the journey from
- * clicking Next an unbounded number of times.
- */
-async function myReferralsRow(page: Page, request: APIRequestContext, referralId: string): Promise<Locator> {
-  const wanted = await myReferralsPageOf(request, referralId);
-  await page.goto(`${MINE_PATH}?page=${wanted}`);
-
-  const row = page.locator("tbody tr").filter({ has: page.locator(`a[href="${POOL_PATH}/${referralId}"]`) });
-  await expect(row, `referral ${referralId} should be on My referrals page ${wanted}`).toHaveCount(1);
-
-  return row;
-}
-
-/**
- * Which page of the judge's own list holds a referral, read off api at the page size the UI renders.
- *
- * **Asked with a forged token rather than the browser's**, which is safe for the reason `bearer` gives and is the
- * one thing that makes this the same list: the mock keys ownership on the token's `sub`, and `JUDGE_EMAIL` is the
- * subject the simulator's real token carries. api takes no owner parameter, so there is no other way to ask about
- * a particular judge's list and deliberately so — see the mock's `myReferrals`.
- */
-async function myReferralsPageOf(request: APIRequestContext, referralId: string): Promise<number> {
-  for (let page = 1; ; page++) {
-    const response = await request.get(`${MOCK_API_URL}${MINE_PATH}?page=${page}&size=${POOL_PAGE_SIZE}`, { headers: bearer(JUDGE_EMAIL) });
-    expect(response.status(), await response.text()).toBe(200);
-    const mine = await response.json();
-
-    if (mine.referrals.some((referral: { id: string }) => referral.id === referralId)) return page;
-    // `totalPages` rather than an empty page, so a list that grows under this loop cannot make it run on.
-    if (page >= mine.totalPages) throw new Error(`referral ${referralId} is not on the judge's own list (${mine.total} held)`);
-  }
-}
-
-/** Which page of the pool holds a referral, read off api at the page size the UI renders. */
-async function poolPageOf(request: APIRequestContext, referralId: string): Promise<number> {
-  for (let page = 1; ; page++) {
-    const response = await request.get(`${MOCK_API_URL}${POOL_PATH}?page=${page}&size=${POOL_PAGE_SIZE}`);
-    expect(response.status(), await response.text()).toBe(200);
-    const pool = await response.json();
-
-    if (pool.referrals.some((referral: { id: string }) => referral.id === referralId)) return page;
-    // `totalPages` rather than an empty page, so a pool that grows under this loop cannot make it run on.
-    if (page >= pool.totalPages) throw new Error(`referral ${referralId} is not in the pool (${pool.total} waiting)`);
-  }
-}
-
-/** A referral claimed by somebody who is not the signed-in judge, so api's next answer about it is a 404. */
-async function claimAs(request: APIRequestContext, referralId: string, judge: string): Promise<void> {
-  const response = await request.post(`${MOCK_API_URL}${POOL_PATH}/${referralId}/claim`, { headers: bearer(judge) });
-  expect(response.status(), await response.text()).toBe(200);
-}
-
-/**
- * A bearer token carrying a subject and nothing else.
- *
- * The mock reads the subject out of the middle segment and never verifies a signature — `auditName` — so this is
- * enough to attribute a write to a name. It proves nothing about authentication, which is the app's own concern
- * and is exercised by the real sign-in the `setup` project performs.
- */
-function bearer(subject: string): Record<string, string> {
-  const claims = Buffer.from(JSON.stringify({ sub: subject }), "utf8").toString("base64url");
-
-  return { authorization: `Bearer x.${claims}.signature` };
 }
 
 /** The three controls on the direction form, in the order it asks them. The radios are checked by their labels. */
@@ -820,30 +625,17 @@ async function fillDirection(page: Page, direction: { decision: string; directio
   await page.getByLabel("Directions/Reasons").fill(direction.directions);
 }
 
-/**
- * The Gazette question's Yes or No.
- *
- * Scoped to its own fieldset because "Yes" and "No" are the labels of nothing else on the form but would be
- * ambiguous the moment a second boolean question were added, and this is the answer that cannot be taken back.
- */
+/** The Gazette question's Yes or No, scoped to its own fieldset because this is the answer that cannot be taken back. */
 function gazetteAnswer(page: Page, answer: string): Locator {
   return page.getByRole("group", { name: "Are there any changes to the standard publications in the Gazette?" }).getByRole("radio", { name: answer });
 }
 
 /**
- * A `govukSummaryList` row, addressed by its **key** rather than by its text.
- *
- * Located by class for the reason `deed-polls.spec.ts` does it: a summary-list row has no accessible name to
- * address it by, and the values this file asserts — "Approved", "Yes", a state — appear in several places on the
- * same page, so an unscoped text match would pass against any of them.
- *
- * **Scoped to the key cell and not to the row, which is not tidiness.** `hasText` is a case-insensitive
- * substring over the whole row, so a row whose *value* is the tag "Claimed" answers to a key of "Claimed" — and
- * the referral view has both. Matching on the key makes each name mean one row.
+ * A `govukSummaryList` row, addressed by its **key** rather than by its text: a summary-list row has no accessible
+ * name, and the values this file asserts appear in several places on the same page. Anchored on the key cell, so
+ * "Status" does not also answer to "Marital status".
  */
 function summaryRow(page: Page, key: string): Locator {
-  // An anchored match on the key cell: `hasText` alone is a case-insensitive substring, so "Status" would also
-  // answer to "Marital status" and to the application's own Status row.
   const keyCell = page.locator(".govuk-summary-list__key").filter({ hasText: exactText(key) });
 
   return page.locator(".govuk-summary-list__row").filter({ has: keyCell });
@@ -865,158 +657,99 @@ function exactText(text: string): RegExp {
   return new RegExp(`^\\s*${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
 }
 
-function claimButton(page: Page): Locator {
-  return page.getByRole("button", { name: "Claim this referral" });
-}
-
 /**
- * One destination in the judicial lists' navigation, scoped to the `<nav>` its label names.
- *
- * Scoped because both labels appear elsewhere on the pages that carry them — "Referrals for a direction" is also
- * the pool's `<h1>` and the unavailable page's back link, and "My referrals" is also this page's `<h1>` — so an
- * unscoped name match would assert about whichever the locator happened to find. The `aria-current` assertions in
- * particular are about the link and nothing else.
- */
-function navLink(page: Page, label: string): Locator {
-  return page.getByRole("navigation", { name: "Referral lists" }).getByRole("link", { name: label });
-}
-
-/**
- * One persona's switch button, by its accessible name — `persona-switcher.spec.ts`'s helper, restated here for the
- * reason `bearer` and `summaryRow` are.
- *
- * `exact` matters: the visually hidden prefix makes the names "Switch to Caseworker" and "Switch to Caseworker with
- * admin", and Playwright's default substring match would find both.
+ * One persona's switch button, by its accessible name — `persona-switcher.spec.ts`'s helper. `exact`, because the
+ * visually hidden prefix makes one persona's name a substring of another's.
  */
 function switchTo(page: Page, persona: string): Locator {
   return page.getByRole("button", { name: `Switch to ${persona}`, exact: true });
 }
 
 /**
- * Neither judicial list carries anything about the application — decision 3, and api's DTO rather than a filter
- * here.
- *
- * Asserted over the whole page and not just the table: a reference in a caption or a heading would be the same
- * disclosure, and there is nothing on either list that may legitimately name the application. The surname is the
- * seeder's fixed one, which is what a row would show if it had grown an applicant; the two references are unique
- * per call, so neither can be satisfied by an earlier run's copy of a fixed value.
+ * My referrals carries nothing about the application — decision 3, and api's DTO rather than a filter here.
+ * Asserted over the whole page: a reference in a caption or a heading would be the same disclosure.
  */
-async function expectNoApplicationData(page: Page, seeded: SeededReferral): Promise<void> {
+async function expectNoApplicationData(page: Page, seeded: SeededCase): Promise<void> {
   await expect(page.locator("body")).not.toContainText(seeded.reference);
   await expect(page.locator("body")).not.toContainText(seeded.feeReference);
   await expect(page.locator("body")).not.toContainText("Nakamura");
 }
 
 /**
- * "Record a direction" — an anchor in the markup, because it opens a page rather than changing anything, but
- * `getByRole("button")` all the same: `govukButton` given an `href` renders `<a role="button">`, so a locator
- * reaching for `link` finds nothing and every absence assertion passes for the wrong reason.
+ * "Record a direction" — an anchor in the markup, but `getByRole("button")` all the same: `govukButton` given an
+ * `href` renders `<a role="button">`, so a locator reaching for `link` finds nothing and every absence assertion
+ * passes for the wrong reason.
  */
 function directButton(page: Page): Locator {
   return page.getByRole("button", { name: "Record a direction" });
 }
 
 /**
- * `formatTimestamp` as `libs/deed-poll/src/deed-poll/case-header.ts` renders it, for the one cell this file reads
- * back off the pool.
- *
- * Restated rather than imported: `e2e-tests` is its own workspace and does not depend on `@hmcts/deed-poll`,
- * deliberately — a journey that imported the app's own formatter would agree with it by construction and could
- * not catch a change of format. Two implementations disagreeing is the failure worth having here.
- *
- * The zone handling is the one part that must *not* be restated independently. api's timestamps are
- * Jackson-serialised `LocalDateTime`, so they are zoneless, and `new Date("2026-07-01T14:23:45.123")` reads a
- * zoneless string as **local** time where the app's `toUtcDate` (`libs/deed-poll-api-client/src/api/wire.ts`)
- * pins it to UTC. Formatting both in Europe/London then agrees only when the runner's TZ happens to be UTC:
- * on a UK machine in BST this helper was an hour behind the page and the pool's "Waiting since" assertion
- * failed. Pinning `timezoneId` in the Playwright config would have hidden that rather than fixed it.
+ * `formatShortDate` as `libs/deed-poll/src/deed-poll/case-header.ts` renders it: the instant's `dd-mm-yy` day in
+ * Europe/London. Restated rather than imported, so a change of format is two implementations disagreeing. api's
+ * timestamps are zoneless and the app reads them as UTC (`toUtcDate`), which is the one part restated exactly.
  */
-function formatTimestamp(raw: string): string {
+function shortDate(raw: string): string {
   const when = new Date(/^\d{4}-\d{2}-\d{2}T[\d:.]+$/.test(raw) ? `${raw}Z` : raw);
-  const date = when.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" });
-  const time = when
-    .toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Europe/London" })
-    .replace(/\s?(am|pm)$/i, (_match, meridiem: string) => meridiem.toLowerCase());
 
-  return `${date} at ${time}`;
+  return when.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "Europe/London" }).replaceAll("/", "-");
 }
 
 /**
  * The Welsh *shape* of the judicial pages, not Welsh content: `cy` holds English here as it does on every
- * deed-poll page, by the migration plan's decision, so what this catches is a **missing** `cy` key — which
- * renders blank rather than erroring, and would empty a heading or a table header without failing anything.
+ * deed-poll page, so what this catches is a **missing** `cy` key, which renders blank rather than erroring.
  *
- * **In a context and session of its own**, for the reason `deed-polls.spec.ts` records at length:
- * `localeMiddleware` persists the chosen language to `req.session.locale`, so `?lng=cy` is a *write* to a
- * session that every test restoring `JUDGE_STORAGE_STATE` shares. Done on the shared one it switches another
- * spec into Welsh mid-run, and the symptom is a timeout on a locator in a different file.
- *
- * `storageState: undefined` is load-bearing: `browser.newContext()` otherwise inherits this file's `test.use`
- * and the "own session" would be the shared one — the exact bug that reasoning was earned by.
- *
- * **Both pages in the one signed-in context**, as `deed-polls.spec.ts` pairs the referral and its confirmation:
- * one login covers the pool and a referral still waiting in it, and the referral's own `cy` keys — the documents
- * heading among them — are otherwise checked by nothing.
+ * **In a context and session of its own**: `localeMiddleware` persists the chosen language to
+ * `req.session.locale`, so `?lng=cy` is a *write* to a session every test restoring `JUDGE_STORAGE_STATE` shares.
+ * `storageState: undefined` is load-bearing, or `browser.newContext()` inherits this file's `test.use`.
  */
-async function expectWelshKeysResolve(browser: Browser, openReferralId: string): Promise<void> {
+async function expectWelshKeysResolve(browser: Browser, referralId: string): Promise<void> {
   const context = await browser.newContext({ storageState: undefined });
 
   try {
     const page = await context.newPage();
     await signInAsJudge(page);
-    await page.goto(`${POOL_PATH}?lng=cy`);
+    await page.goto(`${MINE_PATH}?lng=cy`);
 
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referrals for a direction");
-    await expect(page.getByRole("columnheader", { name: "Urgency" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Waiting since" })).toBeVisible();
-    await expect(page.getByText("The most urgent referrals are first, then those waiting longest.")).toBeVisible();
-    // The language toggle offers English, which is how the page says it rendered as Welsh at all — a `cy` that
-    // failed to resolve would leave the headings blank rather than announcing itself.
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("My referrals");
+    await expect(page.getByRole("heading", { level: 2, name: URGENT_SECTION })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2, name: AWAITING_SECTION })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Reasons for referral" }).first()).toBeVisible();
+    // The language toggle offers English, which is how the page says it rendered as Welsh at all.
     await expect(page.locator(".language")).toContainText("English");
 
-    await page.goto(`${POOL_PATH}/${openReferralId}?lng=cy`);
+    await page.goto(`${POOL_PATH}/${referralId}?lng=cy`);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to a Master");
     await expect(summaryRow(page, "Reasons for referral")).toBeVisible();
-    // The documents heading: the key that would empty the section without failing anything.
     await expect(page.getByRole("heading", { name: "Supporting documents" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Claim this referral" })).toBeVisible();
+    await expect(directButton(page)).toBeVisible();
   } finally {
     await context.close();
   }
 }
 
-/** What `seedReferral` gives the journey: the id to navigate by, and the values to assert on the page. */
-interface SeededReferral {
-  /**
-   * The case the referral is on, for the **caseworker** half of the lifecycle journey: closing a referral is
-   * `/deed-polls/{id}/referrals/{referralId}/close`, and every caseworker path is keyed on the case.
-   *
-   * Not for anything judicial. api's judicial surface takes no case id and publishes none, so a judicial assertion
-   * that used this would be reaching around the boundary decision 3 exists to keep.
-   */
-  caseId: string;
-  /** The only key any judicial URL takes — there is no case id on this surface (api-3 decision 2). */
-  referralId: string;
-  reference: string;
-  /** The admin-only field that must appear nowhere on a judicial screen. */
-  feeReference: string;
-  waitingSince: string;
-}
-
 /**
- * Checked inline at each point of the journey rather than in a test of its own, per
- * `.claude/rules/e2e-testing.md`.
- *
- * **No exclusions, deliberately** — every judicial page passes without them, and the `aria-allowed-attr` waiver
- * `deed-polls.spec.ts` carries is for a govuk-frontend conditional reveal that none of these pages uses. Adding
- * one here would suppress findings that do not exist and hide any that appear later. There is therefore no
- * `allowed` parameter: adding a waiver is a change to this function, which is where the evidence for it belongs.
- *
- * Reported as `id: selector` strings rather than raw violation objects so a failure names the rule and the
- * element instead of printing an unreadable object graph.
+ * Checked inline at each point of the journey rather than in a test of its own, per `.claude/rules/e2e-testing.md`.
+ * **No exclusions, deliberately** — every judicial page passes without them.
  */
 async function expectNoAccessibilityViolations(page: Page): Promise<void> {
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
 
   expect(results.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.target).join(", ")}`)).toEqual([]);
+}
+
+/** What `seedCase` gives the journey: the values to assert on the page, and the case for the office's half. */
+interface SeededCase {
+  /** For the caseworker half only: api's judicial surface takes no case id and publishes none. */
+  caseId: string;
+  reference: string;
+  /** The admin-only field that must appear nowhere on a judicial screen. */
+  feeReference: string;
+}
+
+/** A seeded case and the referral raised on it, with the two dates My referrals prints. */
+interface SeededReferral extends SeededCase {
+  referralId: string;
+  createdOn: string;
+  directionDueBy: string;
 }

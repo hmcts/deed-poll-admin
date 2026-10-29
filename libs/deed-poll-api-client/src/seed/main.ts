@@ -35,7 +35,7 @@ async function main(): Promise<void> {
   });
   if (values.help) {
     console.log(
-      "seed:cases --environment <non-prod> --api-url <origin> --batch <unique-name> [--as-of YYYY-MM-DD] [--journal path] [--defer-judicial] [--apply]\nWithout --apply, prints the 30-case plan without network calls. Apply requires SEED_CASEWORKER_TOKEN and SEED_JUDGE_TOKEN, or --create-test-users (Azure CLI + IDAM testing support). --defer-judicial needs only the caseworker/admin token and provisions only the admin fixture. Resume without this flag later to complete judicial actions. Optional: --client-id, --vault, --secret-name. Keep the journal to resume; production is refused."
+      "seed:cases --environment <non-prod> --api-url <origin> --batch <unique-name> [--as-of YYYY-MM-DD] [--journal path] [--defer-judicial] [--apply]\nWithout --apply, prints the 30-case plan without network calls. Apply requires SEED_CASEWORKER_TOKEN and SEED_JUDGE_TOKEN, or --create-test-users (Azure CLI + IDAM testing support), and SEED_MASTER_ID (the judge's Masters-list id) unless --defer-judicial. --defer-judicial needs only the caseworker/admin token and provisions only the admin fixture. Resume without this flag later to complete judicial actions. Optional: --client-id, --vault, --secret-name. Keep the journal to resume; production is refused."
     );
     return;
   }
@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   // The host alone: `seedTarget` has already refused credentials, but nothing on a command line belongs in a log whole.
   console.log(`${target.environment}: ${new URL(target.baseUrl).host}; batch ${journal.batch}; scenario date ${journal.asOf}`);
   if (options.deferJudicial)
-    console.log("Judicial claims, directions and their subsequent referral closures are deferred. Existing completed operations are preserved.");
+    console.log("Assignments, judicial directions and their subsequent referral closures are deferred. Existing completed operations are preserved.");
   console.table(
     dataset.map((item) => ({
       marker: item.marker,
@@ -64,8 +64,11 @@ async function main(): Promise<void> {
   );
   if (!values.apply) return;
   let credentials: SeedCredentials = { caseworkerToken: process.env.SEED_CASEWORKER_TOKEN ?? "", judgeToken: process.env.SEED_JUDGE_TOKEN ?? "" };
+  const masterId = process.env.SEED_MASTER_ID ?? "";
   if (!values["create-test-users"] && (!credentials.caseworkerToken || (!options.deferJudicial && !credentials.judgeToken)))
     throw new Error("Set SEED_CASEWORKER_TOKEN and, unless --defer-judicial, SEED_JUDGE_TOKEN; or select --create-test-users before --apply.");
+  if (!options.deferJudicial && !masterId)
+    throw new Error("Set SEED_MASTER_ID to the judge's Masters-list id (api D2 assigns referrals to it), or select --defer-judicial before --apply.");
   await mkdir(dirname(filename), { recursive: true });
   const lock = await open(`${filename}.lock`, "wx", 0o600);
   try {
@@ -79,7 +82,7 @@ async function main(): Promise<void> {
     }
     await seedCases(
       journal,
-      credentials,
+      masterId ? { ...credentials, masterId } : credentials,
       async () => {
         await writeFile(`${filename}.tmp`, `${JSON.stringify(journal, null, 2)}\n`, { mode: 0o600 });
         await rename(`${filename}.tmp`, filename);

@@ -27,8 +27,12 @@ yarn mock:api                   # The in-memory api the pages develop against, o
 yarn mock:seed                  # Seed the running mock: 57 cases across every tab plus nine referrals — four
                                 # Decided so the returned-for-action count is non-zero, two of those also
                                 # awaiting the applicant's confirmation (waiting 14 and 3 days) so the second
-                                # count, its tab and the Waiting column are non-empty too. Resets the store
-                                # unless given `--keep`, and exits non-zero on a mismatch
+                                # count, its tab and the Waiting column are non-empty too, two assigned to Master
+                                # Judge and two waiting for assignment — and three Masters, Master Wren
+                                # unavailable and Master Judge on the judge persona's email, so it links on that
+                                # persona's first judicial request and finds its two on My referrals. The directed
+                                # ones are Master Sullivan's, linked to a seed identity. Resets the store unless
+                                # given `--keep` (which skips Masters already listed), and exits non-zero on a mismatch
 ```
 
 The mock starts **empty**, so a page whose data comes from a list — the case list, its filter tabs, the
@@ -81,7 +85,7 @@ pre-send phase that alone outlasts 30 s still ends on the gateway's page, having
 a 5 s floor nothing is sent: the confirm step or the recovery page re-renders with the same journey and key, saying
 nothing was sent or checked (`docs/plans/completed/20261021-r03b-gazette-send-deadline.md`).
 
-`yarn test:gazette` runs nine browser journeys, the settings page's included, against a fresh mock on 3216 and this app on 3316,
+`yarn test:gazette` runs ten browser journeys, the settings page's two included, against a fresh mock on 3216 and this app on 3316,
 using Redis on 6316/database 1 and local IDAM on 5556. It is separate from `yarn test:e2e` because its
 empty-state check must never reset a shared developer mock. See README for prerequisites.
 The standalone mock resolves missing token roles from local IDAM userinfo (override with
@@ -147,6 +151,9 @@ writing any query-shaped code:
 - **`libs/deed-poll-api-client` is the only thing that speaks HTTP to api**, and it never throws: it
   returns `ApiResult<T>`, a discriminated union, so an unreachable api is a state a page renders rather
   than a 500. Its wire types and its mock are deliberately not exported from the package index.
+  A 409 keeps api's `fieldErrors` when api sends any (otherwise none), and `ConflictError.errors` carries them. A
+  named field is the one sanctioned way to tell two 409s apart (the Master Change page: `email` is a duplicate, no
+  field a stale revision); api's prose still never is.
 - **`libs/deed-poll/src/api/deed-poll-api.ts` is the only place that knows where api is.** `callApi` turns
   a failed `ApiResult` into the domain errors `src/errors.ts` already renders. No page sees a base
   URL, and every service function takes a `Caller` — `{ accessToken }` — because api derives both the audit
@@ -167,8 +174,9 @@ Three facts about the confirmation worklist that are not derivable from a single
   (`isReorderable` in `libs/deed-poll/src/deed-poll/list-sort.ts`), because a `sort` reaches it three other ways —
   the tab link carrying the previous tab's order, a sortable column header, a bookmarked URL — and api's default is
   only a default. So the worklist drops any `sort` it is asked for and renders its headings as plain text; leaving
-  the headers as links while dropping the order would be seven controls that do nothing. Returned-for-action is a `where` on
-  `currentReferralState`, because api publishes no tab for it. Do not convert one into the other, and do not
+  the headers as links while dropping the order would be seven controls that do nothing. Returned-for-action and waiting-for-assignment
+  (`currentReferralState:is:Open`, `referrals/waiting-for-assignment.ts`) are each a `where` on
+  `currentReferralState`, because api publishes no tab for either. Do not convert one into the other, and do not
   narrow either list here.
 - **A case can be waiting for the applicant with no case state saying so.** There is no ninth `DeedPollState`:
   the case still reads `Returned`, and `awaitingConfirmationSince` — recomputed by api from its referrals' two
@@ -210,8 +218,9 @@ of them:
 
 ## Personas and role gating
 
-**Four staff personas, one deployable.** Caseworkers, Team leaders and Delivery Managers work `/deed-polls/**`; a judge works `/judicial/**` — the
-shared referral pool, one referral, the claim, and the direction flow. Facts that are not derivable from a
+**Four staff personas, one deployable.** Caseworkers, Team leaders and Delivery Managers work `/deed-polls/**`; a judge (a Master) works `/judicial/**` —
+My referrals, one referral, and the direction flow. There is no pool and no claim since api D2: a caseworker assigns
+each referral to a Master. Facts that are not derivable from a
 single file:
 
 - **`/judicial` is gated on the area, not the page.** `src/app.ts` mounts `requireJudicial()`
@@ -244,8 +253,8 @@ single file:
   pins it to the `CallerAccessResponse` enum in `openapi.json`. `callerAccessFrom` drops unknown capability
   strings and turns a missing or malformed answer into no access, so an unlisted capability fails closed.
 - **`/` is where each persona's home is decided, and the only place it can be.** A judge's home is
-  `/judicial/referrals`, other staff land on `/deed-polls`. A judge who also has staff capabilities lands on the case list;
-  ordinary caseworker plus judicial still lands on the pool.
+  `/judicial/referrals/mine` (My referrals), other staff land on `/deed-polls`. A judge who also has staff capabilities
+  lands on the case list; ordinary caseworker plus judicial still lands on My referrals.
   `/login`'s `returnTo` fallback is therefore `/` and **not** a concrete list path: the `/me` answer does not
   exist until the token has been exchanged, so hard-coding `/deed-polls` there strands every judge on a list api answers
   403 to, with nothing in the logs to say why.
@@ -255,12 +264,10 @@ single file:
   implication the rule forbids.
 - **api checks visibility before state, so no 409 on the judicial surface can mean "somebody else has it".** By
   the time a 409 is possible the caller can already see the referral, which api's visibility narrows to their own:
-  a claim 409 means they hold it or have already directed it, a direction 409 means they can see it but do not
-  hold it. So both name a *state* ("not waiting to be claimed", "not waiting for a direction from you") and the
-  claim's 409 redirects to the **referral** rather than the pool — "This referral has already been claimed" plus a
-  bounce to the list would tell a judge somebody else has work that is in fact theirs. The pool therefore carries
-  one refusal, not two. A caseworker's 409s are a different thing entirely (two caseworkers racing), which is why
-  `referrals/new.ts` re-renders at 409 instead.
+  a direction 409 means they can see it but it is not waiting for a direction from them (they have already directed
+  it). So it names a *state* ("not waiting for a direction from you") and redirects to the **referral**, never to a
+  sentence about another holder. A caseworker's 409s are a different thing entirely (two caseworkers racing, or the
+  cap), which is why `referrals/new.ts` and the assign page re-render at 409 instead.
 - **Masters see only the fields they asked for (Master Sullivan's feedback, Steve, 2026-10-27).** This narrowed the
   whole-application view of 2026-10-19, and Steve chose to narrow api's data too (api#153), not only this page.
   `application` on `GET /judicial/referrals/{id}` is api's `JudicialApplicationView`: the reference (for captions), the
@@ -275,8 +282,8 @@ single file:
   required and refuses the narrowed answer. Documents
   open in the shared viewer (see "Document viewer" below); the original download, and the legacy
   `src/pages/judicial/referrals/[referralId]/documents/[documentId]/file.ts`, share
-  `src/document-response.ts` with the caseworker route. Who may open one is api's visibility: any judge on `Open`,
-  the holder on `Claimed`, the director on `Decided`, nobody once closed. On the legacy `file.ts` the same 404 covers
+  `src/document-response.ts` with the caseworker route. Who may open one is api's visibility: no judge on `Open`,
+  the assigned Master on `Claimed`, the director on `Decided`, nobody once closed. On the legacy `file.ts` the same 404 covers
   each refusal and renders the unavailable page, and its relay keeps api's `inline` only for PDF, JPEG and PNG under a policy with
   `default-src 'none'` and a bare `sandbox` (no `allow-*` token), and downloads everything else, filename kept; the
   caseworker upload page never renders api's 404 text, only its own sentence, logging api's through `forLog`
@@ -286,9 +293,10 @@ single file:
   in the Gazette?", then "Directions/Reasons", and the check page reads back in that order. Yes means do not publish,
   or publish only as the directions say (the last name only, for example), so `directionSchema` requires
   `directionsText` when the answer is Yes, as api does. The wire field is `changesToStandardPublication`; api#154
-  renamed its column and inverted every stored answer. The old `publishToGazette` was published inverted and
-  deprecated for one release and removed by api#156; the spec refresh after it dropped it here, so it is gone from
-  the wire, the client and the mock. The caseworker
+  renamed its column and inverted every stored answer. Its deprecated `publishToGazette` alias is gone: api#156
+  removed it, the spec refreshes after it (`SPEC-PROVENANCE.md`, 2026-10-28) dropped it from the wire types, the client
+  and the mock, and `server.test.ts` pins that it is absent. The field rules' `publishToGazette` query parameter is a
+  different thing and stays. The caseworker
   pages relabel the row "Changes to the standard publications in the Gazette" but keep "Directions"; only the Master's
   own pages say "Directions/Reasons". The case's `publishToLondonGazette` (field rules, the Gazette ready list) is a
   different fact and is untouched.
@@ -312,23 +320,35 @@ single file:
   caseworker a case note, keeps the earlier direction on its audit trail and sets `directionChangedAt`. The
   caseworker's referral page and the case page's referrals panel show "The Master changed this direction on {date}."
   as inset text from that flag. It sits outside the direction section because a withdrawal leaves no direction.
-- **A user holding both roles still has no link to `/judicial/**`.** There is judicial navigation now, but it is
-  the two judicial lists' own (`src/pages/judicial/referrals/list-navigation.njk`) and it renders only on pages
-  inside the area; the shared chrome renders no service-navigation, so the caseworker-first landing in
+- **A user holding both roles still has no link to `/judicial/**`.** The judicial area has one list, so it has no
+  navigation of its own (`list-navigation.njk` went with the pool), and the shared chrome renders no service-navigation, so the caseworker-first landing in
   `src/pages/index.ts` leaves such a user typing the URL. The gate admits them, so this is a missing route rather
   than a refusal; it is `referrals-admin-3`'s flagged open question, and the fix if the business confirms such a
   user is a conditional link on the case list, not a change to the landing.
-- **The pool is `Open` only, so claiming a referral takes the row off it — and onto `/judicial/referrals/mine`.**
-  api filters `GET /judicial/referrals` to `Open` (the plan's "plus the judge's own `Claimed`/`Decided`" describes
-  `referrals-admin-3` decision 3's *read* visibility, not its list), and `GET /judicial/referrals/mine` is the
-  second collection that answers for the judge's own `Claimed`/`Decided` work — added by api follow-up 6 and
-  consumed by `referrals-admin-6`. **Membership is api's answer about the token's IDAM subject**: do not derive
-  "mine" from rows previously seen, session state, browser history or `claimedBy` display text, and do not filter
-  or re-sort either list here. The states the personal list admits live in one predicate —
-  `isMyListState` in `libs/deed-poll/src/judicial/view.ts` — which is also what decides whether a referral's detail
-  page links back to the pool or to My referrals, so the two cannot drift into returning a judge to a list their
-  referral is not on. A lapsed claim is keyed on the state, not the holder: api's inactivity sweep makes the row
-  `Open` again and it leaves the personal list even though the name is still on it.
+- **Referrals are assigned, never claimed (Master Sullivan's feedback, item D; plan
+  `docs/plans/completed/20261028-db1-assignment-contract-mock-and-pages.md`).** **Deploy order:** api D2 on every replica first, because against D1 the
+  Masters read fails validation and no referral can be raised (`docs/DEPLOYMENT.md`). The raise form's last question is "Which Master
+  should this go to?" (`masterId`, required here though api still accepts a raise without one for one release). The
+  radios come from `GET /caseworker/masters`' envelope (`window`, `cap`, each Master's `assignedInWindow`) through
+  `buildMasterChoices` (`libs/deed-poll/src/referrals/master-choices.ts`) and `src/master-radios.ts`: unavailable
+  Masters are not offered, a full one is listed disabled ("Full for this morning"), no Masters, a failed read or every
+  selectable Master full draws the form with its own sentence and no submit. api's cap 409 names `masterId`, which is how it is told from the
+  already-open-referral 409; it redraws beside the radios. Any caseworker assigns an `Open` referral or reassigns a
+  `Claimed` one at `deed-polls/[id]/referrals/[referralId]/assign` (`PUT …/assignment`), linked from the referral page
+  and the case page's panel; a 409 not naming `masterId` redirects to the fresh referral with a state sentence. The
+  current Master stays selectable when full, because choosing them again is api's no-op. The Master's 7 days are read
+  off `directionDueBy` − `assignedAt`, never restated. To a caseworker `Open` reads "Waiting for assignment" and
+  `Claimed` "With {Master}" (`REFERRAL_STATE_LABEL`/`_MEANING` in `referrals-view.ts`); api's `unassignOverdue`
+  returns a referral not directed in time to `Open`.
+- **A Master has no pool: `/judicial/referrals` is a 302 to `/judicial/referrals/mine`.** api D2 keeps the deprecated
+  pool (always empty) and claim for one release, and nothing here calls either. **Membership is api's answer about
+  the token's IDAM subject**: do not derive "mine" from rows previously seen, session state or display text, and do
+  not filter or re-sort the list. `buildMyReferralSections` (`libs/deed-poll/src/judicial/view.ts`) reads api's
+  `MINE_ORDER` into **Urgent** (urgent `Claimed`, "Referred dd-mm-yy"), **Awaiting your direction** and **Directed,
+  awaiting the office**, the last two as runs of consecutive rows sharing a "dd-mm-yy referrals" day (`createdOn` in
+  `Europe/London`). It never re-sorts, so a page that starts mid-day repeats that day's heading. The page asks for
+  `size: 100`, api's `CasePaging.MAX_SIZE`, because `JudicialPoolQuery` publishes no bound. Every judicial page,
+  including the shared "no longer available" page, links back to My referrals.
 - **A new page area must be added to `scripts/extract-welsh-strings.mjs`'s `INCLUDE`.** The script's scope is a
   list of directories, so a page area that is not on it contributes nothing to
   `.business_context/welsh-translation-request.csv` and nothing to `yarn welsh:check` — with no failure anywhere,
@@ -731,9 +751,13 @@ span several files:
 ## Delivery Manager settings
 
 `/deed-polls/settings` is where a Delivery Manager changes the service's process values while it runs (plan
-`docs/plans/20261026-dm-settings-page.md`). Phase 1 holds the referral claim window, the London Gazette recipient and
-a link to XUI staff administration. The other process values are later plans; add no field or placeholder for them.
-Facts that span several files:
+`docs/plans/20261026-dm-settings-page.md`, extended for item D by `docs/plans/completed/20261028-da1-settings-contract-mock-and-page.md`).
+It holds, in order, the referral process, the London Gazette recipient, the Masters, the bank holidays and a link to
+XUI staff administration. Add no field or placeholder for a value api has not made a setting. **Deploy order:** api D1 (the
+Masters, the bank holidays and the extended process settings) on every replica first, then this app. Against an older
+api the Masters and bank holiday lists show their unavailable sentences and a referral-process save is refused, because
+every save sends seven fields and the window's minimum is now a day (`docs/DEPLOYMENT.md`). Facts that span several
+files:
 
 - **The area is gated once, on `MANAGE_PROCESS_CONFIG`.** `src/app.ts` mounts
   `requireCapability(MANAGE_PROCESS_CONFIG)` on `/deed-polls/settings`, after `requireAuth`, beside the Gazette gate;
@@ -741,20 +765,43 @@ Facts that span several files:
   page. Only Delivery Managers hold it. The case list's "Service settings" link is drawn from the session's capability
   alone, with no api read. The capability arrives through `/me`, so an existing session gets the link within one token
   lifetime, or at once on signing in again: a missing link straight after a deploy is that, not a failed deployment.
-- **Two forms, two Saves, two revisions.** The process section posts to `/deed-polls/settings` and the Gazette section
-  to `/deed-polls/settings/gazette-recipient`, each with only its own revision, so a conflict in one never touches the
-  other's stored value. A browser submits only the form whose button was pressed, so unsaved edits in the other
+- **One form, one Save and (where api keeps one) one revision per section.** The process section posts to
+  `/deed-polls/settings` and the Gazette section to `/deed-polls/settings/gazette-recipient`, each with only its own
+  revision, so a conflict in one never touches the other's stored value. The Masters and Bank holidays add forms post
+  to `/deed-polls/settings/masters` and `/deed-polls/settings/bank-holidays` with no revision, since a new row has none. A browser submits only the form whose button was pressed, so unsaved edits in the other
   section are lost, and the intro says "Save each section before you change another". A refused Gazette save renders
   at `/deed-polls/settings/gazette-recipient`, so that address also answers a `GET` with a 302 back to the page's
-  `#gazette-recipient`; without it the language link and a reload were a 404. The handler code is in
+  `#gazette-recipient`; without it the language link and a reload were a 404. The two add addresses do the same for
+  `#masters` and `#bank-holidays`. The handler code is in
   `src/service-settings/` (every `.ts` under `src/pages` is a route). The submitted section is redrawn from the body
   with its **original** revision on a 400 or 409, never re-read; the other section is re-read and, if that read fails,
-  degrades to a sentence with no form. A success is a 303 to `?saved=<section>#<section>`, and the banner shows even if
-  the follow-up read fails.
-- **The claim window form is digits only and does not use `readNumericInput`.** `processSettingsFormSchema`
-  (`libs/deed-poll/src/settings/schemas.ts`) reads hours 0–24 and minutes 0–59 as trimmed `^\d{1,4}$` or blank, and
-  the total must sit within `PROCESS_SETTINGS_LIMITS` (30–1,440 minutes, pinned to `openapi.json`). Signs, decimals,
-  exponents and a missing control are refused. Do not swap in the case form's parser, which accepts `+2` and `2.0`.
+  degrades to a sentence with no form (the Masters and bank holiday lists degrade on their own, above a form that is
+  still drawn). A success is a 303 through `savedRedirect` to one of `SAVED`'s keys and its section's fragment
+  (`src/service-settings/page.ts`), and the banner shows even if the follow-up read fails.
+- **The referral process form is digits only and does not use `readNumericInput`.** `processSettingsFormSchema`
+  (`libs/deed-poll/src/settings/schemas.ts`) reads the processing window in whole **days** (`PROCESSING_DAYS_LIMITS`,
+  1–30; api stores minutes, days × 1,440, within `PROCESS_SETTINGS_LIMITS`' 1,440–43,200), the reminder interval in
+  hours (1–168) and the cap per Master per window (1–100), each as trimmed `^\d{1,4}$`, and the four window times
+  against `WINDOW_TIME_PATTERN` (`HH:mm` on the quarter hour). Signs, decimals, exponents and a missing control are
+  refused. Do not swap in the case form's parser, which accepts `+2` and `2.0`. Every save sends all seven fields.
+  The ordering rule (morning start < morning end < afternoon start < afternoon end) runs only when every control is
+  valid and is refused on the field api names, so a morning end not before the afternoon start is the **afternoon
+  start**'s error. A stored part-day window (only an old claim window could be one) is shown to two places, never
+  rounded, so the digits-only form refuses it rather than silently changing it. The bounds are api's and pinned to
+  `openapi.json` by `contract.test.ts`; do not restate them in a page.
+- **A 409's field errors are what tell a duplicate from a stale revision.** api's duplicate-email 409 on a Master
+  names `email` and a stale revision names no field, so the adapter keeps a 409's `fieldErrors` when api sends any and
+  `ConflictError` carries them as `errors`. The Change page (`masters/[masterId]`) reads `email` as the duplicate and
+  anything else as a reload; on the add form every 409 is the duplicate, because a new Master has no revision. The
+  Change page sends name, email and available at the original revision. api has no single-Master read, so its `GET`
+  finds the Master on the list and is a 404 when absent. A linked Master's page warns first that an email change means
+  signing in again before they see their referrals, and a refused save re-reads only `linked` for it (showing the
+  warning if that read fails). The IDAM subject is never in api's answer, so never on a page.
+- **A bank holiday is removed only by a POST from its confirmation page.** The list's Remove link goes to
+  `bank-holidays/[date]/remove`, whose `GET` confirms and whose one form posts the removal; never a state-changing
+  `GET`. A removal api answers 404 for reads as removed. Dates are shown as `dd-mm-yy` and kept as api's `yyyy-MM-dd`
+  string, never a `Date`; the add form is a GOV.UK date input (`date-day`/`-month`/`-year`) read into a real calendar
+  date, every date issue on `date`.
 - **The Gazette section needs `ACCESS_GAZETTE` as well.** The area gate admits every Delivery Manager, so the section
   is drawn and read only for holders, and its POST refuses anyone else with a `role` `ForbiddenError` before any read
   or write, because api checks the same capability.
@@ -763,8 +810,11 @@ Facts that span several files:
   the environment segment only for `prod`, and preview pins AAT's. A non-production environment must never name
   production XUI; `src/deployment-chart.test.ts` renders every environment through `helm template` to prove it, and
   **those render tests skip without `helm`**. XUI checks `staff-admin` itself, which the copy says.
-- **The mock starts the claim window at 120 minutes, revision 0, with no attribution**, and resets it with its other
-  fixtures. That is the state in which the section says the window has never been changed. Saving sends no email.
+- **The mock starts the referral process at api's seed** (10,080 minutes, 48 hours, 10, 07:00–10:30 and 14:00–14:30),
+  revision 0, with no attribution, no Masters, and api's V42 bank holidays (24 dates, 2026–2028), and resets all of it
+  with its other fixtures. That is the state in which the section says the process has never been changed. The mock
+  links a judge to an unlinked Master whose email matches their token's on their first `/judicial/` request
+  (`linkIfListed`, api's `MasterLinking`), and an email change unlinks. Saving sends no email.
 - **The page's Welsh is pending.** `src/service-settings` is on the extractor's `INCLUDE`; the new copy's `cy` mirrors
   its `en`, so it adds to `yarn welsh:check`'s identical count.
 
@@ -1011,8 +1061,8 @@ Follow these strict naming conventions throughout the project:
   depend on the degraded call must render outside every branch of it**: the Referrals panel's "Previous system
   referral information" snapshot comes off the case, so nesting it inside the live-history branch would let a
   failed referrals read hide a historical record that was never at risk
-- **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its additive calls — the saved-query nav, the returned-for-action and awaiting-confirmation
-  counts, and the Delivery Manager-only Gazette count — *before* the list read and awaits each inside a helper that catches everything, logs, and returns a sentinel
+- **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its additive calls — the saved-query nav, the returned-for-action, awaiting-confirmation and
+  waiting-for-assignment counts, and the Delivery Manager-only Gazette count — *before* the list read and awaits each inside a helper that catches everything, logs, and returns a sentinel
   (`[]`, `null`); only the list read is fatal. Reach for that shape on a page with one load-bearing call rather
   than `Promise.allSettled`, which is `[id].ts`'s answer to two load-bearing reads beside two additive ones. `worklistCount(name, read)` is the generalised
   degrade-and-log helper, and the counts are separate reads on purpose: a caseworker whose confirmation count

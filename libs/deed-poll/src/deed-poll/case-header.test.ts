@@ -1,9 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildCaseHeader, type CaseHeaderInput, ENTITY_LABEL, formatTimestamp, NOT_RECORDED } from "./case-header.js";
+import { buildCaseHeader, type CaseHeaderInput, ENTITY_LABEL, formatShortDate, formatTimestamp, NOT_RECORDED } from "./case-header.js";
 import { DeedPollState, DeedPollType } from "./enums/option-sets.js";
 
 /** Flatten the header rows to key = value for easy assertions. */
 const flatten = (header: ReturnType<typeof buildCaseHeader>) => Object.fromEntries(header.rows.map((r) => [r.key, r.value]));
+
+describe("formatShortDate", () => {
+  it("should give the London day as dd-mm-yy, so a time just after midnight BST is not the day before", () => {
+    expect(formatShortDate("2026-08-01T23:30:00Z")).toBe("02-08-26");
+  });
+
+  it("should give the same day in GMT, when London is on UTC", () => {
+    expect(formatShortDate(new Date("2026-10-29T23:30:00Z"))).toBe("29-10-26");
+  });
+
+  it("should say not recorded for anything that is not a readable instant", () => {
+    expect(formatShortDate("not a date")).toBe(NOT_RECORDED);
+    expect(formatShortDate(null)).toBe(NOT_RECORDED);
+  });
+});
 
 describe("formatTimestamp", () => {
   it("formats a timestamp GOV.UK style with a lowercase meridiem", () => {

@@ -42,6 +42,10 @@ const CLOSE_ACTIONED = "actioned";
 /** And when api refused the closure, because somebody or something got to the referral first. */
 const CLOSE_CONFLICT = "conflict";
 
+/** What `assign.ts` redirects back with once api has assigned the referral, and when api refused it for its state. */
+const ASSIGNED = "1";
+const ASSIGN_CONFLICT = "conflict";
+
 /** What `confirmation.ts` redirects back with once api has recorded the applicant's answer. */
 const CONFIRMATION_RECORDED = "recorded";
 
@@ -62,6 +66,17 @@ const en = {
   progressHeading: "Progress",
   createdLabel: "Raised",
   claimedLabel: "Claimed by a Master",
+  // Plan Db1: who it is assigned to, when, and when their direction is due. The claim row above is for a referral a
+  // Master claimed before assignment existed.
+  assignedLabel: "Assigned to",
+  directionDueLabel: "Direction due by",
+  assignToMaster: "Assign to a Master",
+  assignToAnotherMaster: "Assign to another Master",
+  assignedTo: (name: string) => `Referral assigned to ${name}`,
+  // api's refusal of an assignment for the referral's state, from the fresh read — see `assignRefusal`.
+  assignRefusedDecided: "A direction has been recorded on this referral, so it can no longer be assigned to a Master.",
+  assignRefusedTerminal: "This referral has already been closed or withdrawn, so it cannot be assigned to a Master.",
+  assignRefusedChanged: "This referral could not be assigned to a Master. Check its status below.",
   modifiedLabel: "Last updated",
   // Decision 9: a migrated referral carries no reasons because the previous system recorded none. Saying so
   // is the difference between an explained gap and one that reads as a fault.
@@ -159,6 +174,11 @@ export const GET = async (req: Request, res: Response) => {
     // the state api has just published, so the sentence and the page agree — and so a `Decided` referral is not
     // described as one the caseworker has already withdrawn.
     withdrawRefused: req.query.withdraw === WITHDRAW_CONFLICT ? withdrawRefusal(view.canClose, content) : "",
+    // An assignment that landed, named from the fresh read rather than from what was posted.
+    assigned: req.query.assigned === ASSIGNED && view.assignment?.hasName ? content.assignedTo(view.assignment.masterName) : "",
+    assignRefused: req.query.assign === ASSIGN_CONFLICT ? assignRefusal(referral.state, content) : "",
+    assignHref: `${href}/assign`,
+    assignLink: view.assignAction === "assign" ? content.assignToMaster : view.assignAction === "reassign" ? content.assignToAnotherMaster : "",
     // A closure that landed, as a success banner above the state it produced.
     directionActioned: req.query.close === CLOSE_ACTIONED ? content.directionActioned : "",
     // And one api refused, keyed on the state it published instead — see `closeRefusal`.
@@ -186,6 +206,17 @@ export const GET = async (req: Request, res: Response) => {
  */
 function withdrawRefusal(canClose: boolean, content: typeof en): string {
   return canClose ? content.withdrawRefusedDecided : content.withdrawRefusedTerminal;
+}
+
+/**
+ * Which of api's assignment refusals this is, keyed on the state it has just published (plan Db1): a direction
+ * recorded since, the referral over, or anything else, which claims nothing about why.
+ */
+function assignRefusal(state: string | null | undefined, content: typeof en): string {
+  if (state === "Decided") return content.assignRefusedDecided;
+  if (state === "Closed" || state === "Withdrawn") return content.assignRefusedTerminal;
+
+  return content.assignRefusedChanged;
 }
 
 /**

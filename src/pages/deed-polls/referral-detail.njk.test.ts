@@ -125,17 +125,17 @@ describe("referral view template", () => {
 
     expect(rendered).toMatch(/govuk-tag[^"]*govuk-tag--blue/);
     // The caseworker's label, not api's member: the tag says where the referral is, not what its enum is called.
-    expect(rendered).toContain("Awaiting a Master");
+    expect(rendered).toContain("Waiting for assignment");
     // Decision 3: which status this is. The case header carries one of its own and a direction does not set it.
     expect(rendered).toContain("Referral status");
-    expect(rendered).toContain("Waiting for a Master to claim");
+    expect(rendered).toContain("No Master has this referral. Assign it to a Master.");
   });
 
   it("should leave the meaning out rather than explain a status it cannot read", async () => {
     const rendered = await page({ ...REFERRAL, state: null });
 
     expect(rendered).toContain("Not recorded");
-    expect(rendered).not.toContain("Waiting for a Master to claim");
+    expect(rendered).not.toContain("No Master has this referral");
     // And neither control, which is the reversal Task 1 made: "not terminal" is no longer evidence of anything.
     expect(rendered).not.toContain("/withdraw");
     expect(rendered).not.toContain("/close");
@@ -146,6 +146,54 @@ describe("referral view template", () => {
 
     expect(rendered).toContain("Claimed by a Master");
     expect(rendered).toContain("A Judge, 14 May 2026 at 10:00am");
+  });
+
+  it("should show who it is assigned to and when the direction is due, in place of the claim row", async () => {
+    const rendered = await page({
+      ...REFERRAL,
+      state: "Claimed",
+      claimedBy: "Master Wren",
+      claimedAt: new Date("2026-10-20T09:00:00Z"),
+      assignedMaster: { id: "master-1", name: "Master Wren" },
+      assignedAt: new Date("2026-10-20T09:00:00Z"),
+      directionDueBy: new Date("2026-10-27T09:00:00Z")
+    });
+
+    expect(rendered).toContain("With Master Wren");
+    expect(rendered).toContain("Waiting for a direction from Master Wren, due by 27-10-26");
+    expect(rendered).toContain("Assigned to");
+    expect(rendered).toContain("Master Wren, 20 October 2026 at 10:00am");
+    expect(rendered).toContain("Direction due by");
+    expect(rendered).not.toContain("Claimed by a Master");
+    expect(rendered).toMatch(/<a class="govuk-link" href="\/deed-polls\/case-1\/referrals\/ref-1\/assign">Assign to another Master<\/a>/);
+  });
+
+  it("should link an Open referral to the assign page as Assign to a Master", async () => {
+    const rendered = await page(REFERRAL);
+
+    expect(rendered).toMatch(/href="\/deed-polls\/case-1\/referrals\/ref-1\/assign">Assign to a Master<\/a>/);
+  });
+
+  it("should offer no assign link on a directed referral", async () => {
+    const rendered = await page({ ...REFERRAL, ...DIRECTED });
+
+    expect(rendered).not.toContain("/assign");
+  });
+
+  it("should announce an assignment in a success banner, and a refused one in the error summary", async () => {
+    const assigned = { ...REFERRAL, state: "Claimed", assignedMaster: { id: "master-1", name: "Master Wren" } };
+
+    expect(await page(assigned, { assigned: "1" })).toMatch(/govuk-notification-banner--success[\s\S]*Referral assigned to Master Wren/);
+    expect(await page({ ...REFERRAL, ...DIRECTED }, { assign: "conflict" })).toMatch(
+      /govuk-error-summary[\s\S]*A direction has been recorded on this referral, so it can no longer be assigned to a Master\./
+    );
+  });
+
+  it("should draw no banner and no summary for an assignment when neither flag is present", async () => {
+    const rendered = await page({ ...REFERRAL, state: "Claimed", assignedMaster: { id: "master-1", name: "Master Wren" } });
+
+    expect(rendered).not.toContain("Referral assigned to");
+    expect(rendered).not.toContain("govuk-error-summary");
   });
 
   it("should show no claim row on a referral nobody has picked up, rather than a placeholder for one", async () => {

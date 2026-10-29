@@ -13,7 +13,7 @@ import { cy, en } from "../../../../../../document-viewer/content.js";
 import { documentPaths, referralViewerScope } from "../../../../../../document-viewer/context.js";
 import { showViewer } from "../../../../../../document-viewer/page.js";
 
-const POOL_PATH = "/judicial/referrals";
+const MINE_PATH = "/judicial/referrals/mine";
 
 export const GET = async (req: Request, res: Response) => {
   const { referralId, documentId } = req.params;
@@ -26,7 +26,7 @@ export const GET = async (req: Request, res: Response) => {
   } catch (error) {
     if (!(error instanceof NotFoundError)) throw error;
 
-    return res.status(404).render("judicial/referrals/unavailable", { poolPath: POOL_PATH, en: en.referralUnavailable, cy: cy.referralUnavailable });
+    return res.status(404).render("judicial/referrals/unavailable", { myReferralsPath: MINE_PATH, en: en.referralUnavailable, cy: cy.referralUnavailable });
   }
 
   showViewer(req, res, scope, buildReferralViewerContext(referral, documentId));

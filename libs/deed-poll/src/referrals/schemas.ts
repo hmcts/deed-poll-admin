@@ -65,6 +65,9 @@ const CONTRADICTORY_MINOR_DETAILS = [
 /** The urgency that pairs with a rule: choosing it makes `urgencyReason` mandatory. */
 const URGENCY_REQUIRING_REASON = "Urgent";
 
+// The raise form's question is "Which Master should this go to?"; the GOV.UK error says what to do about it.
+const SELECT_A_MASTER = "Select which Master this referral should go to";
+
 export const createReferralSchema = z
   .object({
     // Checkboxes, so an untouched group posts nothing at all and the error has to land on the group rather
@@ -94,9 +97,16 @@ export const createReferralSchema = z
       .trim()
       .max(MAX_REFERRAL_URGENCY_REASON, `The reason for urgency must be ${MAX_REFERRAL_URGENCY_REASON} characters or fewer`)
       .optional()
-      .transform((value) => (value === undefined || value === "" ? undefined : value))
+      .transform((value) => (value === undefined || value === "" ? undefined : value)),
+    // Radios, placed last on the form (plan Db1). Required here although api takes a referral without one: an
+    // unassigned referral waits for a caseworker to assign it, and the caseworker raising it is the one who knows.
+    // A uuid because api's is; anything else is a tampered post, refused with the same sentence.
+    masterId: z.uuid({ error: SELECT_A_MASTER }).optional()
   })
   .superRefine((referral, ctx) => {
+    if (!referral.masterId) {
+      ctx.addIssue({ code: "custom", path: ["masterId"], message: SELECT_A_MASTER });
+    }
     // `path` is what makes `zodErrorToFieldErrors` address the issue to a control, so the error summary's
     // link resolves. An issue raised without one is addressed to the form, which is not where a caseworker
     // needs to look for either of these.
@@ -168,6 +178,14 @@ export const recordConfirmationSchema = z.object({
     .max(MAX_CONFIRMATION_NOTE, `The note must be ${MAX_CONFIRMATION_NOTE} characters or fewer`)
     .optional()
     .transform((value) => (value === undefined || value === "" ? undefined : value))
+});
+
+/**
+ * The assign page's one question (plan Db1): which Master. A uuid, as `createReferralSchema`'s `masterId` is, with the
+ * same message; whether that Master exists, is available or has room is api's 400 or 409.
+ */
+export const assignReferralSchema = z.object({
+  masterId: z.uuid({ error: SELECT_A_MASTER })
 });
 
 /** What a validated raise-a-referral form holds. The referral's state and author are api's, so neither is here. */

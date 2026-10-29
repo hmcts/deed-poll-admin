@@ -13,9 +13,9 @@
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ConflictError, createReferral, findDeedPoll, findReferrals } from "@hmcts/deed-poll";
+import { ConflictError, createReferral, findDeedPoll, findMasterChoices, findReferrals } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { addPathFilters } from "../../path-filters.js";
 import { GET, POST } from "./[id]/referrals/new.js";
@@ -24,6 +24,7 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
   findDeedPoll: vi.fn(),
   findReferrals: vi.fn(),
+  findMasterChoices: vi.fn(),
   createReferral: vi.fn()
 }));
 
@@ -41,6 +42,42 @@ const environment = nunjucks.configure(
 addPathFilters(environment);
 
 const found = { id: "case-1", displayReference: "KBDP2026-00001", notes: [], witnesses: [], documents: [] };
+
+/** api's Masters list at 09:00 on 28-10-26 (the clock is set to it): one with room, one full, one who has left. */
+const MASTERS = {
+  masters: [
+    {
+      id: "6c1f0d4e-2b3a-4c5d-8e9f-0a1b2c3d4e5f",
+      name: "Master Sullivan",
+      email: "sullivan@example.com",
+      available: true,
+      linked: true,
+      revision: 0,
+      assignedInWindow: 3
+    },
+    {
+      id: "7d2a1e5f-3c4b-4d6e-9f0a-1b2c3d4e5f60",
+      name: "Master Wren",
+      email: "wren@example.com",
+      available: false,
+      linked: false,
+      revision: 0,
+      assignedInWindow: 0
+    },
+    {
+      id: "8e3b2f60-4d5c-4e7f-a01b-2c3d4e5f6071",
+      name: "Master Judge",
+      email: "judge@example.com",
+      available: true,
+      linked: false,
+      revision: 0,
+      assignedInWindow: 10
+    }
+  ],
+  window: { date: "2026-10-28", slot: "AM" },
+  cap: 10
+};
+const SULLIVAN = MASTERS.masters[0].id;
 
 const OPEN_REFERRAL = {
   id: "ref-9",
@@ -69,6 +106,13 @@ describe("raise a referral template", () => {
     vi.mocked(findDeedPoll).mockResolvedValue(found as never);
     vi.mocked(createReferral).mockResolvedValue({ id: "ref-1" } as never);
     vi.mocked(findReferrals).mockResolvedValue([OPEN_REFERRAL] as never);
+    vi.mocked(findMasterChoices).mockResolvedValue(MASTERS as never);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-28T09:00:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("should post to its own route, so a re-render submits to the same place", async () => {
@@ -124,7 +168,7 @@ describe("raise a referral template", () => {
   it("should put the ticked boxes and the typed text back when validation fails", async () => {
     const res = pageResponse();
 
-    await POST(request({ reasons: ["Minor", "Other"], urgency: "Urgent" }), res);
+    await POST(request({ masterId: SULLIVAN, reasons: ["Minor", "Other"], urgency: "Urgent" }), res);
     const page = html(res.render.mock.calls[0][1]);
 
     expect(page).toMatch(/<input[^>]*value="Minor"[^>]*checked/);
@@ -155,7 +199,7 @@ describe("raise a referral template", () => {
   it("should put the minor's-details error beside the revealed boxes and keep what was ticked", async () => {
     const res = pageResponse();
 
-    await POST(request({ reasons: ["Minor", "MinorParentalConsent", "MinorNoParentalConsent"], urgency: "Normal" }), res);
+    await POST(request({ masterId: SULLIVAN, reasons: ["Minor", "MinorParentalConsent", "MinorNoParentalConsent"], urgency: "Normal" }), res);
     const page = html(res.render.mock.calls[0][1]);
 
     expect(page).toContain('href="#minorDetails"');
@@ -168,7 +212,7 @@ describe("raise a referral template", () => {
     vi.mocked(createReferral).mockRejectedValue(new ConflictError("Case case-1 already has an open referral"));
     const res = pageResponse();
 
-    await POST(request({ reasons: ["DomesticAbuse"], urgency: "Normal" }), res);
+    await POST(request({ masterId: SULLIVAN, reasons: ["DomesticAbuse"], urgency: "Normal" }), res);
     const page = html(res.render.mock.calls[0][1]);
 
     expect(page).toContain("This case already has an open referral.");
@@ -178,10 +222,86 @@ describe("raise a referral template", () => {
     expect(page).not.toContain('href="#reasons"');
   });
 
+  it("should ask which Master last, after urgency, with each Master's room as the radio's hint", async () => {
+    const res = pageResponse();
+
+    await GET(request(), res);
+    const page = html(res.render.mock.calls[0][1]);
+
+    expect(page).toContain("Which Master should this go to?");
+    expect(page.indexOf('name="urgency"')).toBeLessThan(page.indexOf('name="masterId"'));
+    expect(page).toMatch(new RegExp(`<input[^>]*name="masterId"[^>]*value="${SULLIVAN}"`));
+    expect(page).toContain("3 of 10 referrals for this morning");
+    expect(page).toContain("Raise referral");
+  });
+
+  it("should show a full Master disabled, and not offer one who is unavailable", async () => {
+    const res = pageResponse();
+
+    await GET(request(), res);
+    const page = html(res.render.mock.calls[0][1]);
+
+    expect(page).toMatch(new RegExp(`<input[^>]*value="${MASTERS.masters[2].id}"[^>]*disabled`));
+    expect(page).toContain("Full for this morning");
+    expect(page).not.toContain("Master Wren");
+  });
+
+  it("should say there are no Masters and offer no submit when none is available", async () => {
+    vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, masters: [] } as never);
+    const res = pageResponse();
+
+    await GET(request(), res);
+    const page = html(res.render.mock.calls[0][1]);
+
+    expect(page).toContain("There are no Masters to assign to. Ask a Delivery Manager to add one.");
+    expect(page).not.toContain('name="masterId"');
+    expect(page).not.toContain("Raise referral");
+  });
+
+  it("should list the full Masters, say every one is full and offer no submit when nobody could be chosen", async () => {
+    vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, masters: MASTERS.masters.map((master) => ({ ...master, assignedInWindow: 10 })) } as never);
+    const res = pageResponse();
+
+    await GET(request(), res);
+    const page = html(res.render.mock.calls[0][1]);
+
+    expect(page).toContain('name="masterId"');
+    expect(page).toContain("Every Master is full for this window, so this referral cannot be raised now.");
+    expect(page).not.toContain("Raise referral");
+  });
+
+  it("should say the Masters could not be loaded, and offer no submit, when the list read fails", async () => {
+    vi.mocked(findMasterChoices).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const res = pageResponse();
+
+    await GET(request(), res);
+    const page = html(res.render.mock.calls[0][1]);
+
+    expect(page).toContain("The list of Masters could not be loaded");
+    expect(page).not.toContain("There are no Masters to assign to");
+    expect(page).not.toContain("Raise referral");
+    vi.mocked(console.error).mockRestore();
+  });
+
+  it("should put api's cap sentence beside the radios and in the summary, with the chosen Master still checked", async () => {
+    const sentence = "This Master already has 10 referrals for the morning of 28-10-26. Choose another Master.";
+    vi.mocked(createReferral).mockRejectedValue(new ConflictError(sentence, [{ field: "masterId", message: sentence }]));
+    const res = pageResponse();
+
+    await POST(request({ masterId: SULLIVAN, reasons: ["DomesticAbuse"], urgency: "Normal" }), res);
+    const page = html(res.render.mock.calls[0][1]);
+
+    expect(page).toContain('href="#masterId"');
+    expect(page).toMatch(/id="masterId-error"[\s\S]*?This Master already has 10 referrals/);
+    expect(page).toMatch(new RegExp(`<input[^>]*value="${SULLIVAN}"[^>]*checked`));
+    expect(page).not.toContain("This case already has an open referral.");
+  });
+
   it("should put the error summary before the heading, where a screen reader reaches it first", async () => {
     const res = pageResponse();
 
-    await POST(request({ urgency: "Normal" }), res);
+    await POST(request({ masterId: SULLIVAN, urgency: "Normal" }), res);
     const page = html(res.render.mock.calls[0][1]);
 
     expect(page.indexOf("govuk-error-summary")).toBeLessThan(page.indexOf("<h1"));

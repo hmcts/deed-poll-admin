@@ -39,6 +39,7 @@
  * returned-for-action worklist through the UI at all.
  */
 import {
+  assignReferral as apiAssignReferral,
   closeReferral as apiCloseReferral,
   createReferral as apiCreateReferral,
   recordConfirmation as apiRecordConfirmation,
@@ -80,6 +81,17 @@ export function findReferral(deedPollId: string, id: string, caller: Caller): Pr
  */
 export function createReferral(deedPollId: string, dto: CreateReferralInput, caller: Caller): Promise<Referral> {
   return callApi(caller, (config) => apiCreateReferral(deedPollId, dto, config));
+}
+
+/**
+ * Assign a referral to a Master, or move it to another (plan Db1): while it is `Open` or `Claimed`, by any caseworker.
+ *
+ * **No pre-read.** api refuses a referral no longer waiting for a direction and a Master at the cap, both 409, and only
+ * the cap names `masterId` on `ConflictError.errors`, which is how a page tells them apart. An unknown or unavailable
+ * Master is api's 400 on `masterId`.
+ */
+export function assignReferral(deedPollId: string, id: string, masterId: string, caller: Caller): Promise<Referral> {
+  return callApi(caller, (config) => apiAssignReferral(deedPollId, id, masterId, config));
 }
 
 /**

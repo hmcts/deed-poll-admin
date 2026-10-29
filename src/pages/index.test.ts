@@ -12,19 +12,19 @@ describe("service root", () => {
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls");
     });
 
-    // Decision 2: the pool is a judge's home the way the case list is a caseworker's, and this is the only
+    // Decision 2: My referrals is a judge's home the way the case list is a caseworker's, and this is the only
     // place the roles are known — a judge landing on `/deed-polls` gets a list api answers 403 to.
-    it("should redirect a judge to the judicial pool", () => {
+    it("should redirect a judge to My referrals, since there is no pool to start from", () => {
       const res = pageResponse();
 
       GET(pageRequest({ judicial: true }), res);
 
-      expect(res.redirect).toHaveBeenCalledWith("/judicial/referrals");
+      expect(res.redirect).toHaveBeenCalledWith("/judicial/referrals/mine");
     });
 
     // Caseworker-first, deliberately: the caseworker surface is the richer one, where the reverse leaves a
     // caseworker on a screen with no case list. It is not free — the judicial lists' own navigation renders only
-    // inside that area, so there is nothing on the caseworker surface that reaches the pool and such a user types
+    // inside that area, so there is nothing on the caseworker surface that reaches My referrals and such a user types
     // the URL. See the `landingPath` docblock, which states the cost.
     it("should redirect a user holding both roles to the case list", () => {
       const res = pageResponse();
@@ -79,7 +79,7 @@ describe("staff role landing", () => {
 
       GET(pageRequest({ persona, judicial }), res);
 
-      expect(res.redirect).toHaveBeenCalledWith(judicial && persona === "caseworker" ? "/judicial/referrals" : "/deed-polls");
+      expect(res.redirect).toHaveBeenCalledWith(judicial && persona === "caseworker" ? "/judicial/referrals/mine" : "/deed-polls");
     }
   });
 

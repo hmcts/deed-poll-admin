@@ -16,6 +16,8 @@ Without `--apply`, this only prints the dataset. It makes no network requests. T
 
 To create the cases, supply two real IDAM **user access tokens** through `SEED_CASEWORKER_TOKEN` and `SEED_JUDGE_TOKEN`, then repeat the same command with `--apply`. The caseworker token should have `caseworker-deedpoll-team-leader` so the private scenarios are preserved. The judicial token needs `caseworker-deedpoll-judicial`. A client-credentials token cannot substitute for either user. Tokens are never printed or written to the journal.
 
+Since api D2 a judge sees only the referrals assigned to their entry on the Masters list, so the judicial actions also need `SEED_MASTER_ID`: the id of that judge's entry (a Delivery Manager adds it on the Service settings page, with the email IDAM holds for the judge; the id is the last path segment of that Master's Change link, `/deed-polls/settings/masters/<id>`, or `id` in `GET /caseworker/masters`). The seeder raises each referral waiting for assignment and then assigns it to that entry as its own resumable step. The judicial preflight is the judge's first judicial request, which links the entry to their account. Without `SEED_MASTER_ID`, use `--defer-judicial`.
+
 ```bash
 yarn seed:cases --environment demo \
   --api-url https://deed-poll-api.demo.platform.hmcts.net \
@@ -30,7 +32,7 @@ Production names and hostnames are refused, including `prod`, `production`, `liv
 
 ## Create the temporary users automatically
 
-On a VPN-connected machine with Azure CLI already signed in, add `--create-test-users --apply`. This reads `admin-idam-client-secret` from the selected environment's `deed-poll-<environment>` vault and normally provisions two IDAM fixtures: a Team leader and a judge. With `--defer-judicial`, it provisions only the Team leader. Their user tokens are held in memory. It checks API reachability before creating users.
+On a VPN-connected machine with Azure CLI already signed in, add `--create-test-users --apply`. This reads `admin-idam-client-secret` from the selected environment's `deed-poll-<environment>` vault and normally provisions two IDAM fixtures: a Team leader and a judge. With `--defer-judicial`, it provisions only the Team leader. Their user tokens are held in memory. It checks API reachability before creating users. The generated judge's email is not on the Masters list, so since api D2 a full run with `--create-test-users` needs that email added as a Master and its id in `SEED_MASTER_ID`; otherwise defer the judicial actions.
 
 For the verified AAT API ingress, run from the repository root:
 
@@ -50,9 +52,9 @@ Fixture UUIDs and random login credentials are stored in a separate `<journal>.a
 
 Add `--defer-judicial` to the same preview/apply command to create all 30 cases, witnesses, notes and milestone dates using only the caseworker/admin token. With `--create-test-users`, the judge identity stays reserved in the private accounts file but is not created or authenticated in IDAM.
 
-This mode creates six Open referrals and one Withdrawn referral. It defers judicial claims and directions and the subsequent caseworker closures. The returned-for-action worklist therefore remains unpopulated by this batch until judicial actions run. All eight application states are still represented.
+This mode creates six Open referrals and one Withdrawn referral. It defers the assignments to a Master, the judicial directions and the subsequent caseworker closures. The returned-for-action worklist therefore remains unpopulated by this batch until judicial actions run. All eight application states are still represented.
 
-The journal records `caseworkerComplete: true`, five `deferredJudicial` case markers and `complete: false`. To complete the referral scenarios later, reuse the same journal and batch without `--defer-judicial`, supplying the judicial token or `--create-test-users`. Completed case writes are skipped and existing manual edits are never reset.
+The journal records `caseworkerComplete: true`, five `deferredJudicial` case markers and `complete: false`. To complete the referral scenarios later, reuse the same journal and batch without `--defer-judicial`, supplying the judicial token or `--create-test-users`, and `SEED_MASTER_ID`. Completed case writes are skipped and existing manual edits are never reset.
 
 ## What is created
 
@@ -69,7 +71,7 @@ The journal records `caseworkerComplete: true`, five `deferredJudicial` case mar
 
 All six application types are represented, with Unknown limited to a newly received case. The set includes private and public cases, normal and urgent work, online/post/counter channels, representatives, minor/parent details, cases aged 1–120 days, and zero/one/two-witness examples. Cases awaiting enrolment or already enrolled have two witnesses added **before** their milestone dates are patched.
 
-Seven cases have real referral histories: one Open, one Claimed, two Decided (one approved and one rejected), two Closed and one Withdrawn. The Decided pair populates the returned-for-action worklist independently of the case state. Claimed and decided referrals belong to the supplied judicial token's user; another judge cannot see them on **My referrals**. Temporary AAT IDAM users expire, and inactive claims can lapse, so this state can change after seeding.
+Seven cases have real referral histories: one Open, one Claimed, two Decided (one approved and one rejected), two Closed and one Withdrawn. The Decided pair populates the returned-for-action worklist independently of the case state. Claimed and decided referrals are assigned to the `SEED_MASTER_ID` entry, linked to the supplied judicial token's user; another judge cannot see them on **My referrals**. Temporary AAT IDAM users expire, and an assignment with no direction is returned to the office after the processing window (7 days by default), so this state can change after seeding. A journal written before api D2 holds a `claim` step instead of `assign`, and still resumes.
 
 Names end in `-Test`, notes explicitly identify synthetic data, and email addresses use `example.invalid`. `onlineApplicationReference` stores a unique `SEED-<batch>-<number>` marker on every row, including the synthetic post/counter examples, so duplicates can be detected using an exact API query. References and audit authors are assigned by the API. Historical milestone dates are simulated; creation, note and referral audit timestamps reflect the actual run.
 
@@ -85,4 +87,4 @@ Keep the journal. Repeating the same command with the same journal verifies the 
 
 Each write is recorded as pending before transmission. If a timeout, server error or lost response leaves its outcome uncertain, rerunning stops rather than issuing a duplicate write. Reconcile that operation through the API and repair the journal using the verified response before continuing. A definite 4xx refusal (except timeout) can be retried after correcting the cause, using the same journal. A process crash may leave a `.lock` file; remove it only after confirming the original process has stopped. Run one writer per batch; the API does not enforce uniqueness of seed markers across different journals or machines.
 
-Refresh expired tokens before resuming. Reuse the same judicial identity for a partly completed claim/direction sequence, because the API enforces ownership.
+Refresh expired tokens before resuming. Reuse the same judicial identity for a partly completed assign/direction sequence, because the API enforces ownership.

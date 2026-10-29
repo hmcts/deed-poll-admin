@@ -1,0 +1,384 @@
+# Plan Db1: assignment's contract and mock, assigning referrals, and the Master's pages without a pool
+
+## Overview
+
+Master Sullivan's feedback, item D (Steve, 2026-10-27/28). Plan Da1 refreshed the contract to api D1, taught the
+mock D1's rules and built the settings. **This plan runs once api D2 is finished, while api works on D3** (Steve,
+2026-10-28: split for speed). It first refreshes the contract to D2 and teaches the mock assignment, then builds the
+pages caseworkers and Masters use. **Read the api plans D1 and D2
+(`../deed-poll-api-juniper-d/docs/plans/completed/20261028-d1-*.md`, `-d2-*.md`), D3's Overview, and plan Da1
+first**; D1's decision table is the specification. D3 adds no HTTP operation, so D2's contract is the one the pages
+use. In short:
+
+1. **Raising a referral assigns it.** The raise form asks which Master, with each Master's room in the current
+   window, and api refuses past the cap.
+2. **Any caseworker can reassign** a referral waiting for a direction, or assign one that is waiting for assignment
+   (raised without a Master before this release, or unassigned after 7 days without a direction).
+3. **Caseworkers can see what is waiting for assignment**: a count on the case list, like the returned-for-action
+   count, and the referral and case pages say so and offer the assign form.
+4. **The Master has no pool and no claim.** Their home is My referrals, laid out as Steve chose on 2026-10-28.
+
+## Context
+
+Read before changing anything:
+
+- `CLAUDE.md`: "Personas and role gating" (the judicial gate, `/` deciding each persona's home, "Judicial page copy
+  must never name or imply a holder", `isMyListState`, "The pool is `Open` only…" which this plan makes historical),
+  the worklist rules ("A worklist is either a published `filter` key or a `where` condition"; the returned-for-action
+  count is a `where` on `currentReferralState`, with `worklistCount` degrading to its own state), redirect paths,
+  the Welsh rules, and the session and CSRF rules for new POST routes.
+- `src/pages/deed-polls/[id]/referrals/new.ts` and `referral-form.njk` (the raise form, its `FIELD_ORDER`, how api 400s
+  and 409s are placed), `[referralId].ts` and `referral-detail.njk` (the caseworker referral page), the case page's
+  referrals panel, `src/pages/deed-polls/index.ts` (the counts), `src/pages/index.ts` (the landing),
+  `src/pages/judicial/referrals/index.ts`, `mine.ts`, `[referralId].ts`, `list-navigation.njk`, and
+  `libs/deed-poll/src/judicial/view.ts` and `libs/deed-poll/src/referrals/referrals-view.ts`.
+
+## Development Approach
+
+0. **Contract and mock for assignment.**
+   - **Spec refresh.** The chain has generated api D2's document in a throwaway worktree: copy
+     `/tmp/juniper-340/spec-d2.json` into `openapi.json` as 2-space JSON, run Biome, check it parses equal, and record
+     a `SPEC-PROVENANCE.md` row from `/tmp/juniper-340/spec-d2.meta` (unmerged branch, commit, SHA-256, measured delta
+     against Da1's copy). Do not touch `../deed-poll-api-juniper-d`. Missing files: stop and say so.
+   - **Adapter.** `client.ts`/`wire.ts` for assignment: `masterId` on create, `PUT …/assignment`, the new
+     `ReferralResponse` and judicial fields, the Masters list's `window`, `cap` and `assignedInWindow`, the deprecated
+     pool and claim kept. `contract.test.ts` set-equal both ways.
+   - **The mock** mirrors D2 in api's words: `ReferralWindows.windowFor` as a small pure function with its own tests
+     (the same boundaries as api's), the cap (409 in api's words), assignment on create with `masterId`, `Open`
+     without it, reassignment, `directionDueBy`, the Masters list's window fields; `Open` invisible to judges, the
+     pool always empty, `MINE_ORDER` as D2 states it, linking's referral side, `unassignOverdue` on the mock's existing
+     triggers plus an explicit test hook; and a **test-only clock** so e2e journeys can make a referral overdue and
+     cross a window without waiting (follow how the mock exposes scenarios; keep it out of production code paths).
+   - **Seed data:** assign the seeded referrals to the seeded Masters instead of leaving them for claiming, keep the
+     seeder's read-back checks true, update its numbers and its `CLAUDE.md` line, and run it against a private-port
+     mock.
+1. **The raise form** gains "Which Master should this go to?" as radios, required and placed **last**, after
+   urgency, because the caseworker decides who after deciding what. Each option is
+   the Master's name with a hint: "3 of 10 referrals for this morning" (from `GET /caseworker/masters`' `window`, `cap`
+   and `assignedInWindow`; "this afternoon", or "the morning of 29-10-26" when the current window is a later one, in
+   dd-mm-yy). A full Master is still listed but its hint says "Full for this morning" and its radio is disabled.
+   Unavailable Masters are not offered. No Masters at all: the form says "There are no Masters to assign to. Ask a
+   Delivery Manager to add one." and offers no submit. Read the Masters list alongside the case, degrading as
+   `[id].ts` does if it fails (the form then says the list could not be loaded and offers no submit). api's 409 at the
+   cap redraws the form with api's sentence beside the radios (`masterId` in `FIELD_ORDER`), keeping everything typed.
+   An unavailable or unknown Master (400 on `masterId`) is placed the same way.
+2. **Assign and reassign.** A new page `deed-polls/[id]/referrals/[referralId]/assign` (GET and POST): the same radios,
+   pre-selecting the current Master, saying who has it now and since when, and that reassigning starts the Master's 7
+   days again (read the processing window from the referral's `directionDueBy`, never restate the number). POST calls
+   `PUT …/assignment`; success redirects to the referral with `?assigned=1` and a banner "Referral assigned to {name}";
+   a 409 for a referral no longer waiting for a direction redirects to the referral with a state sentence from the
+   fresh read (the withdraw/close pattern); the cap 409 redraws the page. Linked from the caseworker referral page and
+   the case page's referrals panel whenever the referral is `Open` or `Claimed`: "Assign to a Master" when `Open`,
+   "Assign to another Master" when `Claimed`. Build every href and redirect with the path helpers.
+3. **The caseworker's words for the states.** `REFERRAL_STATE_LABEL` and `REFERRAL_STATE_MEANING` in
+   `referrals-view.ts`: `Open` is now "Waiting for assignment" ("No Master has this referral. Assign it to a Master."),
+   `Claimed` is "With {Master}" or "With a Master" ("Waiting for a direction from {name}, due by dd-mm-yy"). The
+   referral page shows the assigned Master, when, and the due date from `directionDueBy`. Keep every other state's
+   wording. Grep every test and e2e spec for the old words ("Awaiting a Master", "claimed by a Master") and update
+   them deliberately.
+4. **The waiting-for-assignment count.** On the case list, beside the returned-for-action count and built the same
+   way: a `where` on `currentReferralState = Open`, a separate `worklistCount` read that degrades to its own "could not
+   be loaded" state, and a link to that worklist. Sentence: "N referrals are waiting to be assigned to a Master." /
+   one. Function entries for the singular and plural, as the existing counts do.
+5. **The Master's side.**
+   - `/judicial/referrals` (the pool page) now **redirects 302 to `/judicial/referrals/mine`**. Delete the pool's
+     template and its view model, and the claim route and button; api keeps the deprecated operations for one
+     release, but nothing here calls them. Remove the pool from `list-navigation.njk`. `/` sends a Master to
+     `/judicial/referrals/mine`, and `isMyListState`'s "back to" link always goes to My referrals.
+   - **My referrals, as Steve chose (2026-10-28)**, from api's `MINE_ORDER` (D2): an **"Urgent"** section first, the
+     urgent referrals still waiting for a direction, oldest first, each showing "referred dd-mm-yy"; then **"Awaiting
+     your direction"**, the rest of the undirected referrals grouped under one heading per day referred, **"dd-mm-yy
+     referrals"**, oldest day first; then **"Directed, awaiting the office"**, the directed referrals grouped by day
+     the same way. Each referral appears once. The day is the referral's `createdOn` in `Europe/London`. Each row shows
+     the reference, the reasons through `referralReasonLabels`, and "Direction due by dd-mm-yy" for undirected ones.
+     An empty section is not drawn; all three empty is the existing empty state. Raise the page size to api's maximum
+     (check `JudicialPoolQuery`'s published bound) so a day's group is rarely split; where a page boundary does split a
+     day, the next page repeats that day's heading. Grouping is presentation only: do not re-sort what api sent, read
+     the sections off its order (api's order already puts urgent undirected first, then undirected by date, then
+     directed by date).
+   - The Master's referral page shows "Direction due by dd-mm-yy" and no longer offers a claim. Copy must still never
+     name or imply another holder.
+6. **The mock's seed and the e2e journeys.** `e2e-tests/tests/judicial.spec.ts` is built around the pool and claiming
+   ("judge works the pool…", "is beaten to one"); rewrite its journeys around assignment: a caseworker raises a
+   referral assigned to the judge persona's Master entry; the Master finds it under the right day on My referrals,
+   directs it, changes and withdraws as today; an urgent one sits in the Urgent section; a referral assigned to
+   another Master is a 404 for this one; the pool URL redirects to My referrals. In `deed-polls.spec.ts`, the referral
+   journeys raise with a Master, reassign once, hit the cap with the mock's cap set low (via the settings page or the
+   mock's API), and see the waiting-for-assignment count after using the mock's clock hook from plan Da to push a
+   referral past 7 days. Keep accessibility checks on every new page and the Welsh check where the journeys already
+   do one. Run the changed specs on a **temporary, untracked private-port Playwright config** (copy the shape below)
+   and delete it afterwards; never run them against the shared developer mock on 3200.
+7. **Tests first**: view-model tests for the grouping (a fixture covering urgent undirected, undirected on three days,
+   directed on two days, and a page boundary inside a day), handler tests for every new route and every refusal,
+   template tests (content first, model over it), the `href` and Welsh sweeps, and `app.test.ts`' gate test covering
+   any new page under `src/pages/judicial/`.
+8. **Docs.** Rewrite `CLAUDE.md`'s "Personas and role gating" bullets that describe the pool and claiming, add one for
+   assignment and the Master's grouped page, and update the case-list counts text. Regenerate the Welsh CSV.
+9. **Out of scope:** the settings page (plan Da1); api; Notify.
+10. **Publishing:** local task commits only, no push and no PR.
+
+A private-port config for the changed journeys (Redis on 6316 via `docker run -d --rm --name d-redis -p 6316:6379
+redis:8-alpine`, local IDAM on 5556 already running, `yarn idam:users` once):
+
+```ts
+// e2e-tests/playwright.d.config.ts — temporary, untracked
+import { defineConfig, devices } from "@playwright/test";
+import base from "./playwright.config.js";
+export default defineConfig({
+  ...base, fullyParallel: false, testIgnore: [], workers: 1, retries: 0,
+  use: { ...base.use, baseURL: "http://localhost:3326" },
+  projects: [
+    { name: "setup", testMatch: /auth\.setup\.ts/ },
+    { name: "changed", testMatch: /(judicial|deed-polls|confirmation|emails|persona-switcher)\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] }, dependencies: ["setup"] }
+  ],
+  webServer: [
+    { command: "yarn mock:api --port 3226", url: "http://localhost:3226/health", reuseExistingServer: false, cwd: "..", timeout: 60_000 },
+    { command: "yarn dev:app", url: "http://localhost:3326", reuseExistingServer: false, cwd: "..", timeout: 120_000,
+      env: { PORT: "3326", DEED_POLL_API_URL: "http://localhost:3226", REDIS_URL: "redis://127.0.0.1:6316/2",
+             IDAM_REDIRECT_URI: "http://localhost:3326/oauth2/callback", PERSONA_SWITCHER_ENABLED: "true" } }
+  ]
+});
+```
+
+Run it with `cd e2e-tests && DEED_POLL_API_URL=http://localhost:3226 yarn playwright test --config playwright.d.config.ts`.
+
+## Validation Commands
+
+Run the full set from the repository root **twice only**: before implementation (the baseline) and in the final
+task. **After each other task**, run `yarn biome format --write .`, `yarn lint`, `yarn build --force` and only the
+touched packages' tests, with `REDIS_URL=redis://127.0.0.1:6379`. If one of those shows a failure outside the task,
+run the full suite then. The full set:
+
+```bash
+yarn biome format --write .
+yarn lint
+yarn build --force
+REDIS_URL=redis://127.0.0.1:6379 yarn turbo test test:app --concurrency=1 --force
+```
+
+Never quote bare `yarn test`. `yarn welsh:check` exits 1 by design and is not a gate. Record each package's test
+count, and distinguish baseline failures from regressions. The temporary Playwright config is untracked and must not
+be committed (Biome will flag its formatting; delete it before the final lint).
+
+**Baseline:** whatever plan Da1 finished on, recorded at execution time.
+
+Run every build and test command in the **foreground** and wait for it to finish. A backgrounded build ends the
+session, and the next one builds over it, wiping the results. Never move `dist` aside; use `--force`.
+
+## Implementation Steps
+
+### Task 0: Contract and mock for assignment
+- [x] Record the execution baseline in the execution notes.
+- [x] Copy the chain's D2 spec and record its provenance; add failing `client.test.ts`, `contract.test.ts` and mock tests for every assignment rule.
+- [x] Implement the adapter, the mock, the clock hook and the seed, run the seeder on a private-port mock, run the per-task checks, and record the results.
+
+### Task 1: Raising with a Master
+- [x] Add failing handler, schema and template tests for the Master radios, their hints, full and unavailable Masters, no Masters, a failed Masters read, and the cap 409.
+- [x] Implement, run the per-task checks, and record the results.
+
+### Task 2: Assign and reassign, and the caseworker's words
+- [x] Add failing tests for the assign page (GET, POST success, the three refusals), the links, the state labels and meanings, and the waiting-for-assignment count.
+- [x] Implement, run the per-task checks, and record the results.
+
+### Task 3: The Master's side
+- [x] Add failing tests for the redirect, the landing, the removed claim, and the grouped My referrals (including the page-boundary case).
+- [x] Implement, delete the pool page and the claim route, run the per-task checks, and record the results.
+
+### Task 4: e2e journeys
+- [x] Rewrite the judicial journeys and update the deed-polls journeys as the Development Approach says; run them on the temporary private-port config; record the result; delete the config.
+
+### Task 5: Documentation and final verification
+- [x] Update `CLAUDE.md` and regenerate the Welsh CSV with `yarn welsh:extract`.
+- [x] Run all Validation Commands once more with `--force`, record the counts against the baseline, and confirm `git status` is clean apart from the task commits.
+
+## Execution notes
+
+**Baseline (2026-10-28, branch `feat/d-referral-assignment` at `4b5cfac`, Da1 complete).** Full set green: format
+and lint clean, `yarn build --force` 8/8, suite 8/8 with Redis on 6379 (the Redis suites ran). app 3,239,
+deed-poll 1,701, api-client 1,314, cloud-native-platform 156, express-govuk-starter 132, simple-router 45,
+express-session-postgres 85, express-session-redis 7. (Da1's final note said app 3,227; its review-fix commit added 12.)
+
+**Task 0 (contract and mock for assignment).**
+- `/tmp/juniper-340/spec-d2.json` at api `41b238d` copied, Biome-formatted and parsed equal to the raw file; its
+  SHA-256 matched `spec-d2.meta`. Delta: one operation (`PUT …/assignment`) and five schemas added, nothing removed;
+  66 operations, 47 paths, 71 schemas. New top row in `SPEC-PROVENANCE.md`, D1's relabelled `Previous …`.
+- **One part of the delta reached beyond the plan's list:** `GET /caseworker/masters` now answers an envelope
+  (`MasterListResponse {masters, window, cap}`) rather than the bare array Da1's settings page read. `listMasters`
+  returns the envelope, and `findMasters` (`libs/deed-poll/src/settings/service.ts`) returns its `masters`, so the
+  settings page is unchanged. Task 1 needs the window and the cap and should add its own read.
+- Adapter: `assignReferral(caseId, referralId, masterId)`; `masterId` on `CreateReferralRequest`; `ReferralResponse`
+  gains `assignedMaster`, `assignedAt`, `windowDate`, `windowSlot`, `directionDueBy`; the judicial summary/detail gain
+  `assignedAt`, `directionDueBy`; new `WINDOW_SLOT` export and the `MasterList`, `MasterListEntry`,
+  `ReferralWindow` types. Strictness: `MasterListEntryResponse` adds `assignedInWindow`; `MasterListResponse` pins
+  `masters` and `cap` (`window` is a nested record, nullable as `application` is); `ReferralWindowResponse` both
+  fields; `AssignedMasterResponse` `id`. The pool and claim stay, documented as deprecated. `contract.test.ts` pins
+  `masterId`, the assignment's responses, the envelope, both deprecations, and that no referral schema publishes a
+  Master's subject or email.
+- Mock: `referral-windows.ts` (`windowFor`, `isWeekdayNotIn`, api's `ReferralWindows` restated, with 19 boundary,
+  BST/GMT, weekend, bank holiday and Christmas-run tests). In `server.ts`, api's checking order and words for the
+  raise with `masterId` (400 `Select a Master who is available` on `masterId`, then the cap's 409 on `masterId`
+  naming the window, nothing written on either) and for `PUT …/assignment` (body, Master, state 409, same-Master
+  no-op, cap). Notes `assigned to` / `reassigned from … to …`. `directionDueBy` from `assignedAt` (or `claimedAt`)
+  plus the processing window as set now. The Masters list's `window`, `cap` and `assignedInWindow`. `Open` is
+  visible to no judge, the pool is always empty, and `MINE_ORDER` is D2's. Linking attaches the referral side
+  (`attachToLinkedMaster`, `attachLegacyClaims`), an email change detaches it, and withdrawing a direction restarts
+  the window and keeps the cap's. `unassignOverdue` runs on the pool, `/mine` and the deprecated claim (api's three
+  request-time triggers) and on `POST /__mock/referrals/unassign-overdue`, writing api's
+  `returned to the office for assignment` note as `# svc_HMCTS_LCPT_Dev`. **Test-only clock:** `POST /__mock/clock
+  {offsetMinutes}` moves the referral clock (raise, assignment, claim, direction, window, cutoff) from real time;
+  reset returns it to zero. It is under `/__mock`, which only the mock serves.
+- New `assignment.test.ts` (33 cases over HTTP). `masters.test.ts` reads the envelope. `client.test.ts`,
+  `client-document-preview.test.ts` and `server.test.ts` (256, rewritten by a fork of this session) now put referrals
+  in a judge's hands by assignment; the pool, claim and lapse tests are rewritten to D2's rules, none deleted.
+- **One change beyond the plan, needed to keep the suite green:** the real-api seeder (`yarn seed:cases`) claimed
+  from the pool, which D2 makes a 404, and its tests run on this mock. It now raises each referral waiting for
+  assignment and assigns it as its own `/assign` step to `SEED_MASTER_ID` (the judge's Masters-list entry, required
+  unless `--defer-judicial`, refused before any request or lock). The judicial preflight links the judge. A journal
+  with a pre-D2 `/claim` step still resumes. A full `--create-test-users` run now needs the generated judge's email
+  added as a Master first. `docs/SEED-DATA.md` says so.
+- Seed (`yarn mock:seed`): the Masters are added before the referral phase; the two `Claimed` referrals are raised
+  with Master Judge (the judge persona's email), the directed and closed ones with Master Sullivan, whose seed
+  identity it links and directs as, and two stay `Open`. New read-backs: 2 waiting for assignment, 2 with a Master,
+  and only Sullivan linked. I ran it against a private mock on 3241: exit 0, 57 cases, 9 referrals (4 Decided, 2 with
+  Master Judge, 2 waiting), 3 Masters. A judge token with `Judge@example.com` then linked Master Judge and listed its
+  two, each with `directionDueBy`. A `--keep` re-run exited 0 and added no Master. `CLAUDE.md`'s `mock:seed` line
+  updated.
+- Tests were written alongside the code rather than run failing first.
+- Per-task checks: format and lint clean, `yarn build --force` 8/8. api-client 1,391 (+77), deed-poll 1,701, app
+  3,239 (run because the mock changed under it), all passing with Redis on 6379. The e2e journeys that claim from
+  the pool will fail against this mock until Task 4.
+
+**Task 1 (raising with a Master).**
+- `libs/deed-poll/src/referrals/master-choices.ts`: `findMasterChoices` (the whole `GET /caseworker/masters`
+  envelope) and `buildMasterChoices(list, selectedId, now)`, which keeps api's order, drops unavailable Masters,
+  marks one full at `assignedInWindow >= cap`, and gives the window as `{ slot, isToday, date: dd-mm-yy }`, "today"
+  read in `Europe/London`. Task 2's assign page can reuse both.
+- `createReferralSchema` requires `masterId` (a uuid; "Select which Master this referral should go to", added in the
+  `superRefine` so it shows beside the other unanswered questions). api still accepts a raise without one.
+- `referrals/new.ts`: the case and the Masters are read with `Promise.allSettled`; the case stays fatal, api's 401
+  on the Masters is rethrown, anything else logs `masters unavailable: …` and draws the form with its own sentence and
+  no submit. No available Master: "There are no Masters to assign to…" and no submit. The hints are the page's own
+  `en` functions ("3 of 10 referrals for this morning", "Full for the morning of 29-10-26", singular at a cap of 1,
+  and the bare count if api sends no window). `masterId` is last in `FIELD_ORDER`. A 409 whose `errors` names
+  `masterId` is the cap and redraws at 409 with api's sentence beside the radios and no open-referral read; any
+  other 409 is still the already-open one. api's 400 on `masterId` lands through the existing placement.
+- The Welsh extractor reads all the new strings, the three-argument function included (checked with `--out`).
+- Per-task checks: format and lint clean, `yarn build --force` 8/8. deed-poll 1,711 (+10), app 3,257 (+18), all
+  passing with Redis on 6379. api-client not touched.
+
+**Task 2 (assign and reassign, and the caseworker's words).**
+- `deed-polls/[id]/referrals/[referralId]/assign` (GET and POST, `referral-assign.njk`). The case and the referral are
+  fatal; the Masters list degrades as on the raise form (no question, no submit; 401 rethrown). A `GET` on a referral
+  that is not `Open`/`Claimed` redirects to the referral with `?assign=conflict` rather than drawing a form api would
+  refuse. POST: `assignReferralSchema` (uuid, the raise form's message), `assignReferral` (new, `PUT …/assignment`);
+  success is `?assigned=1`; a 409 naming `masterId` (the cap) and a 400 on `masterId` redraw beside the radios with the
+  posted choice kept; any other 409 is `?assign=conflict`; a 400 naming no control is logged through `forLog` and shows
+  the page's own sentence. Paths are built before any read or write.
+- The radios' item builder moved from `new.ts` into `src/master-radios.ts` (not under `src/pages`, where every `.ts` is
+  a route); each page keeps its own words in `en`/`cy`, so the extractor still reads them. **One addition:** the
+  current Master stays selectable when full, because choosing them again is api's no-op and a pre-selected disabled
+  radio would be unsubmittable.
+- The reassign page says who has the referral and since when, and "they will have N days from today", with N read off
+  `directionDueBy − assignedAt` (`processingDays`; null, and a sentence with no number, when either is missing or the
+  gap is not whole days).
+- `referrals-view.ts`: `Open` is "Waiting for assignment" / "No Master has this referral. Assign it to a Master."; an
+  assigned `Claimed` referral is "With {name}" / "Waiting for a direction from {name}, due by dd-mm-yy", falling back to
+  "With a Master" / "Waiting for a direction from a Master" for a pre-assignment claim or a nameless assignment. New
+  `assignment` (name, when, due date, processing days) and `assignAction` (`assign`/`reassign`/null). New
+  `formatShortDate` in `case-header.ts` (London's day, `dd-mm-yy`), which Task 3 can reuse.
+- Referral page: "Assigned to" and "Direction due by" rows replace the claim row when there is an assignment (the mock
+  also sets `claimedBy` on assignment, so both would say the same thing), the assign link, a "Referral assigned to
+  {name}" success banner from the fresh read, and three refusal sentences keyed on the fresh state (Decided; Closed or
+  Withdrawn; anything else).
+- Case page panel: each `Open`/`Claimed` row carries its assign link (visually hidden suffix naming the raised date).
+  **One addition:** the live-referral message for `Open` is now its own key, `waitingForAssignment`, because "This
+  case is with a Master" is untrue of a referral nobody has.
+- Case list: `countWaitingForAssignment` (`referrals/waiting-for-assignment.ts`, a `where` on
+  `currentReferralState:is:Open`), its own `worklistCount` read, three states, a paragraph in the existing banner with
+  a link to the worklist and its own warning on failure.
+- Old wording: unit and template tests updated; the two e2e tag assertions in `deed-polls.spec.ts` now expect
+  "Waiting for assignment". The mock's case note "claimed by a Master." and the e2e assertions on it are left for
+  Task 4.
+- Per-task checks: format and lint clean, `yarn build --force` 8/8. deed-poll 1,737 (+26), app 3,305 (+48), all
+  passing with Redis on 6379. api-client not touched. The extractor reads the new strings (checked with `--out`).
+
+**Task 3 (the Master's side).**
+- `/judicial/referrals` (`index.ts`) is a bare 302 to `/judicial/referrals/mine` that carries no query. Deleted:
+  `index.njk` and its test, `[referralId]/claim.ts` and its test, `buildPoolRows`/`PoolRow`, `listPool` and
+  `claimReferral` in the domain, the claim form and its copy. The adapter keeps api's deprecated pool and claim. `/`
+  sends a Master to `/judicial/referrals/mine`.
+- **One deviation:** `list-navigation.njk` and `_judicial-nav.scss` are deleted outright rather than reduced to the
+  one remaining entry, because a navigation with only one link, pointing at the page it sits on, does nothing.
+- My referrals: `buildMyReferralSections` (`libs/deed-poll/src/judicial/view.ts`) reads api's order into `urgent`
+  (`Claimed` and `Urgent`), `awaiting` and `directed` (anything not `Claimed`, matching the mock's `stateKey`), the last
+  two as runs of consecutive rows sharing `formatShortDate(createdOn)`, the day in London. It does not re-sort, so a
+  broken run would show its day twice, and a page starting mid-day repeats that day's heading with nothing extra to
+  arrange. The page asks for `size: 100`: `JudicialPoolQuery` publishes no bound, and 100 is api's
+  `CasePaging.MAX_SIZE`, where a larger size is clamped. The headings are "Urgent", "Awaiting your direction",
+  "Directed, awaiting the office" and "dd-mm-yy referrals". An urgent row shows "Referred dd-mm-yy"; an undirected
+  row shows "Direction due by dd-mm-yy" ("Not recorded" if api sends none); directed sections have no dates column.
+  `MY_REFERRAL_STATE_LABEL`, `buildMyReferralRows` and `isMyListState` are gone.
+- **One gap in the plan's row:** `JudicialReferralSummary` carries no case reference (decision 3), so rows show reasons,
+  dates and a "View" link whose hidden text names the referral date and the reasons.
+- The Master's referral page: no claim, "Assigned to you" (from `assignedAt`, falling back to `claimedAt`) and
+  "Direction due by" (only while `Claimed`) rows, and always "Back to My referrals". `claimable` and `isOnMyList` are
+  gone from the view model.
+- **Beyond the plan's list:** the shared "no longer available" page and its five callers (the referral, direction,
+  withdraw, legacy file and viewer routes) now link to My referrals (`myReferralsPath`, `backToMine`, "Your
+  referrals are listed on My referrals."). The withdraw page no longer promises a return to "the shared list"; it now
+  reads "this referral stays with you. If it isn't directed in time, it goes back to the office to be assigned again."
+- Per-task checks: format and lint clean, `yarn build --force` 8/8. deed-poll 1,721 (−16: pool and old-row tests out,
+  section tests in), app 3,264 (−41: the pool page's and the claim route's tests deleted), all passing with Redis on
+  6379. api-client not touched. The extractor reads the new strings; the CSV is left for Task 5's regeneration. The
+  e2e journeys still drive the pool and the claim, and are Task 4's.
+
+**Task 4 (e2e journeys).**
+- New `e2e-tests/tests/masters.ts`: `judgePersonaMaster` (the judge persona's entry, "Master Judge" with
+  `judge@example.com`, added if missing, made available, linked through a judicial request carrying the email),
+  `newMaster(label)` (a unique entry and a unique judge linked to it, so the cap per Master never fills across runs
+  on a shared store), `referralCap`, `assignReferral` and `bearer`. Each takes the mock's address, defaulting to
+  `DEED_POLL_API_URL` or 3200, because `document-viewer.spec.ts` names its own mock.
+- `judicial.spec.ts` rewritten: a Team leader raises a referral through the form to the judge persona's Master; the
+  Master lands on My referrals from `/`, the pool URL redirects there, the urgent one is under Urgent ("Referred
+  dd-mm-yy"), the raised one under "Awaiting your direction" / "dd-mm-yy referrals" with its due date, read off the
+  page's headings (`placeOf`); the Welsh shape of both pages; the referral shows "Assigned to you" and "Direction due
+  by" and no claim; the direction flow with its validation; the directed one moves to "Directed, awaiting the office"
+  under the same day; another Master's referral is a 404 naming nobody. The change/withdraw journey and the
+  cross-persona lifecycle journey run on assignment (no navigation now), and the Team leader refusal covers the pool
+  redirect and My referrals.
+- `deed-polls.spec.ts`: the raise journey chooses a Master (the unanswered question is a third error), sees "With
+  {name}", reassigns once through "Assign to another Master" (banner, the 7-days sentence from the due date, notes
+  for the assignment and the reassignment), and hits the cap. The actioned-direction journey raises to the judge
+  persona's Master and directs as that judge with no claim; its notes now read "assigned to {name}". `referTo` uses a
+  Master of its own. New journey: the waiting-for-assignment count against api's total, its worklist link, and
+  assigning from the case page's panel.
+- **Two deviations from the plan's wording:** (1) the cap is reached by **filling a Master of the run's own to api's
+  cap**, the last place taken while the form is open, not by lowering the cap: the cap is one setting for the
+  service, and lowering it would refuse every journey's raise in a parallel worker. (2) the waiting-for-assignment
+  referral is **raised without a Master** (api still accepts that for one release), not made overdue with the mock's
+  clock: moving the clock past the processing window and sweeping releases *every* assigned referral in the shared
+  store, including those other workers are directing. The clock hook stays tested in the mock's own suite.
+- **One accessibility waiver, computed:** axe reports `color-contrast` on a disabled (full) Master's hint, which
+  govuk-frontend fades to half opacity. WCAG 1.4.3 exempts text of an inactive component, so `deed-polls.spec.ts`'s
+  axe helper waives `color-contrast` on the hint of each disabled radio on the page and nothing else; it now reports
+  one finding per element so a waiver cannot cover a second element under the same rule.
+- `emails.spec.ts`, `confirmation.spec.ts`, `persona-switcher.spec.ts` and `document-viewer.spec.ts` assign instead of
+  claiming; `signInAsJudge` expects My referrals.
+- Results: the five changed specs on the temporary private-port config (mock 3226, app 3326, Redis 6316/2): **34
+  passed**, setup included. `yarn test:document-viewer`: **2 passed**. The config was deleted and the Redis container
+  stopped afterwards. Per-task checks: format and lint clean, `yarn build --force` 8/8; no package's unit tests changed.
+
+**Task 5 (documentation and final verification).**
+- `CLAUDE.md`: "Personas and role gating" now says a Master works My referrals with no pool or claim; the landing
+  bullet names `/judicial/referrals/mine`; the 409 bullet drops the claim; document visibility reads "no judge on
+  `Open`, the assigned Master on `Claimed`"; the dual-role bullet drops `list-navigation.njk`. The "pool is `Open`
+  only" bullet is replaced by two: assignment (raise with a Master, the cap 409 on `masterId`, the assign page, the
+  caseworker's state words) and the Master's sectioned My referrals. The worklist rule and the list page's counts
+  name the waiting-for-assignment count. The `mock:seed` line was already updated in Task 0.
+- `yarn welsh:extract` regenerated `.business_context/welsh-translation-request.csv` (the pool's and claim's rows out,
+  the raise form's, assign page's and My referrals' in).
+- Full set with `--force`: format and lint clean, `yarn build --force` 8/8, suite 8/8 with Redis on 6379. Against the
+  baseline: app 3,264 (+25), deed-poll 1,721 (+20), api-client 1,391 (+77), cloud-native-platform 156,
+  express-govuk-starter 132, simple-router 45, express-session-postgres 85, express-session-redis 7. No failures, so
+  none to tell apart from the baseline's. `git status` clean apart from this task's commit.

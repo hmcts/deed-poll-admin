@@ -208,7 +208,7 @@ function errorFor(error: ApiError): Error {
     case "unauthorized":
       return new UnauthorizedError(error.message);
     case "conflict":
-      return new ConflictError(error.message);
+      return new ConflictError(error.message, [...(error.fieldErrors ?? [])]);
     case "rate-limited":
       return new TooManyRequestsError(error.message, error.retryAfterSeconds ?? null);
     case "validation":
