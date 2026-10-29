@@ -753,7 +753,12 @@ span several files:
 `/deed-polls/settings` is where a Delivery Manager changes the service's process values while it runs (plan
 `docs/plans/20261026-dm-settings-page.md`, extended for item D by `docs/plans/completed/20261028-da1-settings-contract-mock-and-page.md`).
 It holds, in order, the referral process, the London Gazette recipient, the Masters, the bank holidays and a link to
-XUI staff administration. Add no field or placeholder for a value api has not made a setting. **Deploy order:** api D1 (the
+XUI staff administration, each its own GOV.UK tab as on the case page (Steve, 2026-10-29). Add no field or placeholder
+for a value api has not made a setting. **Each tab panel's id is that section's fragment, and every form's `action`
+carries it** (`/deed-polls/settings/masters#masters`): a refused save renders at the POST address, and without the
+fragment it opened on the first tab with its error in a hidden panel, where the error summary's link could not reach
+the field. Saves, the Gazette pages' links and the Change and Remove back links already end in the fragment. A new
+section needs a tab, a panel id and that fragment on its form; `index.njk.test.ts` pins all three. **Deploy order:** api D1 (the
 Masters, the bank holidays and the extended process settings) on every replica first, then this app. Against an older
 api the Masters and bank holiday lists show their unavailable sentences and a referral-process save is refused, because
 every save sends seven fields and the window's minimum is now a day (`docs/DEPLOYMENT.md`). Facts that span several

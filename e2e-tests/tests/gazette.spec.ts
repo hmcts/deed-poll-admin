@@ -128,6 +128,7 @@ test("Delivery Manager sets and changes the Gazette recipient, with validation a
   await accessible(stale);
   await stale.close();
   await page.goto(`${SETTINGS}?lng=cy`);
+  await page.getByRole("tab", { name: "Derbynnydd y London Gazette", exact: true }).click();
   await expect(page.getByRole("heading", { level: 2, name: "Derbynnydd y London Gazette" })).toBeVisible();
   await expect(page.getByLabel("Cyfeiriad e-bost y derbynnydd", { exact: true })).toHaveValue("new-gazette@example.com");
   await accessible(page);
@@ -245,7 +246,7 @@ test("Delivery Manager completes mandatory reviews and confirms Gazette requests
 }) => {
   test.slow();
   await signInAsDeliveryManager(page);
-  await page.goto(SETTINGS);
+  await page.goto(`${SETTINGS}#gazette-recipient`);
   await page.getByLabel("Recipient email address", { exact: true }).fill("reviewed-gazette@example.com");
   await page.getByRole("button", { name: "Save recipient", exact: true }).click();
   const explanations = {

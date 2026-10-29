@@ -119,10 +119,48 @@ describe("service settings page", () => {
     expect(markup).toContain("Save each section before you change another.");
   });
 
+  it("should put each section in its own tab, in the page's order, each panel keeping its section's fragment", async () => {
+    const { markup } = await render(GET);
+
+    const tabs = [...markup.matchAll(/class="govuk-tabs__tab" href="#([^"]+)"[^>]*>\s*([^<]+?)\s*</g)].map(([, id, label]) => [id, label]);
+    expect(tabs).toEqual([
+      ["process-settings", "Referral process"],
+      ["gazette-recipient", "London Gazette recipient"],
+      ["masters", "Masters"],
+      ["bank-holidays", "Bank holidays"],
+      ["staff-and-access", "Staff and access"]
+    ]);
+    for (const [id] of tabs) expect(markup).toMatch(new RegExp(`class="govuk-tabs__panel[^"]*" id="${id}"`));
+  });
+
+  it("should leave the Gazette tab out for a Delivery Manager without ACCESS_GAZETTE", async () => {
+    const { markup } = await render(GET, { access: PROCESS_ONLY });
+
+    expect(markup).not.toContain('href="#gazette-recipient"');
+    expect(markup).toContain('href="#masters"');
+  });
+
+  it("should post each form to an address carrying its own tab's fragment, so a refused save opens on that tab", async () => {
+    const { markup } = await render(GET);
+
+    const actions = [...markup.matchAll(/<form method="post" action="([^"]+)"/g)].map(([, action]) => action);
+    expect(actions).toEqual([
+      "/deed-polls/settings#process-settings",
+      "/deed-polls/settings/gazette-recipient#gazette-recipient",
+      "/deed-polls/settings/masters#masters",
+      "/deed-polls/settings/bank-holidays#bank-holidays"
+    ]);
+    for (const action of actions) {
+      const id = action.slice(action.indexOf("#") + 1);
+      const panel = markup.slice(markup.indexOf(`id="${id}"`));
+      expect(panel.indexOf(`action="${action}"`)).toBeLessThan(panel.indexOf('class="govuk-tabs__panel', 1));
+    }
+  });
+
   it("should show every referral process value in one form with the warning before its Save and escaped attribution", async () => {
     const { markup } = await render(GET);
 
-    const process = form(markup, "/deed-polls/settings");
+    const process = form(markup, "/deed-polls/settings#process-settings");
     expect(markup).toContain('<h2 class="govuk-heading-m">Referral process</h2>');
     expect(process).toMatch(/id="processingDays"[^>]*value="7"/);
     expect(process).toMatch(/id="reminderIntervalHours"[^>]*value="48"/);
@@ -166,7 +204,7 @@ describe("service settings page", () => {
     const markup = environment.render("deed-polls/settings/index.njk", { ...(model.en as object), ...model, warningIcon: "ICON-MARKER" });
 
     expect((model.en as Record<string, unknown>).warningIcon).toBe("Warning");
-    expect(form(markup, "/deed-polls/settings")).toContain("ICON-MARKER");
+    expect(form(markup, "/deed-polls/settings#process-settings")).toContain("ICON-MARKER");
   });
 
   it("should say the referral process has never been changed, with no last-changed line, when api reports no attribution", async () => {
@@ -174,7 +212,7 @@ describe("service settings page", () => {
 
     const { markup } = await render(GET);
 
-    const process = form(markup, "/deed-polls/settings");
+    const process = form(markup, "/deed-polls/settings#process-settings");
     expect(process).toContain("The referral process has not been changed since the service started.");
     expect(process).not.toContain("Last changed");
   });
@@ -184,7 +222,7 @@ describe("service settings page", () => {
 
     const { markup } = await render(GET);
 
-    const process = form(markup, "/deed-polls/settings");
+    const process = form(markup, "/deed-polls/settings#process-settings");
     expect(process).toContain("Last changed 20 October 2026 at 10:30</p>");
     expect(process).not.toContain(" by ");
     expect(process).not.toContain("has not been changed");
@@ -193,7 +231,7 @@ describe("service settings page", () => {
   it("should show the Gazette recipient form posting to its own address with its own revision", async () => {
     const { markup } = await render(GET);
 
-    const gazette = form(markup, "/deed-polls/settings/gazette-recipient");
+    const gazette = form(markup, "/deed-polls/settings/gazette-recipient#gazette-recipient");
     expect(markup).toContain('id="gazette-recipient"');
     expect(gazette).toContain('value="lg@example.com"');
     expect(gazette).toContain('name="revision" value="2"');
@@ -223,7 +261,7 @@ describe("service settings page", () => {
     const { markup } = await render(GET);
 
     expect(markup).toContain("The London Gazette recipient could not be loaded. Try again later.");
-    expect(form(markup, "/deed-polls/settings/gazette-recipient")).toBe("");
+    expect(form(markup, "/deed-polls/settings/gazette-recipient#gazette-recipient")).toBe("");
     expect(markup).toContain("Save referral process");
   });
 
@@ -320,7 +358,7 @@ describe("service settings page", () => {
 
       const { markup } = await render(postProcess, { body: { ...BODY, processingDays: "12" } });
 
-      const process = form(markup, "/deed-polls/settings");
+      const process = form(markup, "/deed-polls/settings#process-settings");
       expect(process).toMatch(/id="processingDays"[^>]*value="12"/);
       expect(process).toContain('name="revision" value="4"');
       expect(process).not.toContain("Save referral process");
@@ -456,7 +494,7 @@ describe("service settings page: Masters", () => {
   it("should draw the add form with no revision, posting to its own route", async () => {
     const { markup } = await render(GET);
 
-    const add = form(markup, "/deed-polls/settings/masters");
+    const add = form(markup, "/deed-polls/settings/masters#masters");
     expect(add).toContain('id="master-name"');
     expect(add).toContain('id="master-email"');
     expect(add).not.toContain('name="revision"');
@@ -469,7 +507,7 @@ describe("service settings page: Masters", () => {
     const { markup } = await render(GET);
 
     expect(markup).toContain("The Masters could not be loaded. Try again later.");
-    expect(form(markup, "/deed-polls/settings/masters")).toContain("Add Master");
+    expect(form(markup, "/deed-polls/settings/masters#masters")).toContain("Add Master");
   });
 
   it("should say there are none when the list is empty", async () => {
@@ -483,7 +521,7 @@ describe("service settings page: Masters", () => {
   it("should redraw a refused add with its typed values, its errors and summary links that resolve", async () => {
     const { markup } = await render(postMaster, { body: { name: "<Wren>", email: "wren" } });
 
-    const add = form(markup, "/deed-polls/settings/masters");
+    const add = form(markup, "/deed-polls/settings/masters#masters");
     expect(add).toMatch(/id="master-name"[^>]*value="&lt;Wren&gt;"/);
     expect(add).toMatch(/id="master-email"[^>]*value="wren"/);
     expect(add).toContain("Enter the Master’s email address, like name@example.com");
@@ -525,7 +563,7 @@ describe("service settings page: bank holidays", () => {
   it("should draw the add form with a GOV.UK date input named for its three parts", async () => {
     const { markup } = await render(GET);
 
-    const add = form(markup, "/deed-polls/settings/bank-holidays");
+    const add = form(markup, "/deed-polls/settings/bank-holidays#bank-holidays");
     for (const part of ["day", "month", "year"])
       expect(add).toMatch(new RegExp(`id="bank-holiday-date-${part}"[^>]*name="date-${part}"|name="date-${part}"[^>]*id="bank-holiday-date-${part}"`));
     expect(add).toContain('id="bank-holiday-name"');
@@ -543,7 +581,7 @@ describe("service settings page: bank holidays", () => {
   it("should redraw a refused add with the typed parts, the date marked in error and summary links that resolve", async () => {
     const { markup } = await render(postBankHoliday, { body: { "date-day": "31", "date-month": "2", "date-year": "2029", name: "Odd day" } });
 
-    const add = form(markup, "/deed-polls/settings/bank-holidays");
+    const add = form(markup, "/deed-polls/settings/bank-holidays#bank-holidays");
     expect(add).toContain("Enter the bank holiday’s date as a real date, like 25 12 2029");
     expect(add).toMatch(/govuk-input--error[^>]*id="bank-holiday-date-day"[^>]*value="31"|id="bank-holiday-date-day"[^>]*value="31"/);
     expect(add).toMatch(/id="bank-holiday-name"[^>]*value="Odd day"/);
