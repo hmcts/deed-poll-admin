@@ -11,15 +11,21 @@ test("Delivery Manager opens the settings from the case list and changes the ref
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL("/deed-polls/settings");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Service settings");
+  // Each section is a tab, in the page's order, and the page opens on the first.
+  await expect(page.getByRole("tab")).toHaveText(["Referral process", "London Gazette recipient", "Masters", "Bank holidays", "Staff and access"]);
+  await expect(page.getByRole("tab", { name: "Referral process", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByLabel("Processing window", { exact: true })).toHaveValue("7");
   await expect(page.getByLabel("Reminder interval", { exact: true })).toHaveValue("48");
   await expect(page.locator("#afternoonWindowStart")).toHaveValue("14:00");
   await expect(page.locator("#process-settings .govuk-warning-text")).toContainText("Changes take effect immediately for every referral.");
+  await page.getByRole("tab", { name: "Staff and access", exact: true }).click();
   const staffLink = page.getByRole("link", { name: "Manage staff in Manage Case (opens in new tab)", exact: true });
+  await expect(staffLink).toBeVisible();
   await expect(staffLink).toHaveAttribute("href", "https://manage-case.aat.platform.hmcts.net/staff");
   await expect(staffLink).toHaveAttribute("target", "_blank");
   await expect(staffLink).toHaveAttribute("rel", "noopener noreferrer");
   await accessible(page);
+  await page.getByRole("tab", { name: "Referral process", exact: true }).click();
 
   await page.getByLabel("Processing window", { exact: true }).fill("31");
   await page.locator("#afternoonWindowStart").fill("10:00");
@@ -57,8 +63,10 @@ test("Delivery Manager adds a Master, marks them unavailable, and adds and remov
   await page.goto("/deed-polls/settings");
   const masters = page.locator("#masters");
   const holidays = page.locator("#bank-holidays");
-  await expect(masters.getByText("No Masters have been added.", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Bank holidays", exact: true }).click();
   await expect(holidays.getByRole("row", { name: /Christmas Day/ }).first()).toContainText("25-12-26");
+  await page.getByRole("tab", { name: "Masters", exact: true }).click();
+  await expect(masters.getByText("No Masters have been added.", { exact: true })).toBeVisible();
 
   await page.getByLabel("Full name", { exact: true }).fill("Master Example");
   await page.locator("#master-email").fill("master.example@example.com");
@@ -73,11 +81,16 @@ test("Delivery Manager adds a Master, marks them unavailable, and adds and remov
   await page.getByLabel("Full name", { exact: true }).fill("Master Duplicate");
   await page.locator("#master-email").fill("master.example@example.com");
   await page.getByRole("button", { name: "Add Master", exact: true }).click();
-  await expect(page.getByRole("link", { name: "Another Master already has this email address", exact: true })).toBeVisible();
+  // A refused add renders at the form's address, whose fragment opens the Masters tab with the error in view.
+  await expect(page).toHaveURL("/deed-polls/settings/masters#masters");
+  await expect(page.getByRole("tab", { name: "Masters", exact: true })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("link", { name: "Another Master already has this email address", exact: true }).click();
+  await expect(page.locator("#master-email")).toBeFocused();
   await expect(page.getByLabel("Full name", { exact: true })).toHaveValue("Master Duplicate");
   await accessible(page);
 
   await page.goto("/deed-polls/settings");
+  await page.getByRole("tab", { name: "Masters", exact: true }).click();
   await masters.getByRole("link", { name: "Change Master Example", exact: true }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Change a Master");
   await expect(page.getByLabel("Email address", { exact: true })).toHaveValue("master.example@example.com");
@@ -93,6 +106,7 @@ test("Delivery Manager adds a Master, marks them unavailable, and adds and remov
       .nth(2)
   ).toHaveText("No");
 
+  await page.getByRole("tab", { name: "Bank holidays", exact: true }).click();
   await page.locator("#bank-holiday-date-day").fill("4");
   await page.locator("#bank-holiday-date-month").fill("6");
   await page.locator("#bank-holiday-date-year").fill("2029");

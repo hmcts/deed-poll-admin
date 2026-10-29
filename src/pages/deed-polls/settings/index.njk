@@ -7,6 +7,7 @@
 {% from "govuk/components/fieldset/macro.njk" import govukFieldset %}
 {% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
 {% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
+{% from "govuk/components/tabs/macro.njk" import govukTabs %}
 
 {% macro lastChangedLine(section) %}
   {% if section.updatedAt %}<p class="govuk-body">{{ lastChanged }} {{ section.updatedAt }}{% if section.updatedBy %} {{ by }} {{ section.updatedBy }}{% endif %}</p>{% endif %}
@@ -37,9 +38,21 @@
   {% endcall %}
 {% endmacro %}
 
+{#
+  A tab panel keeps the page's reading width; only the tab list spans the row, as on the case page.
+#}
+{% macro panelColumn() %}
+  <div class="govuk-grid-row">
+    <div class="govuk-grid-column-two-thirds">
+      {{ caller() }}
+    </div>
+  </div>
+{% endmacro %}
+
 {% block page_content %}
 <div class="govuk-grid-row">
-  <div class="govuk-grid-column-two-thirds">
+  <div class="govuk-grid-column-full">
+    {% call panelColumn() %}
     {% if errorList.length %}
       {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
     {% endif %}
@@ -56,12 +69,13 @@
     {% endif %}
     <h1 class="govuk-heading-xl">{{ heading }}</h1>
     <p class="govuk-body">{{ intro }}</p>
+    {% endcall %}
 
-    <section id="process-settings" class="govuk-!-margin-bottom-8">
+    {% set processPanel %}{% call panelColumn() %}
       <h2 class="govuk-heading-m">{{ processHeading }}</h2>
       {% if process.isAvailable %}
         <p class="govuk-body">{{ processIntro }}</p>
-        <form method="post" action="/deed-polls/settings" novalidate>
+        <form method="post" action="/deed-polls/settings#process-settings" novalidate>
           <input type="hidden" name="revision" value="{{ process.values.revision }}">
           {{ numberInput("processingDays", processingDaysLabel, processingDaysHint, daysSuffix) }}
           {{ numberInput("reminderIntervalHours", reminderIntervalLabel, reminderIntervalHint, hoursSuffix) }}
@@ -76,22 +90,21 @@
           {% endif %}
         </form>
         {% if process.reloadText %}
-          {# The form posts to /deed-polls/settings, so a link differing only by its fragment would scroll, not reload. #}
+          {# The form posts to /deed-polls/settings#process-settings, so a link differing only by its fragment would scroll, not reload. #}
           <p class="govuk-body"><a id="reload-process-settings" class="govuk-link" href="/deed-polls/settings?reload=process-settings#process-settings">{{ processReloadLink }}</a></p>
         {% endif %}
       {% else %}
         <p class="govuk-body">{{ processUnavailable }}</p>
       {% endif %}
-    </section>
-
+    {% endcall %}{% endset %}
     {% if gazette %}
-      <section id="gazette-recipient" class="govuk-!-margin-bottom-8">
+      {% set gazettePanel %}{% call panelColumn() %}
         <h2 class="govuk-heading-m">{{ gazetteHeading }}</h2>
         {% if gazette.isAvailable %}
           <p class="govuk-body">{{ gazetteIntro }}</p>
           {% if gazette.isUnset %}<p class="govuk-inset-text">{{ gazetteNotSet }}</p>{% endif %}
           {{ lastChangedLine(gazette) }}
-          <form method="post" action="/deed-polls/settings/gazette-recipient" novalidate>
+          <form method="post" action="/deed-polls/settings/gazette-recipient#gazette-recipient" novalidate>
             <input type="hidden" name="revision" value="{{ gazette.values.revision }}">
             {{ govukInput({
               id: "recipientEmail", name: "recipientEmail", type: "email", autocomplete: "email", spellcheck: false,
@@ -107,10 +120,9 @@
           <p class="govuk-body">{{ gazetteUnavailable }}</p>
         {% endif %}
         <p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette">{{ gazetteBack }}</a></p>
-      </section>
+      {% endcall %}{% endset %}
     {% endif %}
-
-    <section id="masters" class="govuk-!-margin-bottom-8">
+    {% set mastersPanel %}{% call panelColumn() %}
       <h2 class="govuk-heading-m">{{ mastersHeading }}</h2>
       <p class="govuk-body">{{ mastersIntro }}</p>
       {% if masters.isAvailable %}
@@ -138,7 +150,7 @@
       {% endif %}
       <h3 class="govuk-heading-s">{{ addMasterHeading }}</h3>
       <p class="govuk-body">{{ addMasterHint }}</p>
-      <form method="post" action="/deed-polls/settings/masters" novalidate>
+      <form method="post" action="/deed-polls/settings/masters#masters" novalidate>
         {{ govukInput({
           id: "master-name", name: "name", autocomplete: "off", spellcheck: false,
           label: { text: masterNameLabel }, value: masterAdd.values.name,
@@ -152,9 +164,8 @@
         {% if masterAdd.refusedText %}<p class="govuk-error-message">{{ masterAdd.refusedText }}</p>{% endif %}
         {{ govukButton({ text: addMasterSave, classes: "govuk-button--secondary" }) }}
       </form>
-    </section>
-
-    <section id="bank-holidays" class="govuk-!-margin-bottom-8">
+    {% endcall %}{% endset %}
+    {% set bankHolidaysPanel %}{% call panelColumn() %}
       <h2 class="govuk-heading-m">{{ bankHolidaysHeading }}</h2>
       <p class="govuk-body">{{ bankHolidaysIntro }}</p>
       {% if bankHolidays.isAvailable %}
@@ -179,7 +190,7 @@
         <p class="govuk-body">{{ bankHolidaysUnavailable }}</p>
       {% endif %}
       <h3 class="govuk-heading-s">{{ addBankHolidayHeading }}</h3>
-      <form method="post" action="/deed-polls/settings/bank-holidays" novalidate>
+      <form method="post" action="/deed-polls/settings/bank-holidays#bank-holidays" novalidate>
         {{ govukDateInput({
           id: "bank-holiday-date", namePrefix: "date",
           fieldset: { legend: { text: bankHolidayDateLegend } },
@@ -199,13 +210,28 @@
         {% if holidayAdd.refusedText %}<p class="govuk-error-message">{{ holidayAdd.refusedText }}</p>{% endif %}
         {{ govukButton({ text: addBankHolidaySave, classes: "govuk-button--secondary" }) }}
       </form>
-    </section>
-
-    <section id="staff-and-access">
+    {% endcall %}{% endset %}
+    {% set staffPanel %}{% call panelColumn() %}
       <h2 class="govuk-heading-m">{{ staffHeading }}</h2>
       <p class="govuk-body">{{ staffIntro }}</p>
       <p class="govuk-body"><a class="govuk-link" href="{{ xuiStaffAdminUrl }}" target="_blank" rel="noopener noreferrer">{{ staffLink }}</a></p>
-    </section>
+    {% endcall %}{% endset %}
+
+    {#
+      Each panel's id is its section's old fragment, so every `?saved=…#section` redirect, the Gazette pages' settings
+      links and the Change and Remove pages' back links still open the right tab. A form's action carries the same
+      fragment, so a refused save, which renders at the POST address, opens on the tab whose error it shows.
+    #}
+    {% set tabItems = [{ label: processHeading, id: "process-settings", panel: { html: processPanel } }] %}
+    {% if gazette %}
+      {% set tabItems = (tabItems.push({ label: gazetteHeading, id: "gazette-recipient", panel: { html: gazettePanel } }), tabItems) %}
+    {% endif %}
+    {% set tabItems = (tabItems.push(
+      { label: mastersHeading, id: "masters", panel: { html: mastersPanel } },
+      { label: bankHolidaysHeading, id: "bank-holidays", panel: { html: bankHolidaysPanel } },
+      { label: staffHeading, id: "staff-and-access", panel: { html: staffPanel } }
+    ), tabItems) %}
+    {{ govukTabs({ items: tabItems, classes: "app-case-tabs" }) }}
   </div>
 </div>
 {% endblock %}
