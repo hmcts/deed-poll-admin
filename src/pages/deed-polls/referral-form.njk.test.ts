@@ -222,30 +222,6 @@ describe("raise a referral template", () => {
     expect(page).not.toContain('href="#reasons"');
   });
 
-  it("should ask which Master last, after urgency, with each Master's room as the radio's hint", async () => {
-    const res = pageResponse();
-
-    await GET(request(), res);
-    const page = html(res.render.mock.calls[0][1]);
-
-    expect(page).toContain("Which Master should this go to?");
-    expect(page.indexOf('name="urgency"')).toBeLessThan(page.indexOf('name="masterId"'));
-    expect(page).toMatch(new RegExp(`<input[^>]*name="masterId"[^>]*value="${SULLIVAN}"`));
-    expect(page).toContain("3 of 10 referrals for this morning");
-    expect(page).toContain("Raise referral");
-  });
-
-  it("should show a full Master disabled, and not offer one who is unavailable", async () => {
-    const res = pageResponse();
-
-    await GET(request(), res);
-    const page = html(res.render.mock.calls[0][1]);
-
-    expect(page).toMatch(new RegExp(`<input[^>]*value="${MASTERS.masters[2].id}"[^>]*disabled`));
-    expect(page).toContain("Full for this morning");
-    expect(page).not.toContain("Master Wren");
-  });
-
   it("should say there are no Masters and offer no submit when none is available", async () => {
     vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, masters: [] } as never);
     const res = pageResponse();
@@ -255,18 +231,6 @@ describe("raise a referral template", () => {
 
     expect(page).toContain("There are no Masters to assign to. Ask a Delivery Manager to add one.");
     expect(page).not.toContain('name="masterId"');
-    expect(page).not.toContain("Raise referral");
-  });
-
-  it("should list the full Masters, say every one is full and offer no submit when nobody could be chosen", async () => {
-    vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, masters: MASTERS.masters.map((master) => ({ ...master, assignedInWindow: 10 })) } as never);
-    const res = pageResponse();
-
-    await GET(request(), res);
-    const page = html(res.render.mock.calls[0][1]);
-
-    expect(page).toContain('name="masterId"');
-    expect(page).toContain("Every Master is full for this window, so this referral cannot be raised now.");
     expect(page).not.toContain("Raise referral");
   });
 

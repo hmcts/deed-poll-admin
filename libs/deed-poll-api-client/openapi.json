@@ -1019,13 +1019,13 @@
             "description": "Created"
           },
           "400": {
-            "description": "The body is not valid, each field's error named; or masterId names no Master, or one who is not available: \"Select a Master who is available\"."
+            "description": "The body is not valid, each field's error named."
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
           },
           "409": {
-            "description": "The case already has a referral that is not closed or withdrawn; or the Master already holds the per-Master cap for the current referral window, with an error on masterId: \"This Master already has 10 referrals for the morning of 28 October 2026. Choose another Master.\" The window is the morning or afternoon of a working day in Europe/London; outside the windows a referral counts towards the next one."
+            "description": "The case already has a referral that is not closed or withdrawn."
           }
         },
         "tags": ["caseworker-referral-controller"]
@@ -1119,7 +1119,7 @@
             "$ref": "#/components/responses/Forbidden"
           },
           "409": {
-            "description": "The referral is not waiting for a direction (it is Decided, Closed or Withdrawn); or the Master already holds the per-Master cap for the current referral window, with an error on masterId: \"This Master already has 10 referrals for the morning of 28 October 2026. Choose another Master.\" The window is the morning or afternoon of a working day in Europe/London; outside the windows a referral counts towards the next one."
+            "description": "The referral has not been sent to a Master (it is Open): \"Send this referral from the queue: it has not been sent to a Master yet.\" Or it is not waiting for a direction (it is Decided, Closed or Withdrawn)."
           }
         },
         "tags": ["caseworker-referral-controller"]
@@ -1954,7 +1954,7 @@
     },
     "/caseworker/masters": {
       "get": {
-        "description": "Any deed poll staff role. Every Master, available or not, ordered by name and then id. linked says whether the Master has signed in and been linked to their IDAM account; the account itself is never published. window is the referral window a referral assigned now counts towards (Europe/London: today's morning or afternoon, or the next working day's morning outside the windows), cap is how many referrals one Master may be assigned per window, and each Master's assignedInWindow is their count in that window.",
+        "description": "Any deed poll staff role. Every Master, available or not, ordered by name and then id. linked says whether the Master has signed in and been linked to their IDAM account; the account itself is never published. The current window, the cap and each Master's count in it are the referral queue's (GET /caseworker/referral-queue).",
         "operationId": "listMasters",
         "responses": {
           "200": {
@@ -2051,7 +2051,7 @@
     },
     "/caseworker/process-settings": {
       "get": {
-        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). Seeded with a processing window of 10080 minutes (7 days), a 48-hour reminder interval, a cap of 10 referrals per Master per window, and referral windows of 07:00-10:30 and 14:00-14:30 Europe/London, at revision 0 with null attribution.",
+        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). Seeded with a processing window of 10080 minutes (7 days), a 48-hour reminder interval, a cap of 10 referrals sent per window across all Masters, and referral windows of 07:00-10:30 and 14:00-14:30 Europe/London, at revision 0 with null attribution.",
         "operationId": "getProcessSettings",
         "responses": {
           "200": {
@@ -2129,7 +2129,7 @@
         "tags": ["caseworker-bank-holidays-controller"]
       },
       "post": {
-        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). date (yyyy-MM-dd) and name are required. A date already listed is 409. The referral windows and digests skip it from their next decision.",
+        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). date (yyyy-MM-dd) and name are required. A date already listed is 409. The referral windows and Master reminders skip it from their next decision.",
         "operationId": "addBankHoliday",
         "requestBody": {
           "content": {
@@ -2184,6 +2184,94 @@
         },
         "summary": "Remove a bank holiday",
         "tags": ["caseworker-bank-holidays-controller"]
+      }
+    },
+    "/caseworker/referral-queue": {
+      "get": {
+        "description": "Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ALLOCATE_REFERRALS); anyone else is 403 before anything is read. state=Open (the default) lists the referrals waiting to be sent to a Master, urgent first, then the oldest raised, then id; state=Claimed lists those sent and not yet directed, for reassigning, the oldest sent first, then id. Any other state is 400 on state. page (1-based) and size (default 25, at most 100) as the case list takes them. Across every case. window says whether a referral window is open now (current, null outside one), which opens next, the cap across all Masters, how many referrals were sent in the open window whatever happened to them since, and each available Master's share. No subject or email address is published.",
+        "operationId": "listReferralQueue",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralQueueResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "List the referral queue",
+        "tags": ["caseworker-referral-queue-controller"]
+      }
+    },
+    "/caseworker/referral-queue/sends": {
+      "post": {
+        "description": "Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ALLOCATE_REFERRALS); anyone else is 403 before the body is read. Sends each named referral, waiting in the queue, to the Master named beside it, together and all or nothing: any refusal sends none. Only while a referral window is open (409 outside one, naming when the next opens). Each referral must be Open (409 on allocations[i].referralId), and each Master available (400 on allocations[i].masterId). The referrals already sent in the window, whatever has happened to them since, plus these must not exceed the cap across all Masters (409, saying how many more fit). A referral already sent to the same Master in the same window is skipped rather than refused, so the same body sent again is 200 and changes nothing. Each one sent is Claimed by its Master, starts the processing window and gets a case note and an audit event.",
+        "operationId": "sendReferrals",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendReferralsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralSendResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "The body is not valid, each entry's error named (allocations[2].masterId); or a Master is unknown or not available, on allocations[i].masterId: \"Select a Master who is available\". Nothing is sent."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "Nothing is sent. No referral window is open: \"Referrals can only be sent during a referral window. The next one opens at 14:00 today.\"; or a referral is not waiting to be sent, on allocations[i].referralId: \"This referral is no longer waiting to be sent\"; or the send would take the window past the cap across all Masters: \"Only 3 more referrals can be sent this morning. Remove 2 and try again.\""
+          }
+        },
+        "summary": "Send referrals from the queue to Masters",
+        "tags": ["caseworker-referral-queue-controller"]
       }
     },
     "/caseworker/saved-queries": {
@@ -2611,7 +2699,7 @@
     },
     "/judicial/referrals/{referralId}/direction/withdraw": {
       "post": {
-        "description": "Requires the judicial role. No body. Permitted while the referral is Decided and this judge directed it; otherwise 409, or 404 once closed. The referral returns to Claimed, held by the same judge, with the decision, directionsText, changesToStandardPublication, decisionDate and decidedBy cleared, and directionChangedAt set. The judge directs again with POST .../direction. Withdrawing restarts the processing window: assignedAt becomes now, and directionDueBy moves with it. If the judge does not direct it within the window, it is returned to the office for assignment like any other.",
+        "description": "Requires the judicial role. No body. Permitted while the referral is Decided and this judge directed it; otherwise 409, or 404 once closed. The referral returns to Claimed, held by the same judge, with the decision, directionsText, changesToStandardPublication, decisionDate and decidedBy cleared, and directionChangedAt set. The judge directs again with POST .../direction. Withdrawing restarts the processing window: assignedAt becomes now, and directionDueBy moves with it. If the judge does not direct it within the window, it is returned to the queue to be sent again like any other.",
         "operationId": "withdrawDirection",
         "parameters": [
           {
@@ -2911,7 +2999,7 @@
       },
       "AssignReferralRequest": {
         "additionalProperties": true,
-        "description": "Assigns the referral to a Master, or moves it to another. Any caseworker, while the referral is Open (waiting for assignment) or Claimed (waiting for a direction). The Master it already has is a no-op that records nothing. A reassignment restarts the Master's processing window, and the referral counts towards the new Master's cap in the current window.",
+        "description": "Moves a referral already sent to a Master to another. Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ALLOCATE_REFERRALS), while the referral is Claimed (sent, waiting for a direction), at any time, inside a referral window or not. It takes no place in any window and checks no cap: the referral keeps the window it was sent in. The Master it already has is a no-op that records nothing. Otherwise the referral's processing window and its reminders restart from now.",
         "properties": {
           "masterId": {
             "type": "string",
@@ -2953,7 +3041,16 @@
             "description": "The caller's capabilities, in declaration order",
             "items": {
               "type": "string",
-              "enum": ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD", "ACCESS_GAZETTE", "MANAGE_PROCESS_CONFIG"]
+              "enum": [
+                "OVERRIDE_PRIVACY",
+                "DELETE_NOTE",
+                "DELETE_WITNESS",
+                "MANAGE_SHARED_QUERIES",
+                "REPAIR_CCD",
+                "ACCESS_GAZETTE",
+                "MANAGE_PROCESS_CONFIG",
+                "ALLOCATE_REFERRALS"
+              ]
             }
           },
           "judicial": {
@@ -3789,13 +3886,8 @@
       },
       "CreateReferralRequest": {
         "additionalProperties": true,
-        "description": "A referral of the case to a Master, assigned to the one masterId names or, without it, waiting for assignment. reasons is the only field required outright; notes is required when Other is among them, and urgencyReason when urgency is Urgent. The case comes from the path and the state from the assignment, so state and migrated are ignored rather than refused, as any unknown key is. A case may hold many referrals over its lifetime but only one that is not closed or withdrawn, so a second live referral is a 409 rather than a 400. A refused assignment refuses the whole create, and nothing is written.",
+        "description": "A referral of the case to a Master. It is created Open, waiting in the referral queue until a Team leader or Delivery Manager sends it to a Master; a masterId is ignored, as any unknown key is. reasons is the only field required outright; notes is required when Other is among them, and urgencyReason when urgency is Urgent. The case comes from the path and the state is always Open, so state and migrated are ignored rather than refused, as any unknown key is. A case may hold many referrals over its lifetime but only one that is not closed or withdrawn, so a second live referral is a 409 rather than a 400.",
         "properties": {
-          "masterId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "The Masters-list entry to assign the referral to. Optional: without it the referral is created Open, waiting for a caseworker to assign it. An unknown or unavailable Master is a 400 on masterId: \"Select a Master who is available\"."
-          },
           "notes": {
             "type": "string",
             "description": "The single free-text field: the explanation Other requires and the general referral note at once, rather than two near-identical fields. Trimmed, and a whitespace-only value counts as none.",
@@ -4665,17 +4757,27 @@
           }
         }
       },
+      "MasterInWindow": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sentInWindow": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "MasterListEntryResponse": {
         "type": "object",
         "properties": {
-          "assignedInWindow": {
-            "type": "integer",
-            "format": "int64",
-            "description": "How many referrals the Master is assigned in the current window, against the cap."
-          },
           "available": {
             "type": "boolean",
-            "description": "Whether the Master may be assigned referrals. A Master who leaves is marked unavailable rather than deleted."
+            "description": "Whether the Master may be sent referrals. A Master who leaves is marked unavailable rather than deleted."
           },
           "email": {
             "type": "string"
@@ -4700,20 +4802,11 @@
       "MasterListResponse": {
         "type": "object",
         "properties": {
-          "cap": {
-            "type": "integer",
-            "format": "int32",
-            "description": "How many referrals one Master may be assigned per referral window."
-          },
           "masters": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/MasterListEntryResponse"
             }
-          },
-          "window": {
-            "$ref": "#/components/schemas/ReferralWindowResponse",
-            "description": "The referral window a referral assigned now counts towards: today's morning or afternoon, or the next working day's morning outside the windows."
           }
         }
       },
@@ -4744,6 +4837,23 @@
           }
         }
       },
+      "NextWindow": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "opensAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "slot": {
+            "type": "string",
+            "enum": ["AM", "PM"]
+          }
+        }
+      },
       "NoteResponse": {
         "type": "object",
         "properties": {
@@ -4766,6 +4876,23 @@
           },
           "note": {
             "type": "string"
+          }
+        }
+      },
+      "OpenWindow": {
+        "type": "object",
+        "properties": {
+          "closesAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "slot": {
+            "type": "string",
+            "enum": ["AM", "PM"]
           }
         }
       },
@@ -4820,13 +4947,6 @@
             "description": "The afternoon referral window's start, Europe/London, HH:mm.",
             "pattern": "^([01][0-9]|2[0-3]):(00|15|30|45)$"
           },
-          "masterWindowCap": {
-            "type": "integer",
-            "format": "int32",
-            "description": "How many referrals one Master may be assigned per referral window.",
-            "maximum": 100,
-            "minimum": 1
-          },
           "morningWindowEnd": {
             "type": "string",
             "description": "The morning referral window's end, Europe/London, HH:mm.",
@@ -4861,6 +4981,13 @@
           },
           "updatedBy": {
             "type": ["string", "null"]
+          },
+          "windowCap": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The most referrals that can be sent to Masters in one referral window, across all Masters.",
+            "maximum": 100,
+            "minimum": 1
           }
         }
       },
@@ -4881,18 +5008,172 @@
         },
         "required": ["outcome"]
       },
+      "ReferralQueueItem": {
+        "type": "object",
+        "properties": {
+          "assignedAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When it was sent or last reassigned, which starts the Master's processing window. Null while it is waiting to be sent."
+          },
+          "assignedMaster": {
+            "type": "null",
+            "$ref": "#/components/schemas/AssignedMasterResponse",
+            "description": "The Master it was sent to, as the Masters-list entry's id and the name it was sent under. Null while it is waiting to be sent."
+          },
+          "caseId": {
+            "type": "string",
+            "description": "The case the referral was raised on, which the caseworker case routes address."
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "Who raised the referral."
+          },
+          "createdOn": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the referral was raised; the queue's order after urgency."
+          },
+          "directionDueBy": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When it returns to the queue if the Master has given no direction. Only while it is Claimed; null otherwise."
+          },
+          "displayReference": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "nationality": {
+            "type": "string",
+            "enum": ["BritishCitizen", "BritishDependantTerritoriesCitizen", "CommonwealthCitizen", "Unknown"]
+          },
+          "newForename": {
+            "type": "string"
+          },
+          "newMiddleName": {
+            "type": "string"
+          },
+          "newSurname": {
+            "type": "string"
+          },
+          "oldForename": {
+            "type": "string"
+          },
+          "oldMiddleName": {
+            "type": "string"
+          },
+          "oldSurname": {
+            "type": "string"
+          },
+          "reasons": {
+            "type": "array",
+            "description": "Why the case was referred, as the stored ReferralReason names; empty for a migrated referral.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "state": {
+            "type": "string",
+            "enum": ["Open", "Claimed", "Decided", "Closed", "Withdrawn"]
+          },
+          "type": {
+            "type": "string",
+            "enum": ["Adult", "AdultTransgender", "Minor", "MinorTransgender", "DeedOfRelinquishment", "Unknown"]
+          },
+          "urgency": {
+            "type": "string",
+            "enum": ["Normal", "Urgent"]
+          },
+          "urgencyReason": {
+            "type": "string"
+          },
+          "windowDate": {
+            "type": ["string", "null"],
+            "format": "date",
+            "description": "The working day, in Europe/London, of the window it was sent in. Null while it is waiting to be sent."
+          },
+          "windowSlot": {
+            "type": ["string", "null"],
+            "description": "The morning (AM) or afternoon (PM) of windowDate.",
+            "enum": ["AM", "PM"]
+          }
+        }
+      },
+      "ReferralQueueResponse": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "referrals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReferralQueueItem"
+            }
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "window": {
+            "$ref": "#/components/schemas/ReferralQueueWindowResponse"
+          }
+        }
+      },
+      "ReferralQueueWindowResponse": {
+        "type": "object",
+        "properties": {
+          "cap": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The most referrals that can be sent to Masters in one window, across all Masters."
+          },
+          "current": {
+            "type": "null",
+            "$ref": "#/components/schemas/OpenWindow",
+            "description": "The window open now, in which referrals can be sent, or null between windows and on a day that is not a working day."
+          },
+          "masters": {
+            "type": "array",
+            "description": "Every available Master, by name, with how many of the referrals sent in the open window they hold now: a referral reassigned since keeps its window and counts under its new Master.",
+            "items": {
+              "$ref": "#/components/schemas/MasterInWindow"
+            }
+          },
+          "next": {
+            "$ref": "#/components/schemas/NextWindow",
+            "description": "The next window to open: the open one's successor when one is open."
+          },
+          "sent": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many referrals were sent in the open window, whatever has happened to them since, or 0 when none is open."
+          }
+        }
+      },
       "ReferralResponse": {
         "type": "object",
         "properties": {
           "assignedAt": {
             "type": ["string", "null"],
             "format": "date-time",
-            "description": "When the referral was last assigned, which starts the Master's processing window; a reassignment restarts it. Null when it is not assigned."
+            "description": "When the referral was sent or last reassigned, which starts the Master's processing window; a reassignment restarts it. Null when it is not assigned."
           },
           "assignedMaster": {
             "type": "null",
             "$ref": "#/components/schemas/AssignedMasterResponse",
-            "description": "The Masters-list entry the referral is assigned to, as its id and the name it was assigned under, or null: an Open referral is waiting for assignment, and a referral claimed before assignment existed has none until that Master is listed and signs in. Kept once directed."
+            "description": "The Masters-list entry the referral is assigned to, as its id and the name it was assigned under, or null: an Open referral is waiting to be sent, and a referral claimed before assignment existed has none until that Master is listed and signs in. Kept once directed."
           },
           "changesToStandardPublication": {
             "type": ["boolean", "null"],
@@ -4946,7 +5227,7 @@
           "directionDueBy": {
             "type": ["string", "null"],
             "format": "date-time",
-            "description": "When the referral is unassigned and returned to the office if the Master has given no direction: the start of the processing window plus its length as currently set. Only while the referral is Claimed; null otherwise."
+            "description": "When the referral is unassigned and returned to the queue if the Master has given no direction: the start of the processing window plus its length as currently set. Only while the referral is Claimed; null otherwise."
           },
           "directionsText": {
             "type": "string"
@@ -4987,7 +5268,7 @@
           "windowDate": {
             "type": ["string", "null"],
             "format": "date",
-            "description": "The working day, in Europe/London, whose referral window the assignment counts towards for the per-Master cap. Null when it is not assigned."
+            "description": "The working day, in Europe/London, whose referral window the referral was sent in, which the window's cap counts; a reassignment keeps it. Null when it is not assigned."
           },
           "windowSlot": {
             "type": ["string", "null"],
@@ -4996,16 +5277,17 @@
           }
         }
       },
-      "ReferralWindowResponse": {
+      "ReferralSendResponse": {
         "type": "object",
         "properties": {
-          "date": {
-            "type": "string",
-            "format": "date"
+          "referrals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReferralQueueItem"
+            }
           },
-          "slot": {
-            "type": "string",
-            "enum": ["AM", "PM"]
+          "window": {
+            "$ref": "#/components/schemas/ReferralQueueWindowResponse"
           }
         }
       },
@@ -5375,6 +5657,34 @@
             "maxLength": 4000
           }
         }
+      },
+      "SendReferralsRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "allocations": {
+            "type": "array",
+            "description": "The referrals to send together, each with its Master; no referralId twice.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "masterId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The Masters-list entry to send it to. An unknown or unavailable Master is a 400 on masterId: \"Select a Master who is available\"."
+                },
+                "referralId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "A referral waiting in the queue (Open)."
+                }
+              },
+              "required": ["masterId", "referralId"]
+            },
+            "maxItems": 100,
+            "minItems": 1
+          }
+        },
+        "required": ["allocations"]
       },
       "SentEmailResponse": {
         "type": "object",
@@ -5756,13 +6066,6 @@
             "description": "A referral window time, Europe/London, HH:mm on the quarter hour. Each window starts before it ends, and the morning window ends before the afternoon one starts. Optional for one release; absent leaves it unchanged, null is refused.",
             "pattern": "^([01][0-9]|2[0-3]):(00|15|30|45)$"
           },
-          "masterWindowCap": {
-            "type": "integer",
-            "format": "int32",
-            "description": "How many referrals one Master may be assigned per referral window, from 1 to 100. Optional for one release; absent leaves it unchanged, null is refused.",
-            "maximum": 100,
-            "minimum": 1
-          },
           "morningWindowEnd": {
             "type": "string",
             "description": "A referral window time, Europe/London, HH:mm on the quarter hour. Each window starts before it ends, and the morning window ends before the afternoon one starts. Optional for one release; absent leaves it unchanged, null is refused.",
@@ -5792,6 +6095,13 @@
             "format": "int32",
             "description": "The revision returned by the settings read; stale values return 409.",
             "minimum": 0
+          },
+          "windowCap": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The most referrals that can be sent to Masters in one referral window, across all Masters, from 1 to 100. Optional for one release; absent leaves it unchanged, null is refused.",
+            "maximum": 100,
+            "minimum": 1
           }
         },
         "required": ["referralClaimExpiryMinutes", "revision"]

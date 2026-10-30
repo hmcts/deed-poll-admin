@@ -1,7 +1,6 @@
 import {
   type ApiConfig,
   type ApiResult,
-  assignReferral,
   closeReferral,
   createCase,
   createNote,
@@ -14,6 +13,7 @@ import {
   listReferrals,
   patchCase,
   type ReferralState,
+  sendReferrals,
   withdrawReferral
 } from "../api/client.js";
 import { type SeedCase, seedDataset } from "./dataset.js";
@@ -31,7 +31,7 @@ export async function seedCases(
   if (journal.pending) throw new Error(`Uncertain write ${journal.pending}: reconcile it with the API before resuming; it will not be sent twice.`);
   if (!credentials.caseworkerToken) throw new Error("A caseworker/admin access token is required.");
   if (!options.deferJudicial && !credentials.judgeToken) throw new Error("A judicial access token is required unless judicial actions are deferred.");
-  // Since api D2 a judge sees only what is assigned to their Masters-list entry, so the judicial actions need it.
+  // A judge sees only what is sent to their Masters-list entry, so the judicial actions need it.
   if (!options.deferJudicial && !credentials.masterId) throw new Error("The judge's Masters-list id is required unless judicial actions are deferred.");
   const config: ApiConfig = { baseUrl: target.baseUrl, accessToken: credentials.caseworkerToken };
   const judge: ApiConfig = { ...config, accessToken: credentials.judgeToken };
@@ -77,10 +77,12 @@ export async function seedCases(
 
   async function seedReferral(plan: NonNullable<SeedCase["referral"]>, key: string, id: string): Promise<void> {
     const referral = await step(`${key}/referral`, () => createReferral(id, plan.create, config));
-    // Raised waiting for assignment and then assigned as its own step, so a deferred run leaves it `Open` and the
-    // resumed run assigns it. A journal from before api D2 holds `/claim` instead, which `completedReferralState` reads.
+    // Raised into the queue and then sent from it as its own step, so a deferred run leaves it `Open` and the resumed
+    // run sends it. Since api F1 that is a send by the Team leader, so it succeeds only inside a referral window, and
+    // counts towards the window's cap. The step keeps its `/assign` name so earlier journals still resume; a journal
+    // from before api D2 holds `/claim` instead, which `completedReferralState` reads.
     if (!options.deferJudicial && !Object.hasOwn(journal.steps, `${key}/claim`) && ["Claimed", "Decided", "Closed"].includes(plan.state)) {
-      await step(`${key}/assign`, () => assignReferral(id, referral.id, credentials.masterId ?? "", config));
+      await step(`${key}/assign`, () => sendReferrals({ allocations: [{ referralId: referral.id, masterId: credentials.masterId ?? "" }] }, config));
     }
     if (!options.deferJudicial && ["Decided", "Closed"].includes(plan.state)) {
       await step(`${key}/direction`, () => directJudicialReferral(referral.id, plan.direction, judge));
@@ -167,6 +169,6 @@ export interface SeedJournal {
 export interface SeedCredentials {
   caseworkerToken: string;
   judgeToken?: string;
-  /** The judge's Masters-list entry, which the claimed and directed referrals are assigned to (api D2). */
+  /** The judge's Masters-list entry, which the claimed and directed referrals are sent to (api F1). */
   masterId?: string;
 }

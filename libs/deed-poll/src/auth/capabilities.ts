@@ -7,6 +7,8 @@ export const MANAGE_SHARED_QUERIES: Capability = "MANAGE_SHARED_QUERIES";
 export const REPAIR_CCD: Capability = "REPAIR_CCD";
 export const ACCESS_GAZETTE: Capability = "ACCESS_GAZETTE";
 export const MANAGE_PROCESS_CONFIG: Capability = "MANAGE_PROCESS_CONFIG";
+/** api F1: the referral queue, the batch send and reassignment. Team leaders and Delivery Managers. */
+export const ALLOCATE_REFERRALS: Capability = "ALLOCATE_REFERRALS";
 
 /** No staff area, no judicial area, no capabilities: what every missing or malformed answer reads as. */
 export const NO_ACCESS: CallerAccess = Object.freeze({ staff: false, judicial: false, capabilities: Object.freeze([]) });

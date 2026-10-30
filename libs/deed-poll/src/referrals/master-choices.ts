@@ -13,9 +13,6 @@
 import { listMasters, type MasterList } from "@hmcts/deed-poll-api-client";
 import { type Caller, callApi } from "../api/deed-poll-api.js";
 
-// en-CA formats as `yyyy-MM-dd`, the shape api's window date has, so "today" compares as text.
-const LONDON_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" });
-
 export function findMasterChoices(caller: Caller): Promise<MasterList> {
   return callApi(caller, (config) => listMasters(config));
 }
@@ -26,31 +23,16 @@ export function findMasterChoices(caller: Caller): Promise<MasterList> {
  * `selectedId` is whatever was posted or stored, so it is compared rather than trusted: a value that matches no
  * Master checks nothing.
  */
-export function buildMasterChoices(list: MasterList, selectedId: unknown, now: Date = new Date()): MasterChoices {
+export function buildMasterChoices(list: MasterList, selectedId: unknown): MasterChoices {
+  // Since api F1 the Masters list carries no window, cap or count, so nobody reads as full here. Plan Fa1's Task 1
+  // removes the raise form's and the assign page's Master radios, and this module with them.
   return {
-    window: list.window ? { slot: list.window.slot, isToday: list.window.date === LONDON_DAY.format(now), date: shortDay(list.window.date) } : null,
+    window: null,
     choices: list.masters.flatMap((master) => {
       const name = master.name?.trim();
-      return master.available && name
-        ? [
-            {
-              id: master.id,
-              name,
-              held: master.assignedInWindow,
-              cap: list.cap,
-              isFull: master.assignedInWindow >= list.cap,
-              isChecked: master.id === selectedId
-            }
-          ]
-        : [];
+      return master.available && name ? [{ id: master.id, name, held: 0, cap: 0, isFull: false, isChecked: master.id === selectedId }] : [];
     })
   };
-}
-
-/** `dd-mm-yy` from api's `yyyy-MM-dd`, the form Steve chose for dates on these pages. */
-function shortDay(date: string): string {
-  const [year, month, day] = date.split("-");
-  return `${day}-${month}-${year.slice(2)}`;
 }
 
 export interface MasterChoices {

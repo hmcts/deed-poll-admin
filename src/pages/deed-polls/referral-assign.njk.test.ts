@@ -49,13 +49,6 @@ const MASTERS = {
 
 const found = { id: "case-1", displayReference: "KBDP2026-00001", notes: [], witnesses: [], documents: [] };
 const OPEN = { id: "ref-1", state: "Open", reasons: ["Minor"], migrated: false };
-const CLAIMED = {
-  ...OPEN,
-  state: "Claimed",
-  assignedMaster: { id: JUDGE, name: "Master Judge" },
-  assignedAt: new Date("2026-10-20T09:00:00Z"),
-  directionDueBy: new Date("2026-10-27T09:00:00Z")
-};
 
 const html = (model: Record<string, unknown>): string => environment.render("deed-polls/referral-assign.njk", { ...(model.en as object), ...model });
 
@@ -79,33 +72,6 @@ describe("assign a referral template", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-  });
-
-  it("should post to its own route and offer each Master with their room for this window", async () => {
-    const rendered = await getPage();
-
-    expect(rendered).toContain('action="/deed-polls/case-1/referrals/ref-1/assign"');
-    expect(rendered).toMatch(/<title>[^<]*Assign this referral to a Master/);
-    expect(rendered).toContain("Assign this referral to a Master");
-    expect(rendered).toContain("Which Master should this go to?");
-    expect(rendered).toContain("3 of 10 referrals for this morning");
-    expect(rendered).toMatch(new RegExp(`value="${JUDGE}"[^>]*disabled`));
-    expect(rendered).toContain('href="/deed-polls/case-1/referrals/ref-1"');
-    expect(rendered).toContain("Assign referral");
-  });
-
-  it("should say who has it and that the new Master's time starts again, and keep the current Master selectable", async () => {
-    vi.mocked(findReferral).mockResolvedValue(CLAIMED as never);
-
-    const rendered = await getPage();
-
-    expect(rendered).toContain("Assign this referral to another Master");
-    expect(rendered).toContain("This referral is with Master Judge.");
-    expect(rendered).toMatch(/govuk-inset-text[\s\S]*7 days from today to give a direction/);
-    expect(rendered).toMatch(new RegExp(`value="${JUDGE}"[^>]*checked`));
-    expect(rendered).not.toMatch(new RegExp(`value="${JUDGE}"[^>]*disabled`));
-    // Another full Master is still disabled.
-    expect(rendered).toMatch(new RegExp(`value="${WREN}"[^>]*disabled`));
   });
 
   it("should place the cap's refusal beside the radios and link it from the summary", async () => {
@@ -136,16 +102,6 @@ describe("assign a referral template", () => {
     const rendered = await getPage();
 
     expect(rendered).toContain("There are no Masters to assign to. Ask a Delivery Manager to add one.");
-    expect(rendered).not.toMatch(/<button[^>]*govuk-button/);
-  });
-
-  it("should list the full Masters, say every one is full and offer no submit when nobody could be chosen", async () => {
-    vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, masters: MASTERS.masters.map((master) => ({ ...master, assignedInWindow: 10 })) } as never);
-
-    const rendered = await getPage();
-
-    expect(rendered).toContain('name="masterId"');
-    expect(rendered).toContain("Every Master is full for this window, so this referral cannot be assigned now.");
     expect(rendered).not.toMatch(/<button[^>]*govuk-button/);
   });
 });

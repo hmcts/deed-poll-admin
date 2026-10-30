@@ -35,7 +35,7 @@ async function main(): Promise<void> {
   });
   if (values.help) {
     console.log(
-      "seed:cases --environment <non-prod> --api-url <origin> --batch <unique-name> [--as-of YYYY-MM-DD] [--journal path] [--defer-judicial] [--apply]\nWithout --apply, prints the 30-case plan without network calls. Apply requires SEED_CASEWORKER_TOKEN and SEED_JUDGE_TOKEN, or --create-test-users (Azure CLI + IDAM testing support), and SEED_MASTER_ID (the judge's Masters-list id) unless --defer-judicial. --defer-judicial needs only the caseworker/admin token and provisions only the admin fixture. Resume without this flag later to complete judicial actions. Optional: --client-id, --vault, --secret-name. Keep the journal to resume; production is refused."
+      "seed:cases --environment <non-prod> --api-url <origin> --batch <unique-name> [--as-of YYYY-MM-DD] [--journal path] [--defer-judicial] [--apply]\nWithout --apply, prints the 30-case plan without network calls. Apply requires SEED_CASEWORKER_TOKEN and SEED_JUDGE_TOKEN, or --create-test-users (Azure CLI + IDAM testing support), and SEED_MASTER_ID (the judge's Masters-list id) unless --defer-judicial. --defer-judicial needs only the caseworker/admin token and provisions only the admin fixture. Resume without this flag later to complete judicial actions; they send referrals from the queue as the Team leader, so run them inside a referral window. Optional: --client-id, --vault, --secret-name. Keep the journal to resume; production is refused."
     );
     return;
   }

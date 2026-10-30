@@ -40,8 +40,8 @@ import {
   getJudicialPool,
   getJudicialReferral,
   getNote,
-  getProcessSettings,
   getReferral,
+  getReferralQueue,
   getSavedQuery,
   getWitness,
   listBankHolidays,
@@ -63,9 +63,9 @@ import {
   reviseDirection,
   selectSavedQuery,
   sendEmail,
+  sendReferrals,
   submitGazetteNotice,
   updateMaster,
-  updateProcessSettings,
   updateWitness,
   uploadDocument,
   withdrawDirection,
@@ -274,19 +274,10 @@ describe("the Masters list", () => {
     const result = await listMasters(caseworker());
 
     // Assert
-    expect(result.ok && result.data.masters.map((master) => [master.name, master.available, master.assignedInWindow])).toEqual([
-      ["Master Adams", true, 0],
-      ["Master Wren", false, 0]
+    expect(result.ok && result.data.masters.map((master) => [master.name, master.available])).toEqual([
+      ["Master Adams", true],
+      ["Master Wren", false]
     ]);
-  });
-
-  it("should carry the current referral window and the cap beside the Masters", async () => {
-    // Act
-    const result = await listMasters(caseworker());
-
-    // Assert
-    expect(result.ok && result.data.cap).toBe(10);
-    expect(result.ok && result.data.window).toEqual({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), slot: expect.stringMatching(/^(AM|PM)$/) });
   });
 
   it("should patch a Master at its revision and refuse the same revision again with a conflict", async () => {
@@ -913,61 +904,73 @@ describe("referrals", () => {
     expect(result.data.createdOn).toBeInstanceOf(Date);
   });
 
-  it("should raise a referral assigned to the Master it names, with when the direction is due", async () => {
-    const id = await caseId();
-    const masterId = await masterFor("judge.a@example.com");
+  it("should read the queue in api's order with its window, encoding only the parameters it is given", async () => {
+    const first = await referralOn(await caseId());
+    const urgent = await referralOn(await caseId(), { reasons: ["Other"], notes: "x", urgency: "Urgent", urgencyReason: "Hearing" });
+    await openWindow();
 
-    const result = await createReferral(id, { reasons: ["Minor", "MinorCourtOrder"], masterId }, config);
+    const all = await getReferralQueue({}, teamLeader());
+    const paged = await getReferralQueue({ state: "Open", page: 2, size: 1 }, teamLeader());
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.data).toMatchObject({ state: "Claimed", assignedMaster: { id: masterId, name: "judge.a@example.com" }, windowSlot: expect.any(String) });
-    expect(result.data.assignedAt).toBeInstanceOf(Date);
-    expect(result.data.directionDueBy).toBeInstanceOf(Date);
-    expect(result.data.windowDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(all.ok && all.data.referrals.map((row) => row.id)).toEqual([urgent, first]);
+    expect(all.ok && all.data.referrals[0].createdOn).toBeInstanceOf(Date);
+    expect(all.ok && all.data.window).toMatchObject({ current: { slot: "AM" }, cap: 10, sent: 0 });
+    expect(all.ok && all.data.window?.current?.closesAt).toBeInstanceOf(Date);
+    expect(paged.ok && paged.data).toMatchObject({ page: 2, size: 1, total: 2 });
+    expect(paged.ok && paged.data.referrals.map((row) => row.id)).toEqual([first]);
   });
 
-  it("should report an unknown Master as a validation failure on masterId", async () => {
-    const result = await createReferral(await caseId(), { reasons: ["Minor", "MinorCourtOrder"], masterId: "00000000-0000-4000-8000-000000000000" }, config);
+  it("should report a caseworker reading the queue as forbidden", async () => {
+    const result = await getReferralQueue({}, { ...config, accessToken: roleToken("cw-1", ["caseworker-deedpoll"]) });
 
-    expect(!result.ok && result.error.kind).toBe("validation");
-    expect(!result.ok && result.error.fieldErrors?.map((error) => error.field)).toEqual(["masterId"]);
+    expect(!result.ok && result.error.kind).toBe("forbidden");
   });
 
-  it("should assign a referral waiting for assignment, and move it to another Master", async () => {
+  it("should send referrals to Masters and answer the referrals sent and the window after", async () => {
     const id = await caseId();
     const referralId = await referralOn(id);
-    const first = await masterFor("judge.a@example.com");
-    const second = await masterFor("judge.b@example.com");
+    const masterId = await masterFor("judge.a@example.com");
+    await openWindow();
 
-    const assigned = await assignReferral(id, referralId, first, config);
-    const moved = await assignReferral(id, referralId, second, config);
+    const sent = await sendReferrals({ allocations: [{ referralId, masterId }] }, teamLeader());
 
-    expect(assigned.ok && assigned.data).toMatchObject({ state: "Claimed", assignedMaster: { id: first } });
-    expect(moved.ok && moved.data).toMatchObject({ state: "Claimed", assignedMaster: { id: second }, claimedBy: "judge.b@example.com" });
+    expect(sent.ok && sent.data.referrals[0]).toMatchObject({ id: referralId, caseId: id, state: "Claimed", assignedMaster: { id: masterId } });
+    expect(sent.ok && sent.data.referrals[0].directionDueBy).toBeInstanceOf(Date);
+    expect(sent.ok && sent.data.window?.sent).toBe(1);
   });
 
-  it("should tell the cap's conflict from a state conflict by its field error on masterId", async () => {
-    const directed = await decidedReferral();
-    const manager = { ...config, accessToken: roleToken("manager-1", ["caseworker-deedpoll-delivery-manager"]) };
-    const settings = await getProcessSettings(manager);
-    if (!settings.ok) throw new Error("no settings");
-    await updateProcessSettings(
-      { referralClaimExpiryMinutes: settings.data.referralClaimExpiryMinutes, masterWindowCap: 1, revision: settings.data.revision },
-      manager
-    );
+  it("should tell a row's refusal from the window's by its field", async () => {
+    const referralId = await referralOn(await caseId());
     const masterId = await masterFor("judge.a@example.com");
-    await referralOn(await caseId(), { reasons: ["Minor", "MinorCourtOrder"], masterId });
-    const id = await caseId();
-    const waiting = await referralOn(id);
 
-    const full = await assignReferral(id, waiting, masterId, config);
-    const notWaiting = await assignReferral(directed.caseId, directed.referralId, masterId, config);
+    await openWindow("closed");
+    const closed = await sendReferrals({ allocations: [{ referralId, masterId }] }, teamLeader());
+    await openWindow();
+    const unknown = await sendReferrals({ allocations: [{ referralId, masterId: "00000000-0000-4000-8000-000000000000" }] }, teamLeader());
+    const notWaiting = await sendReferrals({ allocations: [{ referralId: "00000000-0000-4000-8000-000000000001", masterId }] }, teamLeader());
 
-    expect(!full.ok && full.error.kind).toBe("conflict");
-    expect(!full.ok && full.error.fieldErrors?.map((error) => error.field)).toEqual(["masterId"]);
+    expect(!closed.ok && closed.error.kind).toBe("conflict");
+    expect(!closed.ok && closed.error.fieldErrors).toBeUndefined();
+    expect(!unknown.ok && unknown.error.kind).toBe("validation");
+    expect(!unknown.ok && unknown.error.fieldErrors?.map((error) => error.field)).toEqual(["allocations[0].masterId"]);
     expect(!notWaiting.ok && notWaiting.error.kind).toBe("conflict");
-    expect(!notWaiting.ok && notWaiting.error.fieldErrors).toBeUndefined();
+    expect(!notWaiting.ok && notWaiting.error.fieldErrors?.map((error) => error.field)).toEqual(["allocations[0].referralId"]);
+  });
+
+  it("should reassign a sent referral to another Master, and refuse one still in the queue as a conflict", async () => {
+    const id = await caseId();
+    const referralId = await referralOn(id, await toMaster("judge.a@example.com"));
+    const second = await masterFor("judge.b@example.com");
+    const waitingCase = await caseId();
+    const waiting = await referralOn(waitingCase);
+
+    const moved = await assignReferral(id, referralId, second, teamLeader());
+    const refused = await assignReferral(waitingCase, waiting, second, teamLeader());
+    const caseworkerTried = await assignReferral(id, referralId, second, { ...config, accessToken: roleToken("cw-1", ["caseworker-deedpoll"]) });
+
+    expect(moved.ok && moved.data).toMatchObject({ state: "Claimed", assignedMaster: { id: second }, claimedBy: "judge.b@example.com" });
+    expect(!refused.ok && refused.error.kind).toBe("conflict");
+    expect(!caseworkerTried.ok && caseworkerTried.error.kind).toBe("forbidden");
   });
 
   it("should list every referral a case has had, not only the live one, and read one back by id", async () => {
@@ -2717,12 +2720,31 @@ function awaitingConfirmation(): { caseId: string; referralId: string } {
   return { caseId: seeded.id, referralId: waiting.id };
 }
 
-/** A referral raised over the contract, which is where every referral journey starts. */
-async function referralOn(id: string, body: ReferralCreate = { reasons: ["Minor", "MinorCourtOrder"] }): Promise<string> {
-  const created = await createReferral(id, body, config);
+/**
+ * A referral raised over the contract, which is where every referral journey starts. Given a `masterId` (from
+ * `toMaster`), it is then sent to that Master from the queue by a Team leader, in a window the mock's clock is moved
+ * into, as api F1 sends every referral.
+ */
+async function referralOn(id: string, body: ReferralCreate & { masterId?: string } = { reasons: ["Minor", "MinorCourtOrder"] }): Promise<string> {
+  const { masterId, ...raise } = body;
+  const created = await createReferral(id, raise, config);
   if (!created.ok) throw new Error(`referral was not created: ${created.error.message}`);
+  if (masterId === undefined) return created.data.id;
+
+  await openWindow();
+  const sent = await sendReferrals({ allocations: [{ referralId: created.data.id, masterId }] }, teamLeader());
+  if (!sent.ok) throw new Error(`referral was not sent: ${sent.error.message}`);
 
   return created.data.id;
+}
+
+/** The mock's clock moved just inside the next morning window, where a send is admitted. */
+async function openWindow(window: "open" | "closed" = "open"): Promise<void> {
+  await fetch(`${mock.url}/__mock/clock`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ window }) });
+}
+
+function teamLeader(): ApiConfig {
+  return { ...config, accessToken: roleToken("lead-1", ["caseworker-deedpoll-team-leader"]) };
 }
 
 /**
@@ -2765,11 +2787,11 @@ async function refusedCase(patch: Parameters<typeof createCase>[0] = {}): Promis
 }
 
 /**
- * A referral body assigned to the Master entry for `subject`, created and linked on first use (api D2): a Master
- * sees only what is assigned to them, so this is how a test puts a referral in a judge's hands now there is no claim.
+ * A referral body to be sent to the Master entry for `subject`, created and linked on first use: a Master sees only
+ * what is sent to them, so this is how a test puts a referral in a judge's hands now there is no claim.
  * The entry is named after the subject, so `claimedBy` reads as it did when the judge claimed it.
  */
-async function toMaster(subject: string, body: ReferralCreate = { reasons: ["Minor", "MinorCourtOrder"] }): Promise<ReferralCreate> {
+async function toMaster(subject: string, body: ReferralCreate = { reasons: ["Minor", "MinorCourtOrder"] }): Promise<ReferralCreate & { masterId: string }> {
   return { ...body, masterId: await masterFor(subject) };
 }
 

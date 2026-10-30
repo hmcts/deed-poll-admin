@@ -230,7 +230,7 @@ function apiFieldErrors(fields: string[], content: typeof en): ProcessErrors {
   const messages: Record<string, [ProcessControl, string]> = {
     referralClaimExpiryMinutes: ["processingDays", content.processingDaysError],
     reminderIntervalHours: ["reminderIntervalHours", content.reminderIntervalError],
-    masterWindowCap: ["masterWindowCap", content.masterWindowCapError],
+    windowCap: ["masterWindowCap", content.masterWindowCapError],
     morningWindowStart: ["morningWindowStart", content.morningWindowStartError],
     morningWindowEnd: ["morningWindowEnd", content.morningOrderError],
     afternoonWindowStart: ["afternoonWindowStart", content.windowsOrderError],
@@ -298,7 +298,7 @@ async function storedProcess(caller: Caller, locale: string): Promise<ProcessSec
     values: {
       processingDays: shownDays(settings.referralClaimExpiryMinutes),
       reminderIntervalHours: String(settings.reminderIntervalHours),
-      masterWindowCap: String(settings.masterWindowCap),
+      masterWindowCap: String(settings.windowCap),
       morningWindowStart: settings.morningWindowStart ?? "",
       morningWindowEnd: settings.morningWindowEnd ?? "",
       afternoonWindowStart: settings.afternoonWindowStart ?? "",

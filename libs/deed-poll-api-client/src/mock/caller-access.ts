@@ -7,7 +7,8 @@
  */
 import { CAPABILITY, type WireCallerAccess } from "../api/wire.js";
 
-const TEAM_LEADER: readonly Capability[] = ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD"];
+// api F1 grants `ALLOCATE_REFERRALS` with the Team leader's set, so the legacy admin and the Delivery Manager hold it too.
+const TEAM_LEADER: readonly Capability[] = ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD", "ALLOCATE_REFERRALS"];
 
 export const ROLE_ACCESS: Readonly<Record<string, RoleAccess>> = {
   "caseworker-deedpoll": { area: "staff", capabilities: [] },

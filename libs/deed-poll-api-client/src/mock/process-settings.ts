@@ -9,10 +9,10 @@ const OPTIONAL_INTS = {
     max: PROCESS_SETTINGS_LIMITS.maxReminderHours,
     message: `Enter a reminder interval from ${PROCESS_SETTINGS_LIMITS.minReminderHours} to ${PROCESS_SETTINGS_LIMITS.maxReminderHours} hours, in whole hours.`
   },
-  masterWindowCap: {
-    min: PROCESS_SETTINGS_LIMITS.minMasterWindowCap,
-    max: PROCESS_SETTINGS_LIMITS.maxMasterWindowCap,
-    message: `Enter a cap from ${PROCESS_SETTINGS_LIMITS.minMasterWindowCap} to ${PROCESS_SETTINGS_LIMITS.maxMasterWindowCap} referrals per Master per window.`
+  windowCap: {
+    min: PROCESS_SETTINGS_LIMITS.minWindowCap,
+    max: PROCESS_SETTINGS_LIMITS.maxWindowCap,
+    message: `Enter a cap from ${PROCESS_SETTINGS_LIMITS.minWindowCap} to ${PROCESS_SETTINGS_LIMITS.maxWindowCap} referrals per window, across all Masters.`
   }
 } as const;
 const KEYS = new Set<string>([PROCESSING_WINDOW, REVISION, ...Object.keys(OPTIONAL_INTS), ...WINDOW_TIMES]);
@@ -75,7 +75,7 @@ function seeded(): WireProcessSettings {
   return {
     referralClaimExpiryMinutes: 10080,
     reminderIntervalHours: 48,
-    masterWindowCap: 10,
+    windowCap: 10,
     morningWindowStart: "07:00",
     morningWindowEnd: "10:30",
     afternoonWindowStart: "14:00",

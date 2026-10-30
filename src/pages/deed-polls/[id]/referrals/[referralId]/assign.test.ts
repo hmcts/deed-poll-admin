@@ -75,43 +75,6 @@ describe("assign a referral page", () => {
   });
 
   describe("GET", () => {
-    it("should ask which Master for a referral waiting for assignment, with nobody chosen and no current holder", async () => {
-      const res = response();
-
-      await GET(request(), res);
-
-      expect(res.render.mock.calls[0][0]).toBe("deed-polls/referral-assign");
-      expect(model(res)).toMatchObject({
-        heading: "Assign this referral to a Master",
-        currentlyWith: "",
-        restartsWindow: "",
-        action: `${REFERRAL_HREF}/assign`,
-        referralHref: REFERRAL_HREF,
-        isMastersUnavailable: false,
-        hasNoMasters: false
-      });
-      expect(model(res).masterItems).toEqual([
-        { value: SULLIVAN, text: "Master Sullivan", checked: false, disabled: false, hint: { text: "3 of 10 referrals for this morning" } },
-        { value: JUDGE, text: "Master Judge", checked: false, disabled: true, hint: { text: "Full for this morning" } }
-      ]);
-      expect(findReferral).toHaveBeenCalledWith("case-1", "ref-1", CALLER);
-    });
-
-    it("should pre-select the current Master on a reassignment, say who has it, and keep their radio enabled when full", async () => {
-      vi.mocked(findReferral).mockResolvedValue(CLAIMED as never);
-      const res = response();
-
-      await GET(request(), res);
-
-      expect(model(res)).toMatchObject({
-        heading: "Assign this referral to another Master",
-        currentlyWith: "This referral is with Master Judge. It was assigned on 20 October 2026 at 10:00am.",
-        // Seven, read off api's two instants rather than restated.
-        restartsWindow: "If you assign it to another Master, they will have 7 days from today to give a direction."
-      });
-      expect(model(res).masterItems[1]).toMatchObject({ value: JUDGE, checked: true, disabled: false, hint: { text: "Full for this morning" } });
-    });
-
     it("should say the time starts again without a number when api's instants do not give one", async () => {
       vi.mocked(findReferral).mockResolvedValue({ ...CLAIMED, directionDueBy: null } as never);
       const res = response();
@@ -148,15 +111,6 @@ describe("assign a referral page", () => {
       await GET(request(), res);
 
       expect(model(res)).toMatchObject({ isMastersUnavailable: false, hasNoMasters: true });
-    });
-
-    it("should take the submit away when every Master is full and none is the current one", async () => {
-      vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, masters: [{ ...MASTERS.masters[0], assignedInWindow: 10 }, MASTERS.masters[1]] } as never);
-      const res = response();
-
-      await GET(request(), res);
-
-      expect(model(res)).toMatchObject({ isEveryMasterFull: true, hasNoMasters: false, isMastersUnavailable: false });
     });
 
     it("should keep the submit on a reassignment when every Master is full, because the current one can be chosen again", async () => {

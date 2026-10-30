@@ -44,7 +44,7 @@ describe("processSettingsFormSchema", () => {
     expect(result).toEqual({
       referralClaimExpiryMinutes: 10080,
       reminderIntervalHours: 48,
-      masterWindowCap: 10,
+      windowCap: 10,
       morningWindowStart: "07:15",
       morningWindowEnd: "10:30",
       afternoonWindowStart: "14:00",
@@ -127,12 +127,12 @@ describe("processSettingsFormSchema", () => {
     expect(Object.keys(result).sort()).toEqual([
       "afternoonWindowEnd",
       "afternoonWindowStart",
-      "masterWindowCap",
       "morningWindowEnd",
       "morningWindowStart",
       "referralClaimExpiryMinutes",
       "reminderIntervalHours",
-      "revision"
+      "revision",
+      "windowCap"
     ]);
     expect(result.referralClaimExpiryMinutes).toBe(10080);
   });

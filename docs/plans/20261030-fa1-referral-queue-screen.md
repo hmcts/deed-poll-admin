@@ -186,9 +186,9 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 ## Implementation Steps
 
 ### Task 0: Contract and mock for the queue
-- [ ] Record the execution baseline in the execution notes.
-- [ ] Copy the chain's F1 spec and record its provenance; add failing `client.test.ts`, `contract.test.ts` and mock tests for every queue, send and reassignment rule, the settings rename and the capability.
-- [ ] Implement the adapter, the capability, the mock and the seed, run the seeder on a private-port mock, run the per-task checks, and record the results.
+- [x] Record the execution baseline in the execution notes.
+- [x] Copy the chain's F1 spec and record its provenance; add failing `client.test.ts`, `contract.test.ts` and mock tests for every queue, send and reassignment rule, the settings rename and the capability.
+- [x] Implement the adapter, the capability, the mock and the seed, run the seeder on a private-port mock, run the per-task checks, and record the results.
 
 ### Task 1: Raising without a Master, and the caseworker's side
 - [ ] Add failing handler, schema and template tests for the raise form without Masters, the removed assign page and links, the new state wording and the reworded count with its two link targets.
@@ -214,3 +214,39 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [ ] Run all Validation Commands once more with `--force`, and `yarn test:gazette`; record the counts against the baseline, and confirm `git status` is clean apart from the task commits.
 
 ## Execution notes
+
+**Baseline:** admin `822d128` (the plan's commit on master `e3331bb`). `yarn biome format --write .` no fixes; `yarn lint`
+one warning (the known unused import in `mock/server.ts`); `yarn build --force` 8 of 8; `REDIS_URL=redis://127.0.0.1:6379
+yarn turbo test test:app --concurrency=1 --force`: simple-router 45, deed-poll-api-client 1,393, express-govuk-starter
+132, deed-poll 1,723, express-session-postgres 85, express-session-redis 7, cloud-native-platform 156, app 3,275; all
+passing, none skipped.
+
+**Task 0.** `openapi.json` is api F1's `/tmp/quill-f/spec-f1.json` (unmerged `feat/f-referral-queue` at `cc1deef`, SHA-256
+matching `spec-f1.meta`), 2-space JSON then Biome, parsed equal; `SPEC-PROVENANCE.md` has its row and delta (68
+operations, 49 paths, 78 schemas). Adapter: `getReferralQueue` (`ReferralQueueQuery`: `state`, `page`, `size`) and
+`sendReferrals`, `REFERRAL_SEND_LIMITS`, the queue's eight schemas with their strictness pinned, `windowCap`
+(`minWindowCap`/`maxWindowCap`), the Masters list as `{masters}` of `MasterResponse` rows, no `masterId` on the create,
+and `ALLOCATE_REFERRALS` last in `CAPABILITY`. `libs/deed-poll` exports `ALLOCATE_REFERRALS`; the mock's Team leader set
+holds it (so legacy admin and Delivery Manager do). The mock (`referral-windows.ts` now api's `openAt`, `nextToOpen`,
+`opensAt`, `closesAt`; `windowFor` went, as in api) answers the queue in both orders with the window envelope, the send
+in api's order and words (shape, window with today/tomorrow/weekday, not waiting or replay, Master, cap with A-2), and
+reassignment `ALLOCATE_REFERRALS` only (403 before the case is read), `Claimed` only, no cap, window kept. Every raise is
+`Open` with api's note; My referrals orders by `coalesce(assignedAt, claimedAt, createdOn)`; unassignment's note says
+"returned to the queue". **`/__mock/clock` also takes `{ window: "open" | "closed" }`**, five minutes after the next morning
+window opens or closes, so tests and journeys need not hard-code dates. `mock/assignment.test.ts` became
+`mock/referral-queue.test.ts` (61 tests); the other mock, client and preview tests that raised with a `masterId` now
+raise and then send inside an opened window. The real-api seeder (`src/seed/run.ts`) sends its five referrals from the
+queue as the Team leader under the same `/assign` step names, so old journals resume; **it now has to run inside a
+referral window** (its usage line says so). `scripts/seed-local-cases.mjs` raises five queued referrals (two urgent)
+on two earlier days and sends the rest in the last two past morning windows, reading the queue back (5 waiting, urgent
+first, 2 sent, 0 sent this window); run against a private mock on 3236 it exited 0. `CLAUDE.md`'s `mock:seed` line
+says so.
+
+Bridges until later tasks, so the build stays green: `buildMasterChoices` answers no window and nobody full (the
+Masters list has no counts now), and the 15 page and template tests pinning the per-Master room and full hints were
+deleted with the counts they read (Task 1 deletes the radios); the settings form keeps its `masterWindowCap` control
+and maps it to api's `windowCap` (Task 4 relabels it). The e2e specs still raise with a `masterId`, which the mock now
+ignores, until Task 5 rewrites them. Checks: format fixed 6 files; `yarn lint` clean (the baseline warning is fixed);
+`yarn build --force` 8 of 8; tests: deed-poll-api-client 1,448, deed-poll 1,719, app 3,260 (3,275 less the 15 deleted),
+the other five packages unchanged; all passing.
+

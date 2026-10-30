@@ -24,15 +24,18 @@ yarn format                     # Format code with Biome
 yarn seed:cases                 # Preview/apply 30 representative cases through the real API; non-production only
                                 # See docs/SEED-DATA.md for targets, credentials and resumable journals
 yarn mock:api                   # The in-memory api the pages develop against, on port 3200
-yarn mock:seed                  # Seed the running mock: 57 cases across every tab plus nine referrals — four
+yarn mock:seed                  # Seed the running mock: 57 cases across every tab plus twelve referrals — four
                                 # Decided so the returned-for-action count is non-zero, two of those also
                                 # awaiting the applicant's confirmation (waiting 14 and 3 days) so the second
-                                # count, its tab and the Waiting column are non-empty too, two assigned to Master
-                                # Judge and two waiting for assignment — and three Masters, Master Wren
-                                # unavailable and Master Judge on the judge persona's email, so it links on that
-                                # persona's first judicial request and finds its two on My referrals. The directed
-                                # ones are Master Sullivan's, linked to a seed identity. Resets the store unless
-                                # given `--keep` (which skips Masters already listed), and exits non-zero on a mismatch
+                                # count, its tab and the Waiting column are non-empty too, two sent to Master
+                                # Judge on two different days, one closed, and five waiting in the queue to be
+                                # sent, two of them urgent. Everything past the queue is sent by a Team leader in
+                                # a past morning window, so the current window's count reads 0. Three Masters,
+                                # Master Wren unavailable and Master Judge on the judge persona's email, so it
+                                # links on that persona's first judicial request and finds its two on My
+                                # referrals. The directed ones are Master Sullivan's, linked to a seed identity.
+                                # Resets the store unless given `--keep` (which skips Masters already listed),
+                                # leaves the mock's clock at real time, and exits non-zero on a mismatch
 ```
 
 The mock starts **empty**, so a page whose data comes from a list — the case list, its filter tabs, the

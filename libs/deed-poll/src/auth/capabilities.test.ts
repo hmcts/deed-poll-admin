@@ -2,6 +2,7 @@ import { CAPABILITY } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
 import {
   ACCESS_GAZETTE,
+  ALLOCATE_REFERRALS,
   callerAccessFrom,
   can,
   DELETE_NOTE,
@@ -20,9 +21,12 @@ const CASEWORK = [OVERRIDE_PRIVACY, DELETE_NOTE, DELETE_WITNESS, MANAGE_SHARED_Q
 
 // What api's `GET /me` answers for each persona, restated from its RoleCapabilities.
 const PERSONAS = [
-  { persona: "Team leader", access: { staff: true, judicial: false, capabilities: CASEWORK } },
-  { persona: "Delivery Manager", access: { staff: true, judicial: false, capabilities: [...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG] } },
-  { persona: "legacy admin", access: { staff: true, judicial: false, capabilities: CASEWORK } },
+  { persona: "Team leader", access: { staff: true, judicial: false, capabilities: [...CASEWORK, ALLOCATE_REFERRALS] } },
+  {
+    persona: "Delivery Manager",
+    access: { staff: true, judicial: false, capabilities: [...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG, ALLOCATE_REFERRALS] }
+  },
+  { persona: "legacy admin", access: { staff: true, judicial: false, capabilities: [...CASEWORK, ALLOCATE_REFERRALS] } },
   { persona: "caseworker", access: { staff: true, judicial: false, capabilities: [] } },
   { persona: "judge", access: { staff: false, judicial: true, capabilities: [] } },
   { persona: "no-role caller", access: { staff: false, judicial: false, capabilities: [] } }
@@ -41,7 +45,7 @@ describe("staff capability contract", () => {
   });
 
   it("should name every capability api publishes, so a gate cannot key on a string api never sends", () => {
-    expect([...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG]).toEqual([...CAPABILITY]);
+    expect([...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG, ALLOCATE_REFERRALS]).toEqual([...CAPABILITY]);
   });
 });
 

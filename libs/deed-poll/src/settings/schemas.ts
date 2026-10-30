@@ -28,14 +28,14 @@ export function processSettingsFormSchema(messages: ProcessSettingsFormMessages)
     .object({
       processingDays: wholeNumber(PROCESSING_DAYS_LIMITS.min, PROCESSING_DAYS_LIMITS.max, messages.processingDays),
       reminderIntervalHours: wholeNumber(PROCESS_SETTINGS_LIMITS.minReminderHours, PROCESS_SETTINGS_LIMITS.maxReminderHours, messages.reminderIntervalHours),
-      masterWindowCap: wholeNumber(PROCESS_SETTINGS_LIMITS.minMasterWindowCap, PROCESS_SETTINGS_LIMITS.maxMasterWindowCap, messages.masterWindowCap),
+      masterWindowCap: wholeNumber(PROCESS_SETTINGS_LIMITS.minWindowCap, PROCESS_SETTINGS_LIMITS.maxWindowCap, messages.masterWindowCap),
       morningWindowStart: windowTime(messages.morningWindowStart),
       morningWindowEnd: windowTime(messages.morningWindowEnd),
       afternoonWindowStart: windowTime(messages.afternoonWindowStart),
       afternoonWindowEnd: windowTime(messages.afternoonWindowEnd),
       revision: settingsRevision(messages.reload)
     })
-    .transform(({ processingDays, ...settings }, context) => {
+    .transform(({ processingDays, masterWindowCap, ...settings }, context) => {
       // `HH:mm` compares as text, so no time arithmetic is needed.
       const ordering = [
         [settings.morningWindowStart >= settings.morningWindowEnd, "morningWindowEnd", messages.morningOrder],
@@ -47,7 +47,8 @@ export function processSettingsFormSchema(messages: ProcessSettingsFormMessages)
         context.addIssue({ code: "custom", path: [refused[1]], message: refused[2] });
         return z.NEVER;
       }
-      return { referralClaimExpiryMinutes: processingDays * MINUTES_PER_DAY, ...settings };
+      // The control keeps its D1 name until plan Fa1's Task 4 relabels it; api F1 calls the value `windowCap`.
+      return { referralClaimExpiryMinutes: processingDays * MINUTES_PER_DAY, windowCap: masterWindowCap, ...settings };
     });
 }
 

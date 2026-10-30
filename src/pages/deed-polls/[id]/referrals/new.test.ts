@@ -515,56 +515,6 @@ describe("raise a referral page", () => {
   describe("which Master", () => {
     const CAP_SENTENCE = "This Master already has 10 referrals for the morning of 28-10-26. Choose another Master.";
 
-    it("should offer the available Masters in api's order, each with their room in this morning's window", async () => {
-      const res = response();
-
-      await GET(request(), res);
-
-      expect(res.render.mock.calls[0][1].masterItems).toEqual([
-        { value: SULLIVAN, text: "Master Sullivan", checked: false, disabled: false, hint: { text: "3 of 10 referrals for this morning" } },
-        { value: MASTERS.masters[2].id, text: "Master Judge", checked: false, disabled: true, hint: { text: "Full for this morning" } }
-      ]);
-    });
-
-    it("should say this afternoon when the current window is today's afternoon", async () => {
-      vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, window: { date: "2026-10-28", slot: "PM" } } as never);
-      const res = response();
-
-      await GET(request(), res);
-
-      expect(res.render.mock.calls[0][1].masterItems[0].hint.text).toBe("3 of 10 referrals for this afternoon");
-    });
-
-    it("should count against a cap of one in the singular", async () => {
-      vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, masters: [{ ...MASTERS.masters[0], assignedInWindow: 0 }], cap: 1 } as never);
-      const res = response();
-
-      await GET(request(), res);
-
-      expect(res.render.mock.calls[0][1].masterItems[0].hint.text).toBe("0 of 1 referral for this morning");
-    });
-
-    it("should give the count without a window when api sends none", async () => {
-      vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, window: null } as never);
-      const res = response();
-
-      await GET(request(), res);
-
-      expect(res.render.mock.calls[0][1].masterItems.map((item: { hint: { text: string } }) => item.hint.text)).toEqual(["3 of 10 referrals", "Full"]);
-    });
-
-    it("should name a later window's day as dd-mm-yy", async () => {
-      vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, window: { date: "2026-10-29", slot: "AM" } } as never);
-      const res = response();
-
-      await GET(request(), res);
-
-      expect(res.render.mock.calls[0][1].masterItems.map((item: { hint: { text: string } }) => item.hint.text)).toEqual([
-        "3 of 10 referrals for the morning of 29-10-26",
-        "Full for the morning of 29-10-26"
-      ]);
-    });
-
     it("should say there are no Masters, and not that the list failed, when none is available", async () => {
       vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, masters: [MASTERS.masters[1]] } as never);
       const res = response();
@@ -572,17 +522,6 @@ describe("raise a referral page", () => {
       await GET(request(), res);
 
       expect(res.render.mock.calls[0][1]).toMatchObject({ masterItems: [], hasNoMasters: true, isMastersUnavailable: false });
-    });
-
-    it("should take the submit away when every available Master is full, still listing them", async () => {
-      vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, masters: [{ ...MASTERS.masters[0], assignedInWindow: 10 }, MASTERS.masters[2]] } as never);
-      const res = response();
-
-      await GET(request(), res);
-
-      const model = res.render.mock.calls[0][1];
-      expect(model).toMatchObject({ isEveryMasterFull: true, hasNoMasters: false, isMastersUnavailable: false });
-      expect(model.masterItems.map((item: { disabled: boolean }) => item.disabled)).toEqual([true, true]);
     });
 
     it("should keep the submit while any available Master has room", async () => {

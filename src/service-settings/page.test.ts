@@ -33,7 +33,7 @@ const CALLER = { accessToken: "dm-token" };
 const PROCESS = {
   referralClaimExpiryMinutes: 10080,
   reminderIntervalHours: 48,
-  masterWindowCap: 10,
+  windowCap: 10,
   morningWindowStart: "07:00",
   morningWindowEnd: "10:30",
   afternoonWindowStart: "14:00",
@@ -207,7 +207,7 @@ describe("process section POST", () => {
       {
         referralClaimExpiryMinutes: 20160,
         reminderIntervalHours: 48,
-        masterWindowCap: 10,
+        windowCap: 10,
         morningWindowStart: "07:15",
         morningWindowEnd: "10:30",
         afternoonWindowStart: "14:00",
@@ -297,7 +297,7 @@ describe("process section POST", () => {
       [{ field: "referralClaimExpiryMinutes", message: "x" }],
       { errors: { processingDays: "Enter the processing window as a whole number of days from 1 to 30" } }
     ],
-    [[{ field: "masterWindowCap", message: "x" }], { errors: { masterWindowCap: "Enter the referrals per Master as a whole number from 1 to 100" } }],
+    [[{ field: "windowCap", message: "x" }], { errors: { masterWindowCap: "Enter the referrals per Master as a whole number from 1 to 100" } }],
     [[{ field: "afternoonWindowStart", message: "x" }], { errors: { afternoonWindowStart: "The afternoon window must start after the morning window ends" } }],
     [[{ field: "morningWindowEnd", message: "x" }], { errors: { morningWindowEnd: "The morning window must end after it starts" } }],
     [

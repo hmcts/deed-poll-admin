@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
-import { BANK_HOLIDAY_LIMITS, DOCUMENT_PREVIEW_LIMITS, MASTER_LIMITS, PROCESS_SETTINGS_LIMITS, WINDOW_TIME_PATTERN } from "./client.js";
+import { BANK_HOLIDAY_LIMITS, DOCUMENT_PREVIEW_LIMITS, MASTER_LIMITS, PROCESS_SETTINGS_LIMITS, REFERRAL_SEND_LIMITS, WINDOW_TIME_PATTERN } from "./client.js";
 import deferredContract from "./deferred-contract.json";
 import { CAPABILITY, DOCUMENT_PREVIEW_ERROR_CODE, GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, WIRE_SCHEMAS } from "./wire.js";
 
@@ -80,6 +80,8 @@ const IMPLEMENTED_OPERATIONS = [
   "POST /caseworker/cases/{id}/referrals/{referralId}/closure",
   "POST /caseworker/cases/{id}/referrals/{referralId}/confirmation",
   "PUT /caseworker/cases/{id}/referrals/{referralId}/assignment",
+  "GET /caseworker/referral-queue",
+  "POST /caseworker/referral-queue/sends",
   "GET /caseworker/document-types",
   "GET /caseworker/saved-queries",
   "POST /caseworker/saved-queries",
@@ -161,10 +163,10 @@ describe("openapi.json and the wire schemas", () => {
       minimum: PROCESS_SETTINGS_LIMITS.minReminderHours,
       maximum: PROCESS_SETTINGS_LIMITS.maxReminderHours
     });
-    expect(request.properties?.masterWindowCap).toMatchObject({
+    expect(request.properties?.windowCap).toMatchObject({
       type: "integer",
-      minimum: PROCESS_SETTINGS_LIMITS.minMasterWindowCap,
-      maximum: PROCESS_SETTINGS_LIMITS.maxMasterWindowCap
+      minimum: PROCESS_SETTINGS_LIMITS.minWindowCap,
+      maximum: PROCESS_SETTINGS_LIMITS.maxWindowCap
     });
     for (const name of ["morningWindowStart", "morningWindowEnd", "afternoonWindowStart", "afternoonWindowEnd"]) {
       expect(request.properties?.[name]?.pattern, name).toBe(WINDOW_TIME_PATTERN);
@@ -178,7 +180,7 @@ describe("openapi.json and the wire schemas", () => {
     const full = {
       referralClaimExpiryMinutes: 10080,
       reminderIntervalHours: 48,
-      masterWindowCap: 10,
+      windowCap: 10,
       morningWindowStart: "07:00",
       morningWindowEnd: "10:30",
       afternoonWindowStart: "14:00",
@@ -188,9 +190,7 @@ describe("openapi.json and the wire schemas", () => {
     expect(write.safeParse(full).success).toBe(true);
     expect(write.safeParse({ referralClaimExpiryMinutes: 1440, revision: 0 }).success).toBe(true);
     expect(write.safeParse({ referralClaimExpiryMinutes: 43200, revision: 3 }).success).toBe(true);
-    expect(write.safeParse({ ...full, reminderIntervalHours: 1, masterWindowCap: 100, morningWindowStart: "00:00", afternoonWindowEnd: "23:45" }).success).toBe(
-      true
-    );
+    expect(write.safeParse({ ...full, reminderIntervalHours: 1, windowCap: 100, morningWindowStart: "00:00", afternoonWindowEnd: "23:45" }).success).toBe(true);
     for (const change of [
       { referralClaimExpiryMinutes: 1439 },
       { referralClaimExpiryMinutes: 43201 },
@@ -200,8 +200,8 @@ describe("openapi.json and the wire schemas", () => {
       { reminderIntervalHours: 0 },
       { reminderIntervalHours: 169 },
       { reminderIntervalHours: null },
-      { masterWindowCap: 0 },
-      { masterWindowCap: 101 },
+      { windowCap: 0 },
+      { windowCap: 101 },
       { morningWindowStart: "07:10" },
       { morningWindowStart: "7:00" },
       { afternoonWindowEnd: "24:00" },
@@ -267,19 +267,54 @@ describe("openapi.json and the wire schemas", () => {
     expect(spec.paths["/caseworker/process-settings/bank-holidays/{date}"].delete.responses?.["204"]).toBeDefined();
   });
 
-  it("should publish api D2's assignment: masterId on the raise, the assignment write and its refusals", () => {
-    expect(spec.components.schemas.CreateReferralRequest.properties?.masterId).toMatchObject({ type: "string", format: "uuid" });
+  it("should publish api F1's queue: no masterId on the raise, the queue read, the batch send and reassignment", () => {
+    expect(Object.keys(spec.components.schemas.CreateReferralRequest.properties ?? {})).not.toContain("masterId");
     expect(spec.components.schemas.CreateReferralRequest.required).toEqual(["reasons"]);
     expect(spec.components.schemas.AssignReferralRequest.required).toEqual(["masterId"]);
     expect(spec.components.schemas.AssignReferralRequest.additionalProperties).toBe(true);
     const assign = spec.paths["/caseworker/cases/{id}/referrals/{referralId}/assignment"].put;
     expect(Object.keys(assign.responses ?? {}).sort()).toEqual(["200", "400", "403", "409"]);
-    expect(spec.paths["/caseworker/cases/{id}/referrals"].post.responses?.["409"]).toBeDefined();
+    expect(assign.responses?.["409"]?.description).toContain("Send this referral from the queue");
+    const queue = spec.paths["/caseworker/referral-queue"].get;
+    expect(queue.parameters?.map((parameter) => parameter.name).sort()).toEqual(["page", "size", "state"]);
+    expect(queue.description).toContain("ALLOCATE_REFERRALS");
+    expect(queue.responses?.["200"]).toMatchObject({ content: { "*/*": { schema: { $ref: "#/components/schemas/ReferralQueueResponse" } } } });
+    const send = spec.paths["/caseworker/referral-queue/sends"].post;
+    expect(Object.keys(send.responses ?? {}).sort()).toEqual(["200", "400", "403", "409"]);
+    expect(send.responses?.["200"]).toMatchObject({ content: { "*/*": { schema: { $ref: "#/components/schemas/ReferralSendResponse" } } } });
+    const body = spec.components.schemas.SendReferralsRequest;
+    expect(body.required).toEqual(["allocations"]);
+    expect(body.additionalProperties).toBe(true);
+    expect(body.properties?.allocations).toMatchObject({ minItems: 1, maxItems: REFERRAL_SEND_LIMITS.maxAllocations });
+    expect(body.properties?.allocations?.items?.required?.toSorted()).toEqual(["masterId", "referralId"]);
     expect(spec.paths["/caseworker/masters"].get.responses?.["200"]).toMatchObject({
       content: { "*/*": { schema: { $ref: "#/components/schemas/MasterListResponse" } } }
     });
-    expect(WIRE_SCHEMAS.CreateReferralRequest.safeParse({ reasons: ["Minor"], masterId: "sullivan" }).success).toBe(false);
+    const id = "00000000-0000-4000-8000-000000000001";
+    const masterId = "00000000-0000-4000-8000-000000000002";
+    expect(WIRE_SCHEMAS.SendReferralsRequest.safeParse({ allocations: [{ referralId: id, masterId }] }).success).toBe(true);
+    for (const refused of [
+      { allocations: [] },
+      { allocations: [{ referralId: id }] },
+      { allocations: [{ referralId: "nope", masterId }] },
+      {
+        allocations: [
+          { referralId: id, masterId },
+          { referralId: id, masterId }
+        ]
+      },
+      { allocations: Array.from({ length: 101 }, (_, i) => ({ referralId: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, masterId })) }
+    ]) {
+      expect(WIRE_SCHEMAS.SendReferralsRequest.safeParse(refused).success).toBe(false);
+    }
     expect(WIRE_SCHEMAS.AssignReferralRequest.safeParse({}).success).toBe(false);
+  });
+
+  it("should publish the window cap across all Masters and drop the Masters list's window, cap and count", () => {
+    expect(spec.components.schemas.ProcessSettingsResponse.properties?.windowCap?.description).toContain("across all Masters");
+    expect(Object.keys(spec.components.schemas.ProcessSettingsResponse.properties ?? {})).not.toContain("masterWindowCap");
+    expect(Object.keys(spec.components.schemas.MasterListResponse.properties ?? {})).toEqual(["masters"]);
+    expect(Object.keys(spec.components.schemas.MasterListEntryResponse.properties ?? {})).not.toContain("assignedInWindow");
   });
 
   it("should mark the former pool and the claim deprecated, kept for api's one release", () => {
@@ -289,8 +324,8 @@ describe("openapi.json and the wire schemas", () => {
 
   it("should publish no Master's subject or email on a referral, only the entry's id and name", () => {
     expect(Object.keys(spec.components.schemas.AssignedMasterResponse.properties ?? {}).sort()).toEqual(["id", "name"]);
-    for (const name of ["ReferralResponse", "JudicialReferralSummary", "JudicialReferralDetail"]) {
-      for (const field of ["assignedMasterId", "assignedMasterEmail", "claimedById"]) {
+    for (const name of ["ReferralResponse", "ReferralQueueItem", "MasterInWindow", "JudicialReferralSummary", "JudicialReferralDetail"]) {
+      for (const field of ["assignedMasterId", "assignedMasterEmail", "claimedById", "email", "subject"]) {
         expect(Object.keys(spec.components.schemas[name].properties ?? {}), name).not.toContain(field);
       }
     }
@@ -545,6 +580,7 @@ describe("openapi.json and the wire schemas", () => {
       "UpdateSavedQueryRequest",
       "CreateReferralRequest",
       "AssignReferralRequest",
+      "SendReferralsRequest",
       "RecordConfirmationRequest",
       "JudicialDirectionRequest",
       "PreviewEmailRequest",

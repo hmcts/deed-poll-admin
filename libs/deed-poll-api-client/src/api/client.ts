@@ -62,10 +62,15 @@ import {
   type WireRecordConfirmation,
   type WireReferral,
   type WireReferralCreate,
+  type WireReferralQueue,
+  type WireReferralQueueItem,
+  type WireReferralQueueWindow,
+  type WireReferralSend,
   type WireSavedCase,
   type WireSavedQuery,
   type WireSavedQueryCreate,
   type WireSavedQueryUpdate,
+  type WireSendReferrals,
   type WireSentEmail,
   type WireSubmitGazette,
   type WireUpdateGazetteSettings,
@@ -288,7 +293,7 @@ export function updateProcessSettings(input: UpdateProcessSettings, config: ApiC
   return request(config, "PUT", "/caseworker/process-settings", WIRE_SCHEMAS.ProcessSettingsResponse, {
     referralClaimExpiryMinutes: input.referralClaimExpiryMinutes,
     reminderIntervalHours: input.reminderIntervalHours,
-    masterWindowCap: input.masterWindowCap,
+    windowCap: input.windowCap,
     morningWindowStart: input.morningWindowStart,
     morningWindowEnd: input.morningWindowEnd,
     afternoonWindowStart: input.afternoonWindowStart,
@@ -298,9 +303,8 @@ export function updateProcessSettings(input: UpdateProcessSettings, config: ApiC
 }
 
 /**
- * Every Master, available or not, in api's order (name, then id), with the current referral window's load since
- * plan D2: the window a referral assigned now counts towards, the per-Master cap and each Master's
- * `assignedInWindow`. Any staff role may read it.
+ * Every Master, available or not, in api's order (name, then id). Any staff role may read it. Since api F1 the window's
+ * load is the referral queue's, not this list's.
  */
 export function listMasters(config: ApiConfig): Promise<ApiResult<MasterList>> {
   return request(config, "GET", "/caseworker/masters", WIRE_SCHEMAS.MasterListResponse);
@@ -708,7 +712,8 @@ export function getReferral(caseId: string, referralId: string, config: ApiConfi
 }
 
 /**
- * Raise a referral, assigned to the Master `masterId` names or, without one, waiting for assignment. 201.
+ * Raise a referral. 201, always `Open`: since api F1 it waits in the referral queue until a Team leader or Delivery
+ * Manager sends it to a Master.
  *
  * `conflict` when the case already has a referral that is neither closed nor withdrawn — api allows many
  * referrals over a case's life but only one live at a time, and it answers 409 rather than 400 because a
@@ -719,16 +724,51 @@ export function createReferral(caseId: string, referral: ReferralCreate, config:
 }
 
 /**
- * Assign a referral to a Master, or move it to another (plan D2): any caseworker, while it is `Open` (waiting for
- * assignment) or `Claimed` (waiting for a direction). The Master it already has is a no-op 200. A reassignment
- * restarts the Master's processing window.
+ * Reassign a referral already sent to a Master (api F1): `ALLOCATE_REFERRALS` only, a `Claimed` referral only, at any
+ * time, inside a referral window or not. It takes no place in any window and checks no cap; the referral keeps the
+ * window it was sent in, and its processing window and reminders restart. The Master it already has is a no-op 200.
  *
- * `validation` with an error on `masterId` for an unknown or unavailable Master. `conflict` for a referral no longer
- * waiting for a direction, and also for a Master at the cap, which alone carries an error on `masterId`: that field
- * is the one way to tell the two apart, never api's prose.
+ * `validation` with an error on `masterId` for an unknown or unavailable Master. `conflict` for an `Open` referral
+ * (send it from the queue) and for one no longer waiting for a direction; only api's prose tells those apart, so a
+ * page answers both from a fresh read.
  */
 export function assignReferral(caseId: string, referralId: string, masterId: string, config: ApiConfig): Promise<ApiResult<Referral>> {
   return request(config, "PUT", `${referralPath(caseId, referralId)}/assignment`, WIRE_SCHEMAS.ReferralResponse, { masterId });
+}
+
+/**
+ * One page of the referral queue (api F1), `ALLOCATE_REFERRALS` only: `Open` referrals waiting to be sent (the
+ * default; urgent first, then oldest raised) or `Claimed` ones sent and not yet directed (oldest sent first), across
+ * every case, with the window's state and counts. The order is api's and is never re-sorted here.
+ *
+ * `page` and `size` publish as strings, as the case list's do; omitted ones are not sent, so api applies its own
+ * defaults (the first 25).
+ */
+export function getReferralQueue(query: ReferralQueueQuery, config: ApiConfig): Promise<ApiResult<ReferralQueue>> {
+  const parameters = new URLSearchParams();
+  if (query.state !== undefined) parameters.set("state", query.state);
+  if (query.page !== undefined) parameters.set("page", String(query.page));
+  if (query.size !== undefined) parameters.set("size", String(query.size));
+
+  const search = parameters.toString();
+
+  const querySuffix = search === "" ? "" : `?${search}`;
+
+  return request(config, "GET", `/caseworker/referral-queue${querySuffix}`, WIRE_SCHEMAS.ReferralQueueResponse);
+}
+
+/**
+ * Send referrals from the queue to Masters, together and all or nothing (api F1). Only inside a referral window.
+ *
+ * `validation` on `allocations[i].masterId` for an unknown or unavailable Master. `conflict` for no open window, for a
+ * referral no longer waiting (on `allocations[i].referralId`) and for a send past the window's cap (no field); the
+ * field is what tells a row's refusal from the window's. A referral already sent to the same Master in the same window
+ * is skipped, so sending the same body again after a lost response is a 200 that changes nothing.
+ */
+export function sendReferrals(input: SendReferrals, config: ApiConfig): Promise<ApiResult<ReferralSend>> {
+  return request(config, "POST", "/caseworker/referral-queue/sends", WIRE_SCHEMAS.ReferralSendResponse, {
+    allocations: input.allocations.map((allocation) => ({ referralId: allocation.referralId, masterId: allocation.masterId }))
+  });
 }
 
 /**
@@ -1785,13 +1825,26 @@ export type ProcessSettings = WireProcessSettings;
 export type UpdateProcessSettings = WireUpdateProcessSettings;
 export type Master = WireMaster;
 export type MasterList = WireMasterList;
+export type ReferralQueue = WireReferralQueue;
+export type ReferralQueueItem = WireReferralQueueItem;
+export type ReferralQueueWindow = WireReferralQueueWindow;
+export type ReferralSend = WireReferralSend;
+export type SendReferrals = WireSendReferrals;
+/** Which half of the queue to read, and which page. `state` is api's two published values; omitted is `Open`. */
+export interface ReferralQueueQuery {
+  state?: "Open" | "Claimed";
+  /** 1-based. */
+  page?: number;
+  /** Defaults to 25; api clamps to 100. */
+  size?: number;
+}
 export type MasterCreate = WireMasterCreate;
 export type MasterUpdate = WireMasterUpdate;
 export type BankHoliday = WireBankHoliday;
 export type BankHolidayCreate = WireBankHolidayCreate;
 
 export { GAZETTE_RECIPIENT_EMAIL_PATTERN, validateGazetteRecipientEmail } from "./gazette-recipient-email.js";
-export { BANK_HOLIDAY_LIMITS, MASTER_LIMITS, PROCESS_SETTINGS_LIMITS, WINDOW_TIME_PATTERN } from "./wire.js";
+export { BANK_HOLIDAY_LIMITS, MASTER_LIMITS, PROCESS_SETTINGS_LIMITS, REFERRAL_SEND_LIMITS, WINDOW_TIME_PATTERN } from "./wire.js";
 
 export type GazettePreview = WireGazettePreview;
 export type GazetteStatus = WireGazetteStatus;

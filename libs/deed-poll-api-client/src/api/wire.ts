@@ -133,7 +133,8 @@ export const CAPABILITY = [
   "MANAGE_SHARED_QUERIES",
   "REPAIR_CCD",
   "ACCESS_GAZETTE",
-  "MANAGE_PROCESS_CONFIG"
+  "MANAGE_PROCESS_CONFIG",
+  "ALLOCATE_REFERRALS"
 ] as const;
 
 /** The two `sortDirection` tokens api matches exactly. A bare field with no direction means ascending. */
@@ -580,13 +581,11 @@ const updateWitnessSchema = createWitnessSchema.partial();
  * message against the field — a schema that refused the pair would be a second authority on a rule api
  * already enforces, and `deed-poll-validation.ts` is where this repo's copies of api's rules live.
  *
- * No `state` and no `migrated`: the state comes from the assignment, and api ignores both rather than refusing them.
- * `masterId` assigns the referral to that Master as it is raised (plan D2); without it the referral is `Open`,
- * waiting for assignment. An unknown or unavailable Master is api's 400 on `masterId`, and the per-Master cap its 409.
+ * No `state` and no `migrated`, and since api F1 no `masterId`: every referral is raised `Open`, waiting in the queue
+ * to be sent to a Master, and api ignores all three rather than refusing them.
  */
 const createReferralSchema = z.object({
   reasons: z.array(z.enum(REFERRAL_REASON)).min(1),
-  masterId: z.uuid().optional(),
   notes: z.string().max(1000).optional(),
   urgency: z.enum(URGENCY).optional(),
   urgencyReason: z.string().max(500).optional()
@@ -1048,7 +1047,7 @@ const updateGazetteSettingsSchema = z
 
 /**
  * The process settings api accepts: the processing window in whole minutes (1 to 30 days), the reminder interval in
- * hours and the cap per Master per referral window. `contract.test.ts` pins every bound to
+ * hours and the cap per referral window across all Masters. `contract.test.ts` pins every bound to
  * `UpdateProcessSettingsRequest` in `openapi.json`, so the settings form can refuse early without restating them.
  */
 export const PROCESS_SETTINGS_LIMITS = {
@@ -1056,8 +1055,8 @@ export const PROCESS_SETTINGS_LIMITS = {
   maxProcessingMinutes: 43200,
   minReminderHours: 1,
   maxReminderHours: 168,
-  minMasterWindowCap: 1,
-  maxMasterWindowCap: 100
+  minWindowCap: 1,
+  maxWindowCap: 100
 } as const;
 
 /** A referral window time, Europe/London, `HH:mm` on the quarter hour. Pinned to the spec's pattern. */
@@ -1071,7 +1070,7 @@ export const WINDOW_TIME_PATTERN = "^([01][0-9]|2[0-3]):(00|15|30|45)$";
 const processSettingsSchema = z.object({
   referralClaimExpiryMinutes: z.number().int(),
   reminderIntervalHours: z.number().int(),
-  masterWindowCap: z.number().int(),
+  windowCap: z.number().int(),
   morningWindowStart: z.string().nullish(),
   morningWindowEnd: z.string().nullish(),
   afternoonWindowStart: z.string().nullish(),
@@ -1093,7 +1092,7 @@ const updateProcessSettingsSchema = z
   .object({
     referralClaimExpiryMinutes: z.number().int().min(PROCESS_SETTINGS_LIMITS.minProcessingMinutes).max(PROCESS_SETTINGS_LIMITS.maxProcessingMinutes),
     reminderIntervalHours: z.number().int().min(PROCESS_SETTINGS_LIMITS.minReminderHours).max(PROCESS_SETTINGS_LIMITS.maxReminderHours).optional(),
-    masterWindowCap: z.number().int().min(PROCESS_SETTINGS_LIMITS.minMasterWindowCap).max(PROCESS_SETTINGS_LIMITS.maxMasterWindowCap).optional(),
+    windowCap: z.number().int().min(PROCESS_SETTINGS_LIMITS.minWindowCap).max(PROCESS_SETTINGS_LIMITS.maxWindowCap).optional(),
     morningWindowStart: windowTime.optional(),
     morningWindowEnd: windowTime.optional(),
     afternoonWindowStart: windowTime.optional(),
@@ -1144,38 +1143,119 @@ const updateMasterSchema = z
   .refine((patch) => patch.name !== undefined || patch.email !== undefined || patch.available !== undefined);
 
 /**
- * One row of `GET /caseworker/masters` since plan D2: the Master and `assignedInWindow`, how many referrals they are
- * assigned in the current window, against the envelope's cap. A `long` on api's record, so never null.
- */
-const masterListEntrySchema = masterSchema.extend({
-  assignedInWindow: z.number().int().nonnegative()
-});
-
-/**
- * A referral window, as api's `ReferralWindowResponse`: a working day in `Europe/London` and its morning or afternoon.
- * `date` stays the `yyyy-MM-dd` string, as a bank holiday's does.
- */
-const referralWindowSchema = z.object({
-  date: z.iso.date(),
-  slot: z.enum(WINDOW_SLOT)
-});
-
-/**
- * The Masters list with the current window's load: every Master, the window a referral assigned now counts towards,
- * and the per-Master cap. `window` is a nested record and so nullable, as `JudicialReferralDetail.application` is.
+ * The Masters list. Since api F1 it carries no window or cap: the referral queue's envelope does, because only the
+ * Team leaders and Delivery Managers who send referrals need them. A row is a Master and nothing more.
  */
 const masterListSchema = z.object({
-  masters: z.array(masterListEntrySchema),
-  window: referralWindowSchema.nullish(),
-  cap: z.number().int()
+  masters: z.array(masterSchema)
 });
 
 /**
- * Assign a referral to a Master, or move it to another (plan D2). Published `additionalProperties: true`, like every
- * write body but the email ones, so not strict.
+ * Move a referral already sent to a Master to another (api F1): `ALLOCATE_REFERRALS` only, a `Claimed` referral
+ * only, at any time and taking no place in any window. Published `additionalProperties: true`, like every write body
+ * but the email ones, so not strict.
  */
 const assignReferralSchema = z.object({
   masterId: z.uuid()
+});
+
+/**
+ * The referral window open now, as api's `OpenWindow`: its working day in `Europe/London`, its morning or afternoon,
+ * and when it closes. `date` stays the `yyyy-MM-dd` string, as a bank holiday's does.
+ */
+const openWindowSchema = z.object({
+  date: z.iso.date(),
+  slot: z.enum(WINDOW_SLOT),
+  closesAt: wireDateTime
+});
+
+/** The next referral window to open, as api's `NextWindow`: the open one's successor when one is open. */
+const nextWindowSchema = z.object({
+  date: z.iso.date(),
+  slot: z.enum(WINDOW_SLOT),
+  opensAt: wireDateTime
+});
+
+/** An available Master with how many of the referrals sent in the open window they hold now (0 outside one). */
+const masterInWindowSchema = z.object({
+  id: z.string(),
+  name: z.string().nullish(),
+  sentInWindow: z.number().int().nonnegative()
+});
+
+/**
+ * The window part of the queue envelope (api F1). `cap` is the window's total across all Masters; `sent` counts every
+ * referral sent in the open window whatever has happened to it since (api's A-2), so a withdrawal gives no place back.
+ * `current` is null between windows; `next` is a nested record and so nullable by this file's convention.
+ */
+const referralQueueWindowSchema = z.object({
+  current: openWindowSchema.nullish(),
+  next: nextWindowSchema.nullish(),
+  cap: z.number().int(),
+  sent: z.number().int().nonnegative(),
+  masters: z.array(masterInWindowSchema)
+});
+
+/**
+ * One row of the referral queue: what a Team leader or Delivery Manager checks before sending it, and for a `Claimed`
+ * one who has it. Never a subject or an email address. `caseId` is strict by choice, as an id is: the check view and
+ * the reassignment address the case.
+ */
+const referralQueueItemSchema = z.object({
+  id: z.string(),
+  caseId: z.string(),
+  displayReference: z.string().nullish(),
+  state: z.enum(REFERRAL_STATE).nullish(),
+  newForename: z.string().nullish(),
+  newMiddleName: z.string().nullish(),
+  newSurname: z.string().nullish(),
+  oldForename: z.string().nullish(),
+  oldMiddleName: z.string().nullish(),
+  oldSurname: z.string().nullish(),
+  type: z.enum(DEED_POLL_TYPE).nullish(),
+  nationality: z.enum(NATIONALITY).nullish(),
+  reasons: z.array(z.string()),
+  urgency: z.enum(URGENCY).nullish(),
+  urgencyReason: z.string().nullish(),
+  createdBy: z.string().nullish(),
+  createdOn: wireDateTime.nullish(),
+  assignedMaster: assignedMasterSchema.nullish(),
+  assignedAt: wireDateTime.nullish(),
+  windowDate: z.iso.date().nullish(),
+  windowSlot: z.enum(WINDOW_SLOT).nullish(),
+  directionDueBy: wireDateTime.nullish()
+});
+
+/** One page of the queue in api's order (never re-sorted here), with the window's state and counts. */
+const referralQueueSchema = z.object({
+  referrals: z.array(referralQueueItemSchema),
+  page: z.number().int(),
+  size: z.number().int(),
+  total: z.number().int(),
+  totalPages: z.number().int(),
+  window: referralQueueWindowSchema.nullish()
+});
+
+/** The send's bound: api's `maxItems`, the window cap's published maximum. Pinned by `contract.test.ts`. */
+export const REFERRAL_SEND_LIMITS = { maxAllocations: 100 } as const;
+
+/**
+ * A batch send: each referral with its Master, 1 to 100 of them, no referral twice. Published
+ * `additionalProperties: true`, so not strict. Every other rule (the window, each referral `Open`, each Master
+ * available, the cap) is api's, applied all or nothing.
+ */
+const sendReferralsSchema = z.object({
+  allocations: z
+    .array(z.object({ referralId: z.uuid(), masterId: z.uuid() }))
+    .min(1)
+    .max(REFERRAL_SEND_LIMITS.maxAllocations)
+    .refine((allocations) => new Set(allocations.map((allocation) => allocation.referralId)).size === allocations.length)
+});
+
+/** The send's answer: the referrals sent (replays included) in the body's order, and the window after the send. */
+const referralSendSchema = z.object({
+  referrals: z.array(referralQueueItemSchema),
+  window: referralQueueWindowSchema.nullish()
 });
 
 /** The bank holiday name's bound, pinned to `CreateBankHolidayRequest` by `contract.test.ts`. */
@@ -1336,9 +1416,16 @@ export const WIRE_SCHEMAS = {
   ProcessSettingsResponse: processSettingsSchema,
   UpdateProcessSettingsRequest: updateProcessSettingsSchema,
   MasterResponse: masterSchema,
-  MasterListEntryResponse: masterListEntrySchema,
+  MasterListEntryResponse: masterSchema,
   MasterListResponse: masterListSchema,
-  ReferralWindowResponse: referralWindowSchema,
+  OpenWindow: openWindowSchema,
+  NextWindow: nextWindowSchema,
+  MasterInWindow: masterInWindowSchema,
+  ReferralQueueWindowResponse: referralQueueWindowSchema,
+  ReferralQueueItem: referralQueueItemSchema,
+  ReferralQueueResponse: referralQueueSchema,
+  SendReferralsRequest: sendReferralsSchema,
+  ReferralSendResponse: referralSendSchema,
   AssignedMasterResponse: assignedMasterSchema,
   AssignReferralRequest: assignReferralSchema,
   CreateMasterRequest: createMasterSchema,
@@ -1421,13 +1508,25 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   // Both are required in api's record and the code is an enum, so neither can arrive null.
   DocumentPreviewError: ["code", "error"],
   GazetteSettingsResponse: ["revision"],
-  ProcessSettingsResponse: ["referralClaimExpiryMinutes", "reminderIntervalHours", "masterWindowCap", "revision"],
+  ProcessSettingsResponse: ["referralClaimExpiryMinutes", "reminderIntervalHours", "windowCap", "revision"],
   MasterResponse: ["id", "available", "linked", "revision"],
-  MasterListEntryResponse: ["id", "available", "linked", "revision", "assignedInWindow"],
-  // `cap` is an `int` and `masters` a `toList()`. `window` is a nested record, not pinned for `application`'s reason.
-  MasterListResponse: ["masters", "cap"],
-  // The window's day and slot are both set on every window api computes, and `date` is a key as a bank holiday's is.
-  ReferralWindowResponse: ["date", "slot"],
+  // The same record as `MasterResponse` since api F1 dropped `assignedInWindow`.
+  MasterListEntryResponse: ["id", "available", "linked", "revision"],
+  // A `toList()`, and since api F1 nothing else.
+  MasterListResponse: ["masters"],
+  // Every field is set on every window api computes, and `date` is a key as a bank holiday's is.
+  OpenWindow: ["date", "slot", "closesAt"],
+  NextWindow: ["date", "slot", "opensAt"],
+  // `sentInWindow` is a `long`, and `id` strict by choice.
+  MasterInWindow: ["id", "sentInWindow"],
+  // `cap` an `int`, `sent` a `long` and `masters` a `toList()`. `current` is null between windows, and `next` a
+  // nested record, not pinned for `application`'s reason.
+  ReferralQueueWindowResponse: ["cap", "sent", "masters"],
+  // `id` and `caseId` by choice, as every id is; `reasons` a `List.copyOf`, as on `ReferralResponse`.
+  ReferralQueueItem: ["id", "caseId", "reasons"],
+  // The paging four and the `toList()` rows, as `JudicialPoolResponse`'s; `window` nested, not pinned.
+  ReferralQueueResponse: ["referrals", "page", "size", "total", "totalPages"],
+  ReferralSendResponse: ["referrals"],
   // `id` by choice, as every other id here is.
   AssignedMasterResponse: ["id"],
   // `date` is the row's key, and the removal's path segment, so it is strict for the reason an id is.
@@ -1549,9 +1648,12 @@ export type WireUpdateGazetteSettings = z.infer<typeof updateGazetteSettingsSche
 export type WireProcessSettings = z.infer<typeof processSettingsSchema>;
 export type WireUpdateProcessSettings = z.infer<typeof updateProcessSettingsSchema>;
 export type WireMaster = z.infer<typeof masterSchema>;
-export type WireMasterListEntry = z.infer<typeof masterListEntrySchema>;
 export type WireMasterList = z.infer<typeof masterListSchema>;
-export type WireReferralWindow = z.infer<typeof referralWindowSchema>;
+export type WireReferralQueue = z.infer<typeof referralQueueSchema>;
+export type WireReferralQueueItem = z.infer<typeof referralQueueItemSchema>;
+export type WireReferralQueueWindow = z.infer<typeof referralQueueWindowSchema>;
+export type WireReferralSend = z.infer<typeof referralSendSchema>;
+export type WireSendReferrals = z.input<typeof sendReferralsSchema>;
 export type WireAssignReferral = z.input<typeof assignReferralSchema>;
 export type WireMasterCreate = z.input<typeof createMasterSchema>;
 export type WireMasterUpdate = z.input<typeof updateMasterSchema>;

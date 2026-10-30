@@ -11,8 +11,8 @@ import { seedJournalPath, seedTarget } from "./target.js";
 
 const DATE = "2026-10-02";
 const BATCH = "manual-test-01";
-const CASEWORKER = "mock-caseworker";
-/** The judge's Masters-list entry: since api D2 the seeder assigns referrals to it, and the judicial preflight links it. */
+const CASEWORKER = `x.${Buffer.from(JSON.stringify({ sub: "seed-lead", roles: ["caseworker-deedpoll-team-leader"] })).toString("base64url")}.signature`;
+/** The judge's Masters-list entry: the seeder sends referrals to it from the queue, and the judicial preflight links it. */
 const SEED_MASTER_EMAIL = "seed-judge@masters.test";
 const JUDGE = `x.${Buffer.from(JSON.stringify({ sub: "seed-judge", email: SEED_MASTER_EMAIL, roles: ["caseworker-deedpoll-judicial"] })).toString("base64url")}.signature`;
 const CREDENTIALS = { caseworkerToken: CASEWORKER, judgeToken: JUDGE };
@@ -158,7 +158,7 @@ describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
     await seedCases(journal, credentials, persist, report);
     await seedCases(journal, { caseworkerToken: CASEWORKER }, persist, report, { deferJudicial: true });
 
-    expect(requests.mock.calls.some(([url]) => String(url).endsWith("/assignment"))).toBe(false);
+    expect(requests.mock.calls.some(([url]) => String(url).endsWith("/referral-queue/sends"))).toBe(false);
     expect(Object.keys(journal.steps).some((name) => name.endsWith("/assign"))).toBe(false);
     expect(journal.complete).toBe(true);
   });
@@ -349,5 +349,7 @@ async function credentialsFor(api: RunningMockApi): Promise<SeedCredentials> {
     body: JSON.stringify({ name: "Seed Judge", email: SEED_MASTER_EMAIL })
   });
   const { id } = (await response.json()) as { id: string };
+  // Since api F1 the Team leader sends referrals only inside a referral window.
+  await fetch(`${api.url}/__mock/clock`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ window: "open" }) });
   return { ...CREDENTIALS, masterId: id };
 }
