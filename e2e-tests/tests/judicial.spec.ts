@@ -2,11 +2,12 @@
  * The judicial persona, end to end in a browser — `docs/plans/completed/referrals-admin-3-judicial-screen.md`, and
  * since plan Db1 a Master with no pool and no claim.
  *
- * **A referral reaches a Master by assignment.** A caseworker raises it with a Master chosen, and api D2 shows it to
- * that Master's linked judge and nobody else: an `Open` referral is no judge's. So every journey here starts by
- * putting a referral in the judge persona's hands through its Masters-list entry (`./masters.ts`), and the judge's
- * home is **My referrals**, in three sections read off api's order: Urgent, Awaiting your direction and Directed,
- * awaiting the office, the last two under one heading per day referred.
+ * **A referral reaches a Master when it is sent from the queue** (plan Fa1). A caseworker raises it with no Master,
+ * a Team leader or Delivery Manager sends it, and api shows it to that Master's linked judge and nobody else: an
+ * `Open` referral is no judge's. So every journey here starts by putting a referral in the judge persona's hands
+ * through its Masters-list entry (`./masters.ts`), and the judge's home is **My referrals**, in three sections read
+ * off api's order: Urgent, Awaiting your direction and Directed, awaiting the office, the last two under one heading
+ * per day sent.
  *
  * **What only a browser can show here, and why this file earns its keep:**
  *
@@ -39,7 +40,7 @@ import {
   TEAM_LEADER_EMAIL,
   TEAM_LEADER_STORAGE_STATE
 } from "./idam-session.js";
-import { bearer, judgePersonaMaster, type Master, newMaster } from "./masters.js";
+import { bearer, judgePersonaMaster, type Master, newMaster, sendToMaster } from "./masters.js";
 
 /** The mock api, which `playwright.config.ts` starts on 3200 beside the app on 3000. */
 const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
@@ -60,20 +61,26 @@ const DIRECTED_SECTION = "Directed, awaiting the office";
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
 test.use({ storageState: JUDGE_STORAGE_STATE });
 
-test("a caseworker raises a referral to the judge's Master, who finds it under its day on My referrals and directs it", async ({ page, browser, request }) => {
+test("a caseworker raises a referral, it is sent to the judge's Master, who finds it under the day sent on My referrals and directs it", async ({
+  page,
+  browser,
+  request
+}) => {
   // Three times the default: a caseworker's context, a Welsh sign-in and seven axe scans make this one journey long.
   test.slow();
 
-  // Arrange: the judge persona's Masters-list entry, an urgent referral already assigned to it, and a case for the
+  // Arrange: the judge persona's Masters-list entry, an urgent referral already sent to it, and a case for the
   // caseworker to refer. A Master of its own holds a third referral, which this judge must not be able to read.
   const master = await judgePersonaMaster(request);
-  const urgent = await seedReferral(request, { reason: "DomesticAbuse", masterId: master.id, urgent: true });
+  const urgent = await seedReferral(request, { reason: "DomesticAbuse", master, urgent: true });
   const raisedCase = await seedCase(request, { note: "Applicant asked for the hearing to be listed early." });
   const elsewhere = await newMaster(request, "Elsewhere");
-  const theirs = await seedReferral(request, { reason: "Minor", masterId: elsewhere.id, urgent: false });
+  const theirs = await seedReferral(request, { reason: "Minor", master: elsewhere, urgent: false });
 
-  // ── the caseworker raises it, choosing the judge persona's Master ──────────────────────────────────────────
-  const referralId = await raiseThroughTheForm(browser, raisedCase.caseId, master);
+  // ── the caseworker raises it, with no Master to choose, and it is sent to the judge persona's Master ────────
+  // Sent through the contract: the Referrals screen's own journey is `referral-queue.spec.ts`.
+  const referralId = await raiseThroughTheForm(browser, raisedCase.caseId);
+  await sendToMaster(request, referralId, master.id);
   const raised = await judicialReferral(request, referralId);
 
   // ── the Master's home ───────────────────────────────────────────────────────────────────────────────────────
@@ -89,17 +96,17 @@ test("a caseworker raises a referral to the judge's Master, who finds it under i
   await page.goto(POOL_PATH);
   await expect(page).toHaveURL(MINE_PATH);
 
-  // The urgent one is in the Urgent section, saying when it was referred, since no day heading says it there.
+  // The urgent one is in the Urgent section, saying when it was sent, since no day heading says it there.
   const urgentRow = myReferralsRow(page, urgent.referralId);
   await expect(urgentRow).toHaveCount(1);
   expect(await placeOf(urgentRow)).toEqual({ section: URGENT_SECTION, day: null });
-  await expect(urgentRow).toContainText(`Referred ${shortDate(urgent.createdOn)}`);
+  await expect(urgentRow).toContainText(`Sent ${shortDate(urgent.assignedAt)}`);
   await expect(urgentRow).toContainText(`Direction due by ${shortDate(urgent.directionDueBy)}`);
   await expect(urgentRow).toContainText("Domestic abuse considerations");
 
-  // The caseworker's one is undirected and standard, so it sits under the day it was referred.
+  // The caseworker's one is undirected and standard, so it sits under the day it was sent.
   const raisedRow = myReferralsRow(page, referralId);
-  expect(await placeOf(raisedRow)).toEqual({ section: AWAITING_SECTION, day: `${shortDate(raised.createdOn)} referrals` });
+  expect(await placeOf(raisedRow)).toEqual({ section: AWAITING_SECTION, day: `${shortDate(raised.assignedAt)} referrals` });
   await expect(raisedRow).toContainText("Non-publication request");
   await expect(raisedRow).toContainText(`Direction due by ${shortDate(raised.directionDueBy)}`);
 
@@ -226,7 +233,7 @@ test("a caseworker raises a referral to the judge's Master, who finds it under i
   // Back on My referrals, it has moved to the directed section, under the same day.
   await page.getByRole("link", { name: "Back to My referrals" }).click();
   await expect(page).toHaveURL(MINE_PATH);
-  expect(await placeOf(myReferralsRow(page, referralId))).toEqual({ section: DIRECTED_SECTION, day: `${shortDate(raised.createdOn)} referrals` });
+  expect(await placeOf(myReferralsRow(page, referralId))).toEqual({ section: DIRECTED_SECTION, day: `${shortDate(raised.assignedAt)} referrals` });
 
   // ── another Master's referral ───────────────────────────────────────────────────────────────────────────────
   // **404 and not 403**: api answers another Master's referral as it answers a withdrawn or a never-there one, and
@@ -257,7 +264,7 @@ test("a caseworker raises a referral to the judge's Master, who finds it under i
  */
 test("judge changes a direction they gave, then withdraws it and directs again", async ({ page, request }) => {
   const master = await judgePersonaMaster(request);
-  const seeded = await seedReferral(request, { reason: "Minor", masterId: master.id, urgent: false });
+  const seeded = await seedReferral(request, { reason: "Minor", master, urgent: false });
   const uploaded = await request.post(`${MOCK_API_URL}/caseworker/cases/${seeded.caseId}/documents`, {
     headers: bearer({ sub: CASEWORKER_EMAIL }),
     multipart: {
@@ -364,21 +371,21 @@ test("judge changes a direction they gave, then withdraws it and directs again",
 test.describe("across both personas", () => {
   test.use({ storageState: undefined });
 
-  test("a Master finds an assigned referral on My referrals, directs it, and loses the row when the office actions it", async ({ page, request }) => {
+  test("a Master finds a sent referral on My referrals, directs it, and loses the row when the office actions it", async ({ page, request }) => {
     // **The storage-state opt-out, asserted rather than assumed.** A context that had restored the shared judge
     // session would still land on My referrals, and the first persona switch would then destroy a session the
     // journeys above are using.
     expect(await page.context().cookies()).toEqual([]);
 
     const master = await judgePersonaMaster(request);
-    const seeded = await seedReferral(request, { reason: "Minor", masterId: master.id, urgent: true });
+    const seeded = await seedReferral(request, { reason: "Minor", master, urgent: true });
 
     await signInAsJudge(page);
 
     const assigned = myReferralsRow(page, seeded.referralId);
     expect(await placeOf(assigned)).toEqual({ section: URGENT_SECTION, day: null });
     await expect(assigned).toContainText("Applicant is a minor");
-    await expect(assigned).toContainText(`Referred ${shortDate(seeded.createdOn)}`);
+    await expect(assigned).toContainText(`Sent ${shortDate(seeded.assignedAt)}`);
     await expectNoApplicationData(page, seeded);
     await expectNoAccessibilityViolations(page);
     // The judicial lists' navigation went with the pool: one list needs no navigation.
@@ -416,7 +423,7 @@ test.describe("across both personas", () => {
     // Still the judge's own work until the office has acted on it.
     await page.getByRole("link", { name: "Back to My referrals" }).click();
     await expect(page).toHaveURL(MINE_PATH);
-    expect(await placeOf(myReferralsRow(page, seeded.referralId))).toEqual({ section: DIRECTED_SECTION, day: `${shortDate(seeded.createdOn)} referrals` });
+    expect(await placeOf(myReferralsRow(page, seeded.referralId))).toEqual({ section: DIRECTED_SECTION, day: `${shortDate(seeded.assignedAt)} referrals` });
 
     // ── the office actions the direction, which is the only thing that removes the row ─────────────────────────
     await switchTo(page, "Caseworker").click();
@@ -486,13 +493,14 @@ test.describe("without the judicial role", () => {
 });
 
 /**
- * An application with a referral assigned to `masterId`, and the facts the journey needs back.
+ * An application with a referral sent to `masterId`, and the facts the journey needs back.
  *
- * **The case goes through `POST /__mock/cases` and the referral through the contract route**, with the Master
- * chosen as the raise form chooses one: a referral's state is api's state machine, and a fixture that wrote it
- * directly would teach this screen an assignment api's own rules cannot produce.
+ * **The case goes through `POST /__mock/cases` and the referral through the contract routes**, raised into the queue
+ * and sent as the Referrals screen sends one: a referral's state is api's state machine, and a fixture that wrote it
+ * directly would teach this screen an assignment api's own rules cannot produce. The dates are the judge's read,
+ * because a queued referral has no due date until it is sent.
  */
-async function seedReferral(request: APIRequestContext, options: { reason: string; masterId: string; urgent: boolean }): Promise<SeededReferral> {
+async function seedReferral(request: APIRequestContext, options: { reason: string; master: Master; urgent: boolean }): Promise<SeededReferral> {
   const seeded = await seedCase(request, {});
 
   const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${seeded.caseId}/referrals`, {
@@ -501,14 +509,15 @@ async function seedReferral(request: APIRequestContext, options: { reason: strin
       // A minor's referral names what kind it is, as api refuses `Minor` alone since api#156.
       reasons: options.reason === "Minor" ? ["Minor", "MinorCourtOrder"] : [options.reason],
       notes: "Please consider the applicant's circumstances.",
-      masterId: options.masterId,
       ...(options.urgent ? { urgency: "Urgent", urgencyReason: "Hearing listed on Friday." } : { urgency: "Normal" })
     }
   });
   expect(raised.status(), await raised.text()).toBe(201);
-  const referral = await raised.json();
+  const referralId: string = (await raised.json()).id;
+  await sendToMaster(request, referralId, options.master.id);
+  const sent = await judicialReferral(request, referralId, options.master.judge);
 
-  return { ...seeded, referralId: referral.id, createdOn: referral.createdOn, directionDueBy: referral.directionDueBy };
+  return { ...seeded, referralId, assignedAt: sent.assignedAt, directionDueBy: sent.directionDueBy };
 }
 
 /**
@@ -555,12 +564,12 @@ async function seedCase(request: APIRequestContext, options: { note?: string }):
 }
 
 /**
- * The caseworker's half: the raise form, as a Team leader in a context of their own, choosing `master` on the
- * Master question. Returns the referral's id, read off the row that links to it.
+ * The caseworker's half: the raise form, as a Team leader in a context of their own, which asks no Master, leaving
+ * the referral waiting to be sent. Returns the referral's id, read off the row that links to it.
  *
  * A restored Team leader session rather than a sign-in, which is safe because this only reads the session.
  */
-async function raiseThroughTheForm(browser: Browser, caseId: string, master: Master): Promise<string> {
+async function raiseThroughTheForm(browser: Browser, caseId: string): Promise<string> {
   const context = await browser.newContext({ storageState: TEAM_LEADER_STORAGE_STATE });
 
   try {
@@ -568,12 +577,12 @@ async function raiseThroughTheForm(browser: Browser, caseId: string, master: Mas
     await page.goto(`${CASE_LIST_PATH}/${caseId}/referrals/new`);
     await page.getByLabel("Non-publication request").check();
     await page.getByLabel("Standard", { exact: true }).check();
-    await page.getByRole("radio", { name: master.name, exact: true }).check();
+    await expect(page.getByText("Which Master should this go to?")).toHaveCount(0);
     await page.getByRole("button", { name: "Raise referral" }).click();
 
     await expect(page).toHaveURL(`${CASE_LIST_PATH}/${caseId}#referrals`);
     const referrals = page.locator("#referrals");
-    await expect(referrals.locator(".govuk-tag")).toHaveText(`With ${master.name}`);
+    await expect(referrals.locator(".govuk-tag")).toHaveText("Waiting to be sent");
     const href = await referrals.getByRole("link", { name: /view this referral/ }).getAttribute("href");
 
     return (href ?? "").split("/").pop() ?? "";
@@ -582,9 +591,9 @@ async function raiseThroughTheForm(browser: Browser, caseId: string, master: Mas
   }
 }
 
-/** The referral as the judge persona's api sees it, for the two dates its rows print. */
-async function judicialReferral(request: APIRequestContext, referralId: string): Promise<{ createdOn: string; directionDueBy: string }> {
-  const response = await request.get(`${MOCK_API_URL}${POOL_PATH}/${referralId}`, { headers: bearer({ sub: JUDGE_EMAIL }) });
+/** The referral as its Master's judge sees it, for the two dates its rows print. */
+async function judicialReferral(request: APIRequestContext, referralId: string, judge = JUDGE_EMAIL): Promise<{ assignedAt: string; directionDueBy: string }> {
+  const response = await request.get(`${MOCK_API_URL}${POOL_PATH}/${referralId}`, { headers: bearer({ sub: judge }) });
   expect(response.status(), await response.text()).toBe(200);
 
   return response.json();
@@ -750,6 +759,6 @@ interface SeededCase {
 /** A seeded case and the referral raised on it, with the two dates My referrals prints. */
 interface SeededReferral extends SeededCase {
   referralId: string;
-  createdOn: string;
+  assignedAt: string;
   directionDueBy: string;
 }

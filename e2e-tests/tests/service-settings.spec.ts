@@ -41,12 +41,12 @@ test("Delivery Manager opens the settings from the case list and changes the ref
   await accessible(page);
 
   await page.locator("#afternoonWindowStart").fill("13:45");
-  await page.getByLabel("Referrals per Master in each window", { exact: true }).fill("12");
+  await page.getByLabel("Referrals in each window", { exact: true }).fill("12");
   await page.getByRole("button", { name: "Save referral process", exact: true }).click();
   await expect(page).toHaveURL("/deed-polls/settings?saved=process-settings#process-settings");
   await expect(page.getByText("Referral process saved.", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Processing window", { exact: true })).toHaveValue("10");
-  await expect(page.getByLabel("Referrals per Master in each window", { exact: true })).toHaveValue("12");
+  await expect(page.getByLabel("Referrals in each window", { exact: true })).toHaveValue("12");
   await expect(page.locator("#afternoonWindowStart")).toHaveValue("13:45");
   await expect(page.locator("#process-settings")).toContainText("Last changed");
   await accessible(page);

@@ -57,7 +57,7 @@ describe("settings/service", () => {
     const dto = {
       referralClaimExpiryMinutes: 10080,
       reminderIntervalHours: 48,
-      masterWindowCap: 10,
+      windowCap: 10,
       morningWindowStart: "07:00",
       morningWindowEnd: "10:30",
       afternoonWindowStart: "14:00",

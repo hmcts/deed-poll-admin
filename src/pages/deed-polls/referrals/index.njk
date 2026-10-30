@@ -1,0 +1,157 @@
+{% extends "layouts/app-full-width.njk" %}
+{% from "govuk/components/table/macro.njk" import govukTable %}
+{% from "govuk/components/tag/macro.njk" import govukTag %}
+{% from "govuk/components/tabs/macro.njk" import govukTabs %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/checkboxes/macro.njk" import govukCheckboxes %}
+{% from "govuk/components/select/macro.njk" import govukSelect %}
+{% from "govuk/components/pagination/macro.njk" import govukPagination %}
+{% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
+
+{% macro pagingFooter(results, pagingLabel) %}
+  {% if results.pagingSummary %}<p class="govuk-body">{{ results.pagingSummary }}</p>{% endif %}
+  {% if results.paging.links %}
+    {{ govukPagination({ previous: results.paging.links.previous, next: results.paging.links.next, items: results.paging.links.items, landmarkLabel: pagingLabel }) }}
+  {% endif %}
+{% endmacro %}
+
+{% macro emptyTab(results, emptyText) %}
+  <p class="govuk-body">{{ emptyPage if results.isBeyondEnd else emptyText }}</p>
+  {% if results.isBeyondEnd %}<p class="govuk-body"><a class="govuk-link" href="{{ results.firstPageHref }}">{{ firstPage }}</a></p>{% endif %}
+{% endmacro %}
+
+{% block content %}
+  <p class="govuk-body"><a class="govuk-link" href="/deed-polls">{{ back }}</a></p>
+
+  {% if errorList.length %}
+    {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
+  {% endif %}
+  {% if banner %}
+    {{ govukNotificationBanner({
+      type: "success" if banner.type == "success" else undefined,
+      titleText: successTitle if banner.type == "success" else importantTitle,
+      text: banner.text
+    }) }}
+  {% endif %}
+
+  <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+  {#
+    The window panel, from the queue's envelope. Outside a window there is no per-Master table: nothing can be sent,
+    so how many each Master holds in a window that is not open says nothing.
+  #}
+  {% if windowText %}
+    {% if windowText.state %}<p class="govuk-body-l">{{ windowText.state }}</p>{% endif %}
+    <p class="govuk-body">{{ windowText.count }}</p>
+    {% if window.isOpen and window.masters.length %}
+      {% set masterRows = [] %}
+      {% for m in window.masters %}
+        {% set masterRows = (masterRows.push([{ text: m.name }, { text: m.sent, format: "numeric" }]), masterRows) %}
+      {% endfor %}
+      {{ govukTable({
+        caption: mastersCaption, captionClasses: "govuk-table__caption--s",
+        head: [{ text: masterColumn }, { text: sentInWindowColumn, format: "numeric" }],
+        rows: masterRows
+      }) }}
+    {% endif %}
+  {% else %}
+    {{ govukWarningText({ text: windowUnavailable, iconFallbackText: warningIcon }) }}
+  {% endif %}
+
+  {% set toSendPanel %}
+    <h2 class="govuk-heading-l">{{ toSendTab }}</h2>
+    {% if toSend.rows.length == 0 %}
+      {{ emptyTab(toSend, noneToSend) }}
+    {% else %}
+      <p class="govuk-body">{{ toSendIntro }}</p>
+      {% if masterOptions.length == 0 %}<p class="govuk-body">{{ noMasters }}</p>{% endif %}
+      {#
+        One form for the page: each row's checkbox and Master travel together, and the review re-reads the queue and
+        checks every pair. A selection is per page, as api pages.
+      #}
+      <form method="post" action="/deed-polls/referrals/review" novalidate>
+        {# The page the selection was made on, so a refusal redraws that page rather than the first. #}
+        <input type="hidden" name="page" value="{{ toSend.page }}">
+        {% if selectionError %}
+          <p class="govuk-error-message" id="referrals-error"><span class="govuk-visually-hidden">{{ errorPrefix }}</span> {{ selectionError }}</p>
+        {% endif %}
+        {% set sendRows = [] %}
+        {% for r in toSend.rows %}
+          {% set selectCell %}
+            {{ govukCheckboxes({
+              name: "referrals", classes: "govuk-checkboxes--small",
+              items: [{ value: r.id, text: selectFor(r.reference), label: { classes: "govuk-visually-hidden" }, id: "select-" + loop.index, checked: r.isSelected,
+                attributes: { "aria-describedby": "referrals-error" } if selectionError else undefined }]
+            }) }}
+          {% endset %}
+          {% set referenceCell %}
+            <a class="govuk-link" href="{{ r.checkHref }}">{{ r.reference }}</a>
+            {% if r.isUrgent %}<br>{{ govukTag({ text: urgent, classes: "govuk-tag--red" }) }}{% endif %}
+          {% endset %}
+          {% set reasonsCell %}
+            <ul class="govuk-list">{% for reason in r.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+          {% endset %}
+          {% set raisedCell %}
+            {{ r.raisedOn }}<br>
+            <span class="govuk-hint govuk-!-font-size-16 govuk-!-margin-bottom-0">{{ r.raisedBy }}</span>
+          {% endset %}
+          {% set masterCell %}
+            {{ govukSelect({
+              id: r.masterControlId, name: "master-" + r.id,
+              label: { text: masterFor(r.reference), classes: "govuk-visually-hidden" },
+              items: [{ value: "", text: chooseMaster }].concat(masterOptions),
+              value: r.masterValue,
+              errorMessage: { text: r.masterError } if r.masterError else undefined
+            }) }}
+          {% endset %}
+          {% set sendRows = (sendRows.push([
+            { html: selectCell }, { html: referenceCell }, { text: r.newName }, { html: reasonsCell }, { html: raisedCell }, { html: masterCell }
+          ]), sendRows) %}
+        {% endfor %}
+        {{ govukTable({
+          caption: toSendTab, captionClasses: "govuk-visually-hidden",
+          head: [{ text: select }, { text: reference }, { text: newName }, { text: reasons }, { text: raised }, { text: masterColumn }],
+          rows: sendRows
+        }) }}
+        {% if masterOptions.length %}{{ govukButton({ text: continue }) }}{% endif %}
+      </form>
+    {% endif %}
+    {{ pagingFooter(toSend, toSendPagingLabel) }}
+  {% endset %}
+
+  {% set withMasterPanel %}
+    <h2 class="govuk-heading-l">{{ withMasterTab }}</h2>
+    {% if withMaster == null %}
+      {{ govukWarningText({ text: withMasterUnavailable, iconFallbackText: warningIcon }) }}
+    {% elif withMaster.rows.length == 0 %}
+      {{ emptyTab(withMaster, noneWithMaster) }}
+    {% else %}
+      {% set claimedRows = [] %}
+      {% for r in withMaster.rows %}
+        {% set referenceCell %}
+          <a class="govuk-link" href="{{ r.checkHref }}">{{ r.reference }}</a>
+          {% if r.isUrgent %}<br>{{ govukTag({ text: urgent, classes: "govuk-tag--red" }) }}{% endif %}
+        {% endset %}
+        {% set reassignCell %}
+          <a class="govuk-link" href="{{ r.reassignHref }}">{{ reassign }}<span class="govuk-visually-hidden"> {{ r.reference }}</span></a>
+        {% endset %}
+        {% set claimedRows = (claimedRows.push([
+          { html: referenceCell }, { text: r.master }, { text: r.sentOn }, { text: r.dueBy }, { html: reassignCell }
+        ]), claimedRows) %}
+      {% endfor %}
+      {{ govukTable({
+        caption: withMasterTab, captionClasses: "govuk-visually-hidden",
+        head: [{ text: reference }, { text: masterColumn }, { text: sentOn }, { text: dueBy }, { html: '<span class="govuk-visually-hidden">' + reassign + '</span>' }],
+        rows: claimedRows
+      }) }}
+    {% endif %}
+    {% if withMaster %}{{ pagingFooter(withMaster, withMasterPagingLabel) }}{% endif %}
+  {% endset %}
+
+  {{ govukTabs({ classes: "app-case-tabs", items: [
+    { label: toSendTab, id: "to-send", panel: { html: toSendPanel } },
+    { label: withMasterTab, id: "with-a-master", panel: { html: withMasterPanel } }
+  ] }) }}
+{% endblock %}

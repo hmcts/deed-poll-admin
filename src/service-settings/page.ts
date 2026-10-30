@@ -52,7 +52,7 @@ const SAVED_KEYS: ReadonlySet<string> = new Set(Object.values(SAVED).map((each) 
 const PROCESS_CONTROLS = [
   "processingDays",
   "reminderIntervalHours",
-  "masterWindowCap",
+  "windowCap",
   "morningWindowStart",
   "morningWindowEnd",
   "afternoonWindowStart",
@@ -77,7 +77,7 @@ export async function saveProcessSection(req: Request, res: Response) {
   const parsed = processSettingsFormSchema({
     processingDays: content.processingDaysError,
     reminderIntervalHours: content.reminderIntervalError,
-    masterWindowCap: content.masterWindowCapError,
+    windowCap: content.windowCapError,
     morningWindowStart: content.morningWindowStartError,
     morningWindowEnd: content.morningWindowEndError,
     afternoonWindowStart: content.afternoonWindowStartError,
@@ -230,7 +230,7 @@ function apiFieldErrors(fields: string[], content: typeof en): ProcessErrors {
   const messages: Record<string, [ProcessControl, string]> = {
     referralClaimExpiryMinutes: ["processingDays", content.processingDaysError],
     reminderIntervalHours: ["reminderIntervalHours", content.reminderIntervalError],
-    masterWindowCap: ["masterWindowCap", content.masterWindowCapError],
+    windowCap: ["windowCap", content.windowCapError],
     morningWindowStart: ["morningWindowStart", content.morningWindowStartError],
     morningWindowEnd: ["morningWindowEnd", content.morningOrderError],
     afternoonWindowStart: ["afternoonWindowStart", content.windowsOrderError],
@@ -298,7 +298,7 @@ async function storedProcess(caller: Caller, locale: string): Promise<ProcessSec
     values: {
       processingDays: shownDays(settings.referralClaimExpiryMinutes),
       reminderIntervalHours: String(settings.reminderIntervalHours),
-      masterWindowCap: String(settings.masterWindowCap),
+      windowCap: String(settings.windowCap),
       morningWindowStart: settings.morningWindowStart ?? "",
       morningWindowEnd: settings.morningWindowEnd ?? "",
       afternoonWindowStart: settings.afternoonWindowStart ?? "",

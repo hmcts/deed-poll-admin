@@ -584,7 +584,7 @@ describe("case detail page", () => {
 
     const referrals = res.render.mock.calls[0][1].referrals;
     expect(referrals.count).toBe(1);
-    expect(referrals.rows[0]).toMatchObject({ id: "ref-1", state: "Waiting for assignment", reasons: ["Applicant is a minor"], urgency: "Standard" });
+    expect(referrals.rows[0]).toMatchObject({ id: "ref-1", state: "Waiting to be sent", reasons: ["Applicant is a minor"], urgency: "Standard" });
   });
 
   it("resolves the change notice for each referral whose direction the judge changed, keyed by its id", async () => {

@@ -37,7 +37,7 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Browser, expect, type Locator, type Page, test } from "@playwright/test";
 import { DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsTeamLeader, TEAM_LEADER_EMAIL, TEAM_LEADER_STORAGE_STATE } from "./idam-session.js";
-import { newMaster } from "./masters.js";
+import { newMaster, sendToMaster } from "./masters.js";
 
 /** The mock api, which `playwright.config.ts` starts on 3200 beside the app on 3000. */
 const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
@@ -294,13 +294,14 @@ async function seedCase(request: APIRequestContext, fields: Record<string, unkno
  * empty default (flag 7 on the plan).
  */
 async function refuseApplication(request: APIRequestContext, caseId: string, reason: string): Promise<void> {
-  // A Master of its own, so the cap per Master never refuses the raise however many runs share the store.
+  // Raised into the queue and sent to a Master of its own, as the Referrals screen would (plan Fa1).
   const master = await newMaster(request, "Emails");
   const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, {
-    data: { reasons: ["Minor", "MinorCourtOrder"], masterId: master.id }
+    data: { reasons: ["Minor", "MinorCourtOrder"] }
   });
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;
+  await sendToMaster(request, referralId, master.id);
 
   // The Master's linked judge, because api shows an assigned referral to nobody else.
   const judge = bearer(master.judge);

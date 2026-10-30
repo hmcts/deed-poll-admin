@@ -1,15 +1,16 @@
 /**
  * A Master's own referrals — since api D2 their home, and the only judicial list.
  *
- * **Every referral here was assigned, not claimed.** Raising a referral assigns it to a Master, so there is no pool
- * and nothing to pick up: this page is the referrals assigned to this Master that still need a direction, and the
- * directions the office has not yet actioned. "Mine" is api's answer from the token's IDAM subject, so nothing here
+ * **Every referral here was assigned, not claimed.** A Team leader or Delivery Manager sends each referral to a
+ * Master from the queue, so there is no pool and nothing to pick up: this page is the referrals assigned to this
+ * Master that still need a direction, and the directions the office has not yet actioned. "Mine" is api's answer from the token's IDAM subject, so nothing here
  * derives it from rows previously seen, from the session or from `claimedBy`, and there is no judge in the request
  * to forge (`referrals-admin-6` decision 1).
  *
  * **Three sections, as Steve chose on 2026-10-28, read off api's order** (`buildMyReferralSections`): Urgent first,
- * then "Awaiting your direction" and "Directed, awaiting the office", each under one heading per day referred. api's
- * `MINE_ORDER` already puts urgent undirected first, then undirected by date, then directed by date, so the grouping
+ * then "Awaiting your direction" and "Directed, awaiting the office", each under one heading per day sent. api's
+ * `MINE_ORDER` already puts urgent undirected first, then undirected by the day sent, then directed by the day sent
+ * (by `assignedAt` since api F1), so the grouping
  * is presentation: nothing is re-sorted, and membership, paging and the total stay api's.
  *
  * **The largest page api serves**, so a day's group is rarely split by a page boundary. `JudicialPoolQuery` publishes
@@ -44,7 +45,7 @@ const en = {
   awaitingHeading: "Awaiting your direction",
   directedHeading: "Directed, awaiting the office",
   dayHeadingFor: (day: string) => `${day} referrals`,
-  referredOnFor: (day: string) => `Referred ${day}`,
+  sentOnFor: (day: string) => `Sent ${day}`,
   dueByFor: (day: string) => `Direction due by ${day}`,
   reasonsHeading: "Reasons for referral",
   datesHeading: "Dates",
@@ -52,7 +53,7 @@ const en = {
   view: "View",
   // The visually-hidden half of each row's link, so "View" is not the accessible name of every link on the page.
   // There is no case reference to name, by api's decision 2, so the date and the reasons tell the rows apart.
-  viewHintFor: (referredOn: string, reasons: string) => `the referral referred on ${referredOn}: ${reasons}`,
+  viewHintFor: (sentOn: string, reasons: string) => `the referral sent on ${sentOn}: ${reasons}`,
   // A Master with nothing assigned is api's empty page rather than a refusal, and the ordinary state at the start
   // of a day.
   empty: "You have no referrals. Referrals assigned to you appear here.",
@@ -77,9 +78,9 @@ export const GET = async (req: Request, res: Response) => {
   // functions would be the second place that knows which locale's words it holds.
   const row = (referral: MyReferralRow) => ({
     ...referral,
-    referredOnText: content.referredOnFor(referral.referredOn),
+    sentOnText: content.sentOnFor(referral.sentOn),
     dueByText: referral.directionDueBy === null ? "" : content.dueByFor(referral.directionDueBy),
-    viewHint: content.viewHintFor(referral.referredOn, referral.reasons.join(", "))
+    viewHint: content.viewHintFor(referral.sentOn, referral.reasons.join(", "))
   });
   const days = (groups: MyReferralDay[]) => groups.map((group) => ({ heading: content.dayHeadingFor(group.day), rows: group.rows.map(row) }));
 

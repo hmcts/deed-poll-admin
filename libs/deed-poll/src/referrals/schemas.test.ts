@@ -2,43 +2,24 @@ import { CONFIRMATION_OUTCOME, REFERRAL_REASON, URGENCY } from "@hmcts/deed-poll
 import { describe, expect, it } from "vitest";
 import { zodErrorToFieldErrors } from "../errors.js";
 import {
-  assignReferralSchema,
   createReferralSchema,
   MAX_CONFIRMATION_NOTE,
   MAX_REFERRAL_NOTES,
   MAX_REFERRAL_URGENCY_REASON,
-  recordConfirmationSchema
+  recordConfirmationSchema,
+  SEND_SELECTION_MESSAGES,
+  sendSelectionSchema
 } from "./schemas.js";
 
-const MASTER_ID = "3f0c8a52-1d6e-4b7a-9c1e-2a4b6d8f0e13";
-
 describe("referrals/schemas", () => {
-  describe("assignReferralSchema", () => {
-    it("should accept a Master's id", () => {
-      expect(assignReferralSchema.parse({ masterId: MASTER_ID })).toEqual({ masterId: MASTER_ID });
-    });
-
-    it.each([{}, { masterId: "" }, { masterId: "not-a-uuid" }, { masterId: [MASTER_ID, MASTER_ID] }])(
-      "should ask which Master when the answer is %o",
-      (body) => {
-        const result = assignReferralSchema.safeParse(body);
-
-        expect(result.success).toBe(false);
-        expect(zodErrorToFieldErrors(result.error!)).toEqual([{ field: "masterId", message: "Select which Master this referral should go to" }]);
-      }
-    );
-  });
-
   // Master Sullivan's feedback (Steve, 2026-10-27): what kind of minor's application this is, beneath "Applicant is a
   // minor" — several may apply, at least one must, and a contradictory pair may not.
   describe("createReferralSchema, a minor's details", () => {
     const issues = (reasons: string[]) =>
-      createReferralSchema
-        .safeParse({ masterId: MASTER_ID, reasons, urgency: "Normal" })
-        .error?.issues.map((issue) => ({ path: issue.path, message: issue.message }));
+      createReferralSchema.safeParse({ reasons, urgency: "Normal" }).error?.issues.map((issue) => ({ path: issue.path, message: issue.message }));
 
     it("should accept Applicant is a minor with the details that apply", () => {
-      const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["Minor", "MinorTransgender", "MinorParentalConsent"], urgency: "Normal" });
+      const parsed = createReferralSchema.safeParse({ reasons: ["Minor", "MinorTransgender", "MinorParentalConsent"], urgency: "Normal" });
 
       expect(parsed.data?.reasons).toEqual(["Minor", "MinorTransgender", "MinorParentalConsent"]);
     });
@@ -64,27 +45,17 @@ describe("referrals/schemas", () => {
 
   describe("createReferralSchema", () => {
     it("should accept one reason and a standard urgency, which is the shortest valid referral", () => {
-      const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["DomesticAbuse"], urgency: "Normal" });
+      const parsed = createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Normal" });
 
       expect(parsed.success).toBe(true);
-      expect(parsed.data).toEqual({ masterId: MASTER_ID, reasons: ["DomesticAbuse"], urgency: "Normal", notes: undefined, urgencyReason: undefined });
+      expect(parsed.data).toEqual({ reasons: ["DomesticAbuse"], urgency: "Normal", notes: undefined, urgencyReason: undefined });
     });
 
-    it("should require a Master, addressed to the radios, beside any other unanswered question", () => {
-      const parsed = createReferralSchema.safeParse({ reasons: ["DomesticAbuse"] });
+    it("should ask no Master, because a raised referral waits in the queue to be sent (plan Fa1)", () => {
+      const parsed = createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Normal", masterId: "3f0c8a52-1d6e-4b7a-9c1e-2a4b6d8f0e13" });
 
-      expect(zodErrorToFieldErrors(parsed.error!)).toEqual(
-        expect.arrayContaining([
-          { field: "urgency", message: "Select how urgent this referral is" },
-          { field: "masterId", message: "Select which Master this referral should go to" }
-        ])
-      );
-    });
-
-    it("should refuse a Master id that is not a uuid with the same sentence, since only a tampered post sends one", () => {
-      const parsed = createReferralSchema.safeParse({ masterId: "not-a-master", reasons: ["DomesticAbuse"], urgency: "Normal" });
-
-      expect(zodErrorToFieldErrors(parsed.error!)).toEqual([{ field: "masterId", message: "Select which Master this referral should go to" }]);
+      expect(parsed.success).toBe(true);
+      expect(parsed.data).not.toHaveProperty("masterId");
     });
 
     it("should accept every reason api publishes, so a member added at its end needs no edit here", () => {
@@ -94,7 +65,7 @@ describe("referrals/schemas", () => {
         ["MinorParentalConsent", "MinorStepparentConsent", "MinorAged16Or17Consented"]
       ]) {
         const reasons = REFERRAL_REASON.filter((reason) => !left.includes(reason));
-        const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, reasons, urgency: "Normal", notes: "Several concerns" });
+        const parsed = createReferralSchema.safeParse({ reasons, urgency: "Normal", notes: "Several concerns" });
 
         expect(parsed.success).toBe(true);
         expect(parsed.data?.reasons).toEqual(reasons);
@@ -102,64 +73,59 @@ describe("referrals/schemas", () => {
     });
 
     it("should reject a reason api does not publish", () => {
-      const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["Whatever"], urgency: "Normal" });
+      const parsed = createReferralSchema.safeParse({ reasons: ["Whatever"], urgency: "Normal" });
 
       expect(parsed.success).toBe(false);
       expect(parsed.error?.issues[0].path).toEqual(["reasons", 0]);
     });
 
     it("should reject an empty reason set, addressed to the checkbox group", () => {
-      const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: [], urgency: "Normal" });
+      const parsed = createReferralSchema.safeParse({ reasons: [], urgency: "Normal" });
 
       expect(parsed.success).toBe(false);
       expect(parsed.error?.issues[0]).toMatchObject({ path: ["reasons"], message: "Select at least one reason for referring this case" });
     });
 
     it("should reject an untouched checkbox group, which posts no reasons at all, in the same words", () => {
-      const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, urgency: "Normal" });
+      const parsed = createReferralSchema.safeParse({ urgency: "Normal" });
 
       expect(parsed.success).toBe(false);
       expect(zodErrorToFieldErrors(parsed.error!)).toContainEqual({ field: "reasons", message: "Select at least one reason for referring this case" });
     });
 
     it("should require notes when Other is among the reasons, addressed to the textarea", () => {
-      const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["Other"], urgency: "Normal" });
+      const parsed = createReferralSchema.safeParse({ reasons: ["Other"], urgency: "Normal" });
 
       expect(parsed.success).toBe(false);
       expect(zodErrorToFieldErrors(parsed.error!)).toContainEqual({ field: "notes", message: "Enter the other reason for referring this case" });
     });
 
     it("should require notes when Other is ticked alongside another reason", () => {
-      expect(createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["NonPublication", "Other"], urgency: "Normal" }).success).toBe(false);
-      expect(
-        createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["NonPublication", "Other"], urgency: "Normal", notes: "Something else" }).success
-      ).toBe(true);
+      expect(createReferralSchema.safeParse({ reasons: ["NonPublication", "Other"], urgency: "Normal" }).success).toBe(false);
+      expect(createReferralSchema.safeParse({ reasons: ["NonPublication", "Other"], urgency: "Normal", notes: "Something else" }).success).toBe(true);
     });
 
     it("should treat notes of only whitespace as absent, so it cannot satisfy the Other rule", () => {
-      const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["Other"], urgency: "Normal", notes: "   " });
+      const parsed = createReferralSchema.safeParse({ reasons: ["Other"], urgency: "Normal", notes: "   " });
 
       expect(parsed.success).toBe(false);
       expect(zodErrorToFieldErrors(parsed.error!)).toContainEqual({ field: "notes", message: "Enter the other reason for referring this case" });
     });
 
     it("should accept notes without Other, because api takes them for any reason", () => {
-      expect(createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["DomesticAbuse"], urgency: "Normal", notes: "Born 2009" }).success).toBe(true);
+      expect(createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Normal", notes: "Born 2009" }).success).toBe(true);
     });
 
     it("should store the trimmed notes, so surrounding whitespace never reaches api", () => {
-      expect(createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["DomesticAbuse"], urgency: "Normal", notes: "  Born 2009  " }).data?.notes).toBe(
-        "Born 2009"
-      );
+      expect(createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Normal", notes: "  Born 2009  " }).data?.notes).toBe("Born 2009");
     });
 
     it("should turn blank notes into no notes, because api takes no null on a create", () => {
-      expect(createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["DomesticAbuse"], urgency: "Normal", notes: "" }).data?.notes).toBeUndefined();
+      expect(createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Normal", notes: "" }).data?.notes).toBeUndefined();
     });
 
     it("should refuse notes over api's published maximum", () => {
       const parsed = createReferralSchema.safeParse({
-        masterId: MASTER_ID,
         reasons: ["DomesticAbuse"],
         urgency: "Normal",
         notes: "n".repeat(MAX_REFERRAL_NOTES + 1)
@@ -170,30 +136,29 @@ describe("referrals/schemas", () => {
     });
 
     it("should require a reason for urgency when Urgent is chosen, addressed to that textarea", () => {
-      const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["DomesticAbuse"], urgency: "Urgent" });
+      const parsed = createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Urgent" });
 
       expect(parsed.success).toBe(false);
       expect(zodErrorToFieldErrors(parsed.error!)).toContainEqual({ field: "urgencyReason", message: "Enter why this referral is urgent" });
     });
 
     it("should accept Urgent once its reason is given", () => {
-      const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["DomesticAbuse"], urgency: "Urgent", urgencyReason: "Hearing on Friday" });
+      const parsed = createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Urgent", urgencyReason: "Hearing on Friday" });
 
       expect(parsed.success).toBe(true);
       expect(parsed.data?.urgencyReason).toBe("Hearing on Friday");
     });
 
     it("should treat a whitespace-only urgency reason as absent", () => {
-      expect(createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["DomesticAbuse"], urgency: "Urgent", urgencyReason: "  " }).success).toBe(false);
+      expect(createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Urgent", urgencyReason: "  " }).success).toBe(false);
     });
 
     it("should not require an urgency reason for a standard referral", () => {
-      expect(createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["DomesticAbuse"], urgency: "Normal" }).success).toBe(true);
+      expect(createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Normal" }).success).toBe(true);
     });
 
     it("should refuse an urgency reason over api's published maximum", () => {
       const parsed = createReferralSchema.safeParse({
-        masterId: MASTER_ID,
         reasons: ["DomesticAbuse"],
         urgency: "Urgent",
         urgencyReason: "u".repeat(MAX_REFERRAL_URGENCY_REASON + 1)
@@ -204,7 +169,7 @@ describe("referrals/schemas", () => {
     });
 
     it("should reject a missing urgency, because the form always offers both radios", () => {
-      const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["DomesticAbuse"] });
+      const parsed = createReferralSchema.safeParse({ reasons: ["DomesticAbuse"] });
 
       expect(parsed.success).toBe(false);
       expect(zodErrorToFieldErrors(parsed.error!)).toContainEqual({ field: "urgency", message: "Select how urgent this referral is" });
@@ -213,7 +178,7 @@ describe("referrals/schemas", () => {
     it("should report the missing urgency and the missing other reason at once, not one submission each", () => {
       // The reason `urgency` is optional in the shape: zod skips an object's refinements once a field has
       // failed its own parse, so a required enum here would have withheld the `notes` message.
-      const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["Other"] });
+      const parsed = createReferralSchema.safeParse({ reasons: ["Other"] });
 
       expect(parsed.success).toBe(false);
       expect(zodErrorToFieldErrors(parsed.error!)).toEqual([
@@ -223,11 +188,11 @@ describe("referrals/schemas", () => {
     });
 
     it("should reject an urgency api does not publish", () => {
-      expect(createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["DomesticAbuse"], urgency: "Immediately" }).success).toBe(false);
+      expect(createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Immediately" }).success).toBe(false);
     });
 
     it("should report both conditional failures at once, so a form failing two fields costs one submission", () => {
-      const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["Other"], urgency: "Urgent" });
+      const parsed = createReferralSchema.safeParse({ reasons: ["Other"], urgency: "Urgent" });
 
       expect(parsed.success).toBe(false);
       expect(zodErrorToFieldErrors(parsed.error!)).toEqual([
@@ -238,7 +203,7 @@ describe("referrals/schemas", () => {
 
     it("should accept every urgency api publishes, built from its array rather than restated", () => {
       for (const urgency of URGENCY) {
-        const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["DomesticAbuse"], urgency, urgencyReason: "Hearing on Friday" });
+        const parsed = createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency, urgencyReason: "Hearing on Friday" });
 
         expect(parsed.success).toBe(true);
       }
@@ -247,7 +212,7 @@ describe("referrals/schemas", () => {
     it("should say the same sentence for an unpublished reason as for none, rather than printing api's members", () => {
       // zod's own message for an enum lists every member it accepts, which is api's vocabulary and not
       // something to show a caseworker — reachable only by a tampered or stale post, but reachable.
-      const parsed = createReferralSchema.safeParse({ masterId: MASTER_ID, reasons: ["Whatever"], urgency: "Normal" });
+      const parsed = createReferralSchema.safeParse({ reasons: ["Whatever"], urgency: "Normal" });
 
       // The `message` is what a page renders (the issue object still carries zod's `values`, which nothing
       // reads), so that is what this asserts: no member names in the sentence.
@@ -331,6 +296,74 @@ describe("referrals/schemas", () => {
 
     it("should keep the note's bound no wider than api's, which is the rule that may only be tightened", () => {
       expect(MAX_CONFIRMATION_NOTE).toBeLessThanOrEqual(1000);
+    });
+  });
+
+  describe("sendSelectionSchema", () => {
+    const REFERRAL_1 = "11111111-1111-4111-8111-111111111111";
+    const REFERRAL_2 = "22222222-2222-4222-8222-222222222222";
+    const MASTER_1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const MASTER_2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const errors = (body: Record<string, unknown>) => {
+      const parsed = sendSelectionSchema.safeParse(body);
+      return parsed.success ? [] : zodErrorToFieldErrors(parsed.error);
+    };
+
+    it("should pair each ticked referral with its Master, in the order ticked", () => {
+      const parsed = sendSelectionSchema.parse({ referrals: [REFERRAL_2, REFERRAL_1], [`master-${REFERRAL_1}`]: MASTER_1, [`master-${REFERRAL_2}`]: MASTER_2 });
+
+      expect(parsed.allocations).toEqual([
+        { referralId: REFERRAL_2, masterId: MASTER_2 },
+        { referralId: REFERRAL_1, masterId: MASTER_1 }
+      ]);
+    });
+
+    it("should read a single ticked referral posted as one string", () => {
+      expect(sendSelectionSchema.parse({ referrals: REFERRAL_1, [`master-${REFERRAL_1}`]: MASTER_1 }).allocations).toHaveLength(1);
+    });
+
+    it("should drop a Master chosen on a row that was not ticked", () => {
+      const parsed = sendSelectionSchema.parse({ referrals: REFERRAL_1, [`master-${REFERRAL_1}`]: MASTER_1, [`master-${REFERRAL_2}`]: MASTER_2 });
+
+      expect(parsed.allocations).toEqual([{ referralId: REFERRAL_1, masterId: MASTER_1 }]);
+    });
+
+    it("should refuse a selection with nothing ticked on the selection", () => {
+      expect(errors({ [`master-${REFERRAL_1}`]: MASTER_1 })).toEqual([{ field: "referrals", message: SEND_SELECTION_MESSAGES.none }]);
+    });
+
+    it.each([
+      ["a value no form offered", { referrals: "not-a-referral" }],
+      ["a referral ticked twice", { referrals: [REFERRAL_1, REFERRAL_1], [`master-${REFERRAL_1}`]: MASTER_1 }],
+      ["a bracketed value parsed into an object", { referrals: { 0: REFERRAL_1 } }]
+    ])("should refuse %s on the selection", (_name, body) => {
+      expect(errors(body)).toEqual([{ field: "referrals", message: SEND_SELECTION_MESSAGES.unknown }]);
+    });
+
+    it("should refuse more referrals than api sends at once", () => {
+      const ids = Array.from({ length: 101 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`);
+
+      expect(errors({ referrals: ids })).toEqual([{ field: "referrals", message: SEND_SELECTION_MESSAGES.tooMany }]);
+    });
+
+    it("should accept as many referrals as api sends at once", () => {
+      const ids = Array.from({ length: 100 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`);
+      const body = Object.fromEntries([["referrals", ids], ...ids.map((id) => [`master-${id}`, MASTER_1])]);
+
+      expect(sendSelectionSchema.parse(body).allocations).toHaveLength(100);
+    });
+
+    it("should refuse a Master that is not one the form offered, beside its row", () => {
+      expect(errors({ referrals: REFERRAL_1, [`master-${REFERRAL_1}`]: "not-a-uuid" })).toEqual([
+        { field: `master-${REFERRAL_1}`, message: SEND_SELECTION_MESSAGES.noMaster }
+      ]);
+    });
+
+    it("should refuse every ticked row without a Master, beside its own select", () => {
+      expect(errors({ referrals: [REFERRAL_1, REFERRAL_2], [`master-${REFERRAL_1}`]: "", [`master-${REFERRAL_2}`]: [MASTER_1, MASTER_2] })).toEqual([
+        { field: `master-${REFERRAL_1}`, message: SEND_SELECTION_MESSAGES.noMaster },
+        { field: `master-${REFERRAL_2}`, message: SEND_SELECTION_MESSAGES.noMaster }
+      ]);
     });
   });
 });

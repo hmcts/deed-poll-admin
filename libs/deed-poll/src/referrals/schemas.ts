@@ -36,7 +36,7 @@
  * per field cannot say both. The *labels* are the page's, per the plan's decision 2: the wire values are
  * api's enum members, the human wording is ours.
  */
-import { CONFIRMATION_OUTCOME, REFERRAL_REASON, URGENCY } from "@hmcts/deed-poll-api-client";
+import { CONFIRMATION_OUTCOME, REFERRAL_REASON, REFERRAL_SEND_LIMITS, URGENCY } from "@hmcts/deed-poll-api-client";
 import { z } from "zod";
 import { MINOR_DETAIL_REASONS, REFERRAL_REASON_LABEL } from "./referrals-view.js";
 
@@ -64,9 +64,6 @@ const CONTRADICTORY_MINOR_DETAILS = [
 
 /** The urgency that pairs with a rule: choosing it makes `urgencyReason` mandatory. */
 const URGENCY_REQUIRING_REASON = "Urgent";
-
-// The raise form's question is "Which Master should this go to?"; the GOV.UK error says what to do about it.
-const SELECT_A_MASTER = "Select which Master this referral should go to";
 
 export const createReferralSchema = z
   .object({
@@ -97,16 +94,9 @@ export const createReferralSchema = z
       .trim()
       .max(MAX_REFERRAL_URGENCY_REASON, `The reason for urgency must be ${MAX_REFERRAL_URGENCY_REASON} characters or fewer`)
       .optional()
-      .transform((value) => (value === undefined || value === "" ? undefined : value)),
-    // Radios, placed last on the form (plan Db1). Required here although api takes a referral without one: an
-    // unassigned referral waits for a caseworker to assign it, and the caseworker raising it is the one who knows.
-    // A uuid because api's is; anything else is a tampered post, refused with the same sentence.
-    masterId: z.uuid({ error: SELECT_A_MASTER }).optional()
+      .transform((value) => (value === undefined || value === "" ? undefined : value))
   })
   .superRefine((referral, ctx) => {
-    if (!referral.masterId) {
-      ctx.addIssue({ code: "custom", path: ["masterId"], message: SELECT_A_MASTER });
-    }
     // `path` is what makes `zodErrorToFieldErrors` address the issue to a control, so the error summary's
     // link resolves. An issue raised without one is addressed to the form, which is not where a caseworker
     // needs to look for either of these.
@@ -180,16 +170,50 @@ export const recordConfirmationSchema = z.object({
     .transform((value) => (value === undefined || value === "" ? undefined : value))
 });
 
+/** The referral queue's selection messages, beside the controls they are about. */
+export const SEND_SELECTION_MESSAGES = {
+  none: "Select at least one referral to send",
+  unknown: "Select referrals from the list",
+  tooMany: `Select at most ${REFERRAL_SEND_LIMITS.maxAllocations} referrals at once`,
+  noMaster: "Choose a Master for this referral"
+} as const;
+
 /**
- * The assign page's one question (plan Db1): which Master. A uuid, as `createReferralSchema`'s `masterId` is, with the
- * same message; whether that Master exists, is available or has room is api's 400 or 409.
+ * The referral queue's selection (plan Fa1), as the queue's form and the review's hidden inputs both post it: each
+ * ticked referral's id under `referrals`, and its Master under `master-<referralId>`.
+ *
+ * **Only the ticked rows travel.** A Master chosen on a row left unticked is not part of the selection, so it is
+ * dropped rather than refused. Every id reads as a UUID, as api's are, and none is ticked twice; a value no form
+ * offered is reported on the selection, never echoed. The bound is api's `maxItems`. Everything else (the window,
+ * each referral still waiting, each Master available, the cap) is api's to decide at the send.
  */
-export const assignReferralSchema = z.object({
-  masterId: z.uuid({ error: SELECT_A_MASTER })
+export const sendSelectionSchema = z.record(z.string(), z.unknown()).transform((body, ctx) => {
+  const ticked: unknown[] = body.referrals === undefined ? [] : Array.isArray(body.referrals) ? body.referrals : [body.referrals];
+  const refuse = (path: string, message: string) => {
+    ctx.addIssue({ code: "custom", path: [path], message });
+    return z.NEVER;
+  };
+
+  if (ticked.length === 0) return refuse("referrals", SEND_SELECTION_MESSAGES.none);
+  if (!ticked.every(isUuid) || new Set(ticked).size !== ticked.length) return refuse("referrals", SEND_SELECTION_MESSAGES.unknown);
+  if (ticked.length > REFERRAL_SEND_LIMITS.maxAllocations) return refuse("referrals", SEND_SELECTION_MESSAGES.tooMany);
+
+  const unchosen = ticked.filter((referralId) => !isUuid(body[`master-${referralId}`]));
+  for (const referralId of unchosen) ctx.addIssue({ code: "custom", path: [`master-${referralId}`], message: SEND_SELECTION_MESSAGES.noMaster });
+  if (unchosen.length > 0) return z.NEVER;
+
+  return { allocations: ticked.map((referralId) => ({ referralId, masterId: body[`master-${referralId}`] as string })) };
 });
+
+function isUuid(value: unknown): value is string {
+  return z.uuid().safeParse(value).success;
+}
 
 /** What a validated raise-a-referral form holds. The referral's state and author are api's, so neither is here. */
 export type CreateReferralInput = z.output<typeof createReferralSchema>;
 
 /** What a validated record-the-response form holds. The recorder and the date are api's, so neither is here. */
 export type RecordConfirmationInput = z.output<typeof recordConfirmationSchema>;
+
+/** What a validated queue selection holds: each referral with its Master, in the order they were ticked. */
+export type SendSelection = z.output<typeof sendSelectionSchema>;

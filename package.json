@@ -19,6 +19,7 @@
     "test:changed": "turbo test test:app --filter='...[HEAD^1]'",
     "test:gazette": "yarn workspace e2e-tests exec playwright test --config playwright.gazette.config.ts",
     "test:document-viewer": "yarn workspace e2e-tests exec playwright test --config playwright.document-viewer.config.ts",
+    "test:referrals": "yarn workspace e2e-tests exec playwright test --config playwright.referrals.config.ts",
     "test:session": "yarn workspace e2e-tests exec playwright test --config playwright.session.config.ts",
     "test:e2e": "yarn workspace e2e-tests run test:e2e",
     "test:smoke": "yarn workspace e2e-tests run test:smoke",

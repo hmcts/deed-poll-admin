@@ -37,7 +37,7 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, expect, type Locator, type Page, test } from "@playwright/test";
 import { CASEWORKER_EMAIL, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsCaseworker } from "./idam-session.js";
-import { judgePersonaMaster, newMaster } from "./masters.js";
+import { judgePersonaMaster, newMaster, sendToMaster } from "./masters.js";
 
 /** The mock api, which `playwright.config.ts` starts on 3200 beside the app on 3000. */
 const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
@@ -294,18 +294,20 @@ async function seedCase(request: APIRequestContext, fields: Record<string, strin
 }
 
 /**
- * A referral raised on a case and assigned to a Master — which puts it into exactly one judge's hands.
+ * A referral raised on a case and sent to a Master from the queue — which puts it into exactly one judge's hands.
  *
  * Standard rather than urgent, deliberately: `judicial.spec.ts` reads its own urgent referrals off My referrals.
  */
 async function seedAssignedReferral(request: APIRequestContext, caseId: string, masterId: string): Promise<string> {
   const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, {
     headers: bearer(CASEWORKER_EMAIL),
-    data: { reasons: ["Minor", "MinorCourtOrder"], masterId }
+    data: { reasons: ["Minor", "MinorCourtOrder"] }
   });
   expect(raised.status(), await raised.text()).toBe(201);
+  const referralId = (await raised.json()).id;
+  await sendToMaster(request, referralId, masterId);
 
-  return (await raised.json()).id;
+  return referralId;
 }
 
 /**

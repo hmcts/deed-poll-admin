@@ -5,7 +5,7 @@ import { bankHolidayFormSchema, masterChangeFormSchema, masterFormSchema, PROCES
 const MESSAGES = {
   processingDays: "days",
   reminderIntervalHours: "reminder",
-  masterWindowCap: "cap",
+  windowCap: "cap",
   morningWindowStart: "morning start",
   morningWindowEnd: "morning end",
   afternoonWindowStart: "afternoon start",
@@ -19,7 +19,7 @@ const schema = processSettingsFormSchema(MESSAGES);
 const VALID = {
   processingDays: "7",
   reminderIntervalHours: "48",
-  masterWindowCap: "10",
+  windowCap: "10",
   morningWindowStart: "07:00",
   morningWindowEnd: "10:30",
   afternoonWindowStart: "14:00",
@@ -44,7 +44,7 @@ describe("processSettingsFormSchema", () => {
     expect(result).toEqual({
       referralClaimExpiryMinutes: 10080,
       reminderIntervalHours: 48,
-      masterWindowCap: 10,
+      windowCap: 10,
       morningWindowStart: "07:15",
       morningWindowEnd: "10:30",
       afternoonWindowStart: "14:00",
@@ -68,8 +68,8 @@ describe("processSettingsFormSchema", () => {
   it.each([
     ["reminderIntervalHours", "1"],
     ["reminderIntervalHours", "168"],
-    ["masterWindowCap", "1"],
-    ["masterWindowCap", "100"]
+    ["windowCap", "1"],
+    ["windowCap", "100"]
   ])("should accept %s %j at its bound", (field, value) => {
     expect(issuesFor({ ...VALID, [field]: value })).toEqual([]);
   });
@@ -79,7 +79,7 @@ describe("processSettingsFormSchema", () => {
   it.each([
     ...[...NOT_WHOLE, "0", "31"].map((value) => ["processingDays", value, "days"] as const),
     ...[...NOT_WHOLE, "0", "169"].map((value) => ["reminderIntervalHours", value, "reminder"] as const),
-    ...[...NOT_WHOLE, "0", "101"].map((value) => ["masterWindowCap", value, "cap"] as const)
+    ...[...NOT_WHOLE, "0", "101"].map((value) => ["windowCap", value, "cap"] as const)
   ])("should refuse %s %j as its own control's error", (field, value, message) => {
     expect(issuesFor({ ...VALID, [field]: value })).toEqual([{ path: field, message }]);
   });
@@ -111,9 +111,9 @@ describe("processSettingsFormSchema", () => {
   });
 
   it("should report every invalid control at once", () => {
-    expect(issuesFor({ ...VALID, processingDays: "x", masterWindowCap: "y" })).toEqual([
+    expect(issuesFor({ ...VALID, processingDays: "x", windowCap: "y" })).toEqual([
       { path: "processingDays", message: "days" },
-      { path: "masterWindowCap", message: "cap" }
+      { path: "windowCap", message: "cap" }
     ]);
   });
 
@@ -127,12 +127,12 @@ describe("processSettingsFormSchema", () => {
     expect(Object.keys(result).sort()).toEqual([
       "afternoonWindowEnd",
       "afternoonWindowStart",
-      "masterWindowCap",
       "morningWindowEnd",
       "morningWindowStart",
       "referralClaimExpiryMinutes",
       "reminderIntervalHours",
-      "revision"
+      "revision",
+      "windowCap"
     ]);
     expect(result.referralClaimExpiryMinutes).toBe(10080);
   });

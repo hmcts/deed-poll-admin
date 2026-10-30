@@ -4,16 +4,16 @@
 
 {#
   A Master's own referrals in three sections (Steve, 2026-10-28): Urgent, then "Awaiting your direction" and
-  "Directed, awaiting the office" under one heading per day referred. The handler groups api's order and resolves
+  "Directed, awaiting the office" under one heading per day sent. The handler groups api's order and resolves
   every sentence; this template only draws what it was given, and draws no section that is empty.
 
   No case reference and no applicant anywhere, because api's row carries none (decision 3). That is why each row's
   link is qualified by its date and reasons — "View" alone would be the accessible name of every link on the page.
 
-  `referredOn` is printed only in the Urgent section: elsewhere the day is the heading the row sits under. A
+  `sentOn` is printed only in the Urgent section: elsewhere the day is the heading the row sits under. A
   directed row has no due date, so its section has no dates column.
 #}
-{% macro referralTable(rows, caption, labels, showReferred, showDates) %}
+{% macro referralTable(rows, caption, labels, showSent, showDates) %}
   {% set tableRows = [] %}
   {% for row in rows %}
     {% set reasonsCell %}
@@ -23,7 +23,7 @@
     {% endset %}
     {% set datesCell %}
       <ul class="govuk-list govuk-!-margin-bottom-0">
-        {% if showReferred %}<li>{{ row.referredOnText }}</li>{% endif %}
+        {% if showSent %}<li>{{ row.sentOnText }}</li>{% endif %}
         {% if row.dueByText %}<li>{{ row.dueByText }}</li>{% endif %}
       </ul>
     {% endset %}

@@ -130,6 +130,21 @@ describe("deed-polls list page", () => {
     expect(findGazetteSettings).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["teamLeader", true],
+    ["deliveryManager", true],
+    ["legacyAdmin", true],
+    ["caseworker", false],
+    ["judge", false],
+    ["none", false]
+  ] as const)("should offer %s the referral queue link: %s, from the session alone", async (persona, shown) => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ persona }), res);
+
+    expect(res.render.mock.calls[0][1]).toMatchObject({ showReferrals: shown });
+  });
+
   it.each(["legacyAdmin", "teamLeader", "caseworker", "judge", "none"] as const)("should not offer the service settings link to %s", async (persona) => {
     const res = pageResponse();
 
@@ -431,19 +446,36 @@ describe("deed-polls list page", () => {
   describe("the waiting-for-assignment count", () => {
     const WORKLIST_HREF = "/deed-polls?where=currentReferralState%3Ais%3AOpen";
 
-    it("reads the count with the caseworker's own token and links to the Open worklist", async () => {
+    it("reads the count with the caseworker's own token and links a caseworker to the Open worklist", async () => {
       vi.mocked(countWaitingForAssignment).mockResolvedValue(2);
       const res = pageResponse();
 
-      await GET(pageRequest({ accessToken: "caseworker-token" }), res);
+      await GET(pageRequest({ persona: "caseworker", accessToken: "caseworker-token" }), res);
 
       expect(countWaitingForAssignment).toHaveBeenCalledWith({ accessToken: "caseworker-token" });
       expect(res.render.mock.calls[0][1]).toMatchObject({
-        waitingForAssignment: "2 referrals are waiting to be assigned to a Master.",
+        waitingForAssignment: "2 referrals are waiting to be sent to a Master.",
         waitingForAssignmentFailed: false,
-        waitingForAssignmentHref: WORKLIST_HREF
+        waitingForAssignmentHref: WORKLIST_HREF,
+        waitingForAssignmentLinkText: "View referrals waiting to be sent"
       });
     });
+
+    it.each(["teamLeader", "deliveryManager", "legacyAdmin"] as const)(
+      "links %s, who holds ALLOCATE_REFERRALS, to the referral queue instead",
+      async (persona) => {
+        vi.mocked(countWaitingForAssignment).mockResolvedValue(2);
+        const res = pageResponse();
+
+        await GET(pageRequest({ persona }), res);
+
+        expect(res.render.mock.calls[0][1]).toMatchObject({
+          waitingForAssignment: "2 referrals are waiting to be sent to a Master.",
+          waitingForAssignmentHref: "/deed-polls/referrals",
+          waitingForAssignmentLinkText: "Check and send referrals"
+        });
+      }
+    );
 
     it("states one referral in the singular", async () => {
       vi.mocked(countWaitingForAssignment).mockResolvedValue(1);
@@ -451,7 +483,7 @@ describe("deed-polls list page", () => {
 
       await GET(pageRequest(), res);
 
-      expect(res.render.mock.calls[0][1].waitingForAssignment).toBe("1 referral is waiting to be assigned to a Master.");
+      expect(res.render.mock.calls[0][1].waitingForAssignment).toBe("1 referral is waiting to be sent to a Master.");
     });
 
     it("says nothing at zero, and does not call a zero a failure", async () => {

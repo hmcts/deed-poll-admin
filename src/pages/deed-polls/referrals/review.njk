@@ -1,0 +1,49 @@
+{% extends "layouts/app-full-width.njk" %}
+{% from "govuk/components/table/macro.njk" import govukTable %}
+{% from "govuk/components/tag/macro.njk" import govukTag %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{% block content %}
+  <p class="govuk-body"><a class="govuk-link" href="{{ backHref }}">{{ back }}</a></p>
+
+  {% if errorList.length %}
+    {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
+  {% endif %}
+
+  <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+  {% set reviewRows = [] %}
+  {% for r in rows %}
+    {% set referenceCell %}
+      {{ r.reference }}
+      {% if r.isUrgent %}<br>{{ govukTag({ text: urgent, classes: "govuk-tag--red" }) }}{% endif %}
+    {% endset %}
+    {% set reasonsCell %}
+      <ul class="govuk-list">{% for reason in r.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+    {% endset %}
+    {% set reviewRows = (reviewRows.push([{ html: referenceCell }, { html: reasonsCell }, { text: r.masterName }]), reviewRows) %}
+  {% endfor %}
+  {{ govukTable({
+    caption: heading, captionClasses: "govuk-visually-hidden",
+    head: [{ text: reference }, { text: reasons }, { text: masterColumn }],
+    rows: reviewRows
+  }) }}
+
+  {% for sentence in totals %}<p class="govuk-body">{{ sentence }}</p>{% endfor %}
+
+  {#
+    Drawn only inside a window and within the room left, and never relied on: api refuses the window and the cap
+    itself. The pairs travel in the queue form's own shape, so the send parses them with the same schema.
+  #}
+  {% if canSend %}
+    <form method="post" action="/deed-polls/referrals/send" novalidate>
+      <input type="hidden" name="page" value="{{ page }}">
+      {% for r in rows %}
+        <input type="hidden" name="referrals" value="{{ r.id }}">
+        <input type="hidden" name="master-{{ r.id }}" value="{{ r.masterId }}">
+      {% endfor %}
+      {{ govukButton({ text: send }) }}
+    </form>
+  {% endif %}
+{% endblock %}

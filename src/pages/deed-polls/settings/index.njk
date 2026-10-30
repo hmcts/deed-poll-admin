@@ -79,7 +79,7 @@
           <input type="hidden" name="revision" value="{{ process.values.revision }}">
           {{ numberInput("processingDays", processingDaysLabel, processingDaysHint, daysSuffix) }}
           {{ numberInput("reminderIntervalHours", reminderIntervalLabel, reminderIntervalHint, hoursSuffix) }}
-          {{ numberInput("masterWindowCap", masterWindowCapLabel, masterWindowCapHint) }}
+          {{ numberInput("windowCap", windowCapLabel, windowCapHint) }}
           {{ windowFieldset("morning", morningWindowLegend) }}
           {{ windowFieldset("afternoon", afternoonWindowLegend) }}
           {% if process.isNeverChanged %}<p class="govuk-body">{{ processNeverChanged }}</p>{% endif %}

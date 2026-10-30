@@ -41,7 +41,7 @@ async function create(name: string, email: string, available?: boolean) {
 async function listed() {
   return (
     (await call("GET", "/caseworker/masters")).json as {
-      masters: { id: string; name: string; email: string; available: boolean; linked: boolean; revision: number; assignedInWindow: number }[];
+      masters: { id: string; name: string; email: string; available: boolean; linked: boolean; revision: number }[];
     }
   ).masters;
 }
@@ -321,7 +321,7 @@ describe("the mock's Masters list", () => {
 
       // Assert
       for (const response of responses) expect(response.text).not.toContain(JUDGE_SUBJECT);
-      expect(Object.keys((await listed())[0]).sort()).toEqual(["assignedInWindow", "available", "email", "id", "linked", "name", "revision"]);
+      expect(Object.keys((await listed())[0]).sort()).toEqual(["available", "email", "id", "linked", "name", "revision"]);
     });
   });
 

@@ -40,6 +40,8 @@ const DELIVERY_MANAGER = {
 const RETURNED_ON = new Date("2026-03-20T00:00:00Z");
 
 let mock: RunningMockApi;
+/** Where `assignTo` last moved the mock's clock, so a later move is made from inside that window. */
+let windowOffsetMinutes = 0;
 
 beforeAll(async () => {
   mock = await startMockApi();
@@ -1149,7 +1151,7 @@ describe("the case's currentReferralState", () => {
     const judge = "judge@example.com";
     const seen: (string | null)[] = [await currentReferralState(caseId)];
 
-    await assignTo(judge, caseId, referralId);
+    await assignTo(judge, referralId);
     seen.push(await currentReferralState(caseId));
 
     await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, as(judge));
@@ -1481,7 +1483,7 @@ describe("a minor's details on a raised referral", () => {
     await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor", "MinorTransgender", "Other", "MinorParentalConsent"], notes: "See file" });
 
     expect((await notesOn(caseId))[0].note).toBe(
-      "Referred to a Master. Reasons: Applicant is a minor: Transgender, Have parental consent; Other.\nNotes: See file"
+      "Referral raised, waiting to be sent to a Master. Reasons: Applicant is a minor: Transgender, Have parental consent; Other.\nNotes: See file"
     );
   });
 
@@ -1539,7 +1541,7 @@ describe("the judicial referral routes", () => {
     });
     await post(`/caseworker/cases/${seeded.id}/notes`, { note: "Chased the declarant" });
     const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor", "MinorCourtOrder"] })).json();
-    await assignTo("judge@example.com", seeded.id, created.id);
+    await assignTo("judge@example.com", created.id);
 
     const detail = await (await fetch(`${mock.url}/judicial/referrals/${created.id}`, { headers: as("judge@example.com") })).json();
 
@@ -1564,7 +1566,7 @@ describe("the judicial referral routes", () => {
   ] as const)("should send a %s application's parents as %s, as api's minor rule does", async (type, parents) => {
     const seeded = mock.seed({ type, parents: "Jane and Paul Bloggs" });
     const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor", "MinorCourtOrder"] })).json();
-    await assignTo("judge@example.com", seeded.id, created.id);
+    await assignTo("judge@example.com", created.id);
 
     const detail = await (await fetch(`${mock.url}/judicial/referrals/${created.id}`, { headers: as("judge@example.com") })).json();
 
@@ -1964,7 +1966,7 @@ describe("a judge's own referrals", () => {
   it("should carry the narrow summary row and no application field", async () => {
     const seeded = mock.seed({ displayReference: "KBDP2026-00002", newForename: "Jo", newSurname: "Bloggs" });
     const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor", "MinorCourtOrder"] })).json();
-    await assignTo(JUDGE, seeded.id, created.id);
+    await assignTo(JUDGE, created.id);
 
     const [row] = (await get("/judicial/referrals/mine", as(JUDGE))).referrals;
 
@@ -2009,8 +2011,8 @@ describe("a judge's own referrals", () => {
   });
 
   it("should page ten at a time, and answer an empty page past the end rather than refusing it", async () => {
-    // Eleven assignments in one window, over api's default cap of ten per Master.
-    await setMasterWindowCap(20);
+    // Eleven sends in one window, over api's default cap of ten across all Masters.
+    await setWindowCap(20);
     for (const _ of Array.from({ length: 11 })) await claimedReferral(JUDGE);
 
     const first = await get("/judicial/referrals/mine", as(JUDGE));
@@ -2064,7 +2066,7 @@ describe("a judge's own referrals", () => {
     // the seven-day processing window, and the list read is what notices. The state decides, not the holder columns:
     // the referral is `Open` again and nobody's, rather than sitting on its old Master's list.
     const { caseId, referralId } = await claimedReferral(JUDGE);
-    await post("/__mock/clock", { offsetMinutes: 8 * 1440 });
+    await post("/__mock/clock", { offsetMinutes: windowOffsetMinutes + 8 * 1440 });
 
     const mine = await get("/judicial/referrals/mine", as(JUDGE));
 
@@ -2192,7 +2194,7 @@ describe("the case notes a referral writes as it moves", () => {
   it("should write one note per successful transition, attributed to whoever made it", async () => {
     const { caseId, referralId } = await referredCase({ reasons: ["Minor", "MinorCourtOrder"] }, CASEWORKER);
 
-    await assignTo(JUDGE, caseId, referralId, JUDGE, as(CASEWORKER));
+    await assignTo(JUDGE, referralId, JUDGE, CASEWORKER);
     await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, as(JUDGE));
     await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`, undefined, as(OFFICE));
 
@@ -2213,7 +2215,7 @@ describe("the case notes a referral writes as it moves", () => {
     // The whole sequence in one test, because the order is the point: a caseworker opening the Notes tab on a
     // case that has been to the judiciary and back reads what happened, latest first.
     const { caseId, referralId } = await referredCase({ reasons: ["Minor", "MinorCourtOrder"] });
-    await assignTo(JUDGE, caseId, referralId);
+    await assignTo(JUDGE, referralId);
     await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, as(JUDGE));
     await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`);
 
@@ -2224,8 +2226,8 @@ describe("the case notes a referral writes as it moves", () => {
       `Master’s direction for referral raised on ${raised}, reasons: Applicant is a minor: Court Order, marked as actioned.`,
       `Master’s direction recorded for referral raised on ${raised}, reasons: Applicant is a minor: Court Order.` +
         " Decision: Approved. Changes to standard publication in the Gazette: No. See the referral for the full direction.",
-      `Referral raised on ${raised}, reasons: Applicant is a minor: Court Order, assigned to ${JUDGE}.`,
-      "Referred to a Master. Reasons: Applicant is a minor: Court Order."
+      `Referral raised on ${raised}, reasons: Applicant is a minor: Court Order, sent to ${JUDGE} by the office.`,
+      "Referral raised, waiting to be sent to a Master. Reasons: Applicant is a minor: Court Order."
     ]);
   });
 
@@ -2239,7 +2241,7 @@ describe("the case notes a referral writes as it moves", () => {
     const raised = await raisedOn(caseId, referralId);
     expect((await notesOn(caseId)).map((note) => note.note)).toEqual([
       `Referral to a Master withdrawn. It was raised on ${raised}, reasons: Applicant is a minor: Court Order; Domestic abuse considerations.`,
-      "Referred to a Master. Reasons: Applicant is a minor: Court Order; Domestic abuse considerations."
+      "Referral raised, waiting to be sent to a Master. Reasons: Applicant is a minor: Court Order; Domestic abuse considerations."
     ]);
   });
 
@@ -2256,7 +2258,9 @@ describe("the case notes a referral writes as it moves", () => {
     // A line each rather than run into the sentence before with a full stop the composer would have to add:
     // theirs is prose they wrote, and one already ending in a stop would read as "Friday..".
     const [raised] = await notesOn(seeded.id);
-    expect(raised.note).toBe("Referred to a Master. Reasons: Other.\nMarked urgent: Hearing on Friday.\nNotes: Unusual circumstances");
+    expect(raised.note).toBe(
+      "Referral raised, waiting to be sent to a Master. Reasons: Other.\nMarked urgent: Hearing on Friday.\nNotes: Unusual circumstances"
+    );
   });
 
   it("should point at the referral for the full direction rather than copying it into the note", async () => {
@@ -2343,21 +2347,21 @@ describe("the case notes a referral writes as it moves", () => {
     expect((await notesOn(caseId)).map((note) => note.note)).toEqual([
       expect.stringContaining("Referral to a Master withdrawn"),
       "Declarant called back",
-      "Referred to a Master. Reasons: Applicant is a minor: Court Order."
+      "Referral raised, waiting to be sent to a Master. Reasons: Applicant is a minor: Court Order."
     ]);
   });
 
-  it("should write api's returned-for-assignment note when the processing window releases a referral", async () => {
-    // api D2's `ReferralNotes.returnedForAssignment`, attributed to the service account because no person did it.
+  it("should write api's returned-to-the-queue note when the processing window releases a referral", async () => {
+    // api F1's `ReferralNotes.returnedToQueue`, attributed to the service account because no person did it.
     const { caseId, referralId } = await claimedReferral(JUDGE);
-    await post("/__mock/clock", { offsetMinutes: 8 * 1440 });
+    await post("/__mock/clock", { offsetMinutes: windowOffsetMinutes + 8 * 1440 });
 
     expect(await (await post("/__mock/referrals/unassign-overdue")).json()).toEqual({ released: 1 });
 
     const raised = await raisedOn(caseId, referralId);
     const [released] = await notesOn(caseId);
     expect(released).toMatchObject({
-      note: `Referral raised on ${raised}, reasons: Applicant is a minor: Court Order, returned to the office for assignment: no direction from ${JUDGE} within 7 days.`,
+      note: `Referral raised on ${raised}, reasons: Applicant is a minor: Court Order, returned to the queue to be sent again: no direction from ${JUDGE} within 7 days.`,
       createdBy: "# svc_HMCTS_LCPT_Dev"
     });
     expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).state).toBe("Open");
@@ -2727,12 +2731,12 @@ async function raisedOn(caseId: string, referralId: string): Promise<string> {
 }
 
 /**
- * The same, assigned to one judge's Masters-list entry — the state every judicial write starts from since api D2,
+ * The same, sent to one judge's Masters-list entry — the state every judicial write starts from since api D2,
  * where a judge holds a referral only because a caseworker assigned it to them.
  */
 async function claimedReferral(judge: string, name = judge): Promise<{ caseId: string; referralId: string }> {
   const referred = await referredCase();
-  await assignTo(judge, referred.caseId, referred.referralId, name);
+  await assignTo(judge, referred.referralId, name);
 
   return referred;
 }
@@ -2755,24 +2759,29 @@ async function masterFor(subject: string, name = subject): Promise<string> {
   return created.id;
 }
 
-/** A caseworker assigning the referral to `subject`'s Masters-list entry, api D2's `PUT …/assignment`. */
-async function assignTo(subject: string, caseId: string, referralId: string, name = subject, headers: Record<string, string> = {}): Promise<Response> {
+/**
+ * The referral sent to `subject`'s Masters-list entry from the queue (api F1), by a Team leader whose subject is
+ * `sender`, with the mock's clock moved just inside the next morning window first. That move is kept in
+ * `windowOffsetMinutes`, so a test moving the clock on afterwards moves it from there.
+ */
+async function assignTo(subject: string, referralId: string, name = subject, sender = "office-lead"): Promise<Response> {
   const masterId = await masterFor(subject, name);
+  windowOffsetMinutes = (await (await post("/__mock/clock", { window: "open" })).json()).offsetMinutes;
 
-  return fetch(`${mock.url}/caseworker/cases/${caseId}/referrals/${referralId}/assignment`, {
-    method: "PUT",
-    headers: { "content-type": "application/json", ...headers },
-    body: JSON.stringify({ masterId })
+  return fetch(`${mock.url}/caseworker/referral-queue/sends`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...bearer({ sub: sender, roles: ["caseworker-deedpoll-team-leader"] }) },
+    body: JSON.stringify({ allocations: [{ referralId, masterId }] })
   });
 }
 
-/** api's per-Master cap per referral window, raised for a test that assigns more than the default ten at once. */
-async function setMasterWindowCap(cap: number): Promise<void> {
+/** api's cap per referral window across all Masters, raised for a test that sends more than the default ten at once. */
+async function setWindowCap(cap: number): Promise<void> {
   const settings = await get("/caseworker/process-settings", DELIVERY_MANAGER);
   await fetch(`${mock.url}/caseworker/process-settings`, {
     method: "PUT",
     headers: { "content-type": "application/json", ...DELIVERY_MANAGER },
-    body: JSON.stringify({ referralClaimExpiryMinutes: settings.referralClaimExpiryMinutes, masterWindowCap: cap, revision: settings.revision })
+    body: JSON.stringify({ referralClaimExpiryMinutes: settings.referralClaimExpiryMinutes, windowCap: cap, revision: settings.revision })
   });
 }
 

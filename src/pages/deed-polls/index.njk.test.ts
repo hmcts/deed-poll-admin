@@ -118,6 +118,17 @@ describe("deed-polls list template", () => {
     expect(markup).toContain('<a class="govuk-link" href="/deed-polls/settings">Service settings</a>');
   });
 
+  it("should link a holder of ALLOCATE_REFERRALS to the referral queue", async () => {
+    const markup = await render({}, true);
+    expect(markup).toContain('<a class="govuk-link" href="/deed-polls/referrals">Referrals</a>');
+  });
+
+  it("should not link a caseworker to the referral queue", async () => {
+    const markup = await render();
+    expect(markup).not.toContain('href="/deed-polls/referrals"');
+    expect(markup).not.toContain(">Referrals</a>");
+  });
+
   it("should not link anyone else to the service settings page", async () => {
     const markup = await render();
     expect(markup).not.toContain("/deed-polls/settings");
@@ -441,8 +452,18 @@ describe("deed-polls list template", () => {
       const markup = await render();
 
       expect(markup.match(/data-module="govuk-notification-banner"/g) ?? []).toHaveLength(1);
-      expect(markup).toContain("2 referrals are waiting to be assigned to a Master.");
-      expect(markup).toContain('href="/deed-polls?where=currentReferralState%3Ais%3AOpen">View referrals waiting for assignment</a>');
+      expect(markup).toContain("2 referrals are waiting to be sent to a Master.");
+      expect(markup).toContain('href="/deed-polls?where=currentReferralState%3Ais%3AOpen">View referrals waiting to be sent</a>');
+    });
+
+    it("links a Delivery Manager's waiting count to the referral queue", async () => {
+      vi.mocked(countWaitingForAssignment).mockResolvedValue(2);
+
+      const markup = await render({}, true);
+
+      expect(markup).toContain("2 referrals are waiting to be sent to a Master.");
+      expect(markup).toContain('href="/deed-polls/referrals">Check and send referrals</a>');
+      expect(markup).not.toContain("View referrals waiting to be sent");
     });
 
     it("warns, without a banner, when the waiting-for-assignment count could not be read", async () => {
@@ -451,8 +472,8 @@ describe("deed-polls list template", () => {
       const markup = await render();
       logged.mockRestore();
 
-      expect(markup).toContain("The number of referrals waiting to be assigned to a Master could not be loaded");
-      expect(markup).not.toContain("View referrals waiting for assignment");
+      expect(markup).toContain("The number of referrals waiting to be sent to a Master could not be loaded");
+      expect(markup).not.toContain("View referrals waiting to be sent");
     });
 
     describe("when the count could not be read", () => {

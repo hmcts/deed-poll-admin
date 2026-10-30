@@ -4,10 +4,10 @@ import { getCase, listCases, patchCase } from "../api/client.js";
 import { type RunningMockApi, startMockApi } from "../mock/server.js";
 import { type SeedCredentials, type SeedJournal, seedCases } from "./run.js";
 
-/** The judge's Masters-list entry: since api D2 the seeder assigns referrals to it, and the judicial preflight links it. */
+/** The judge's Masters-list entry: the seeder sends referrals to it from the queue, and the judicial preflight links it. */
 const SEED_MASTER_EMAIL = "seed-judge@masters.test";
 const CREDENTIALS = {
-  caseworkerToken: "mock-caseworker",
+  caseworkerToken: `x.${Buffer.from(JSON.stringify({ sub: "seed-lead", roles: ["caseworker-deedpoll-team-leader"] })).toString("base64url")}.signature`,
   judgeToken: `x.${Buffer.from(JSON.stringify({ sub: "seed-judge", email: SEED_MASTER_EMAIL, roles: ["caseworker-deedpoll-judicial"] })).toString("base64url")}.signature`
 };
 const CREATE = "SEED-runner-test-01/create";
@@ -80,7 +80,7 @@ describe("seed runner checkpoints", { timeout: 20_000 }, () => {
     expect(requests).not.toHaveBeenCalled();
   });
 
-  it("should assign the claimed and directed referrals to the judge's Masters-list entry", async () => {
+  it("should send the claimed and directed referrals to the judge's Masters-list entry from the queue", async () => {
     mock = await startMockApi();
     const credentials = await credentialsFor(mock);
     const journal = newJournal(mock.url);
@@ -196,5 +196,7 @@ async function credentialsFor(api: RunningMockApi): Promise<SeedCredentials> {
     body: JSON.stringify({ name: "Seed Judge", email: SEED_MASTER_EMAIL })
   });
   const { id } = (await response.json()) as { id: string };
+  // Since api F1 the Team leader sends referrals only inside a referral window.
+  await fetch(`${api.url}/__mock/clock`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ window: "open" }) });
   return { ...CREDENTIALS, masterId: id };
 }

@@ -17,6 +17,7 @@
  */
 import {
   ACCESS_GAZETTE,
+  ALLOCATE_REFERRALS,
   AWAITING_CONFIRMATION_FILTER,
   buildCaseList,
   builderAction,
@@ -67,6 +68,7 @@ import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
 import { casePath } from "../../case-path.js";
 import { forLog } from "../../for-log.js";
+import { REFERRAL_QUEUE_PATH } from "../../referral-queue/paths.js";
 
 const LIST_PATH = "/deed-polls";
 
@@ -84,9 +86,9 @@ const QUERIES_PATH = "/deed-polls/queries";
 const RETURNED_FOR_ACTION_PATH = `${LIST_PATH}${caseListSearch({ conditions: returnedForActionConditions() })}`;
 
 /**
- * The "waiting for assignment" worklist (plan Db1): a `where` on `currentReferralState`, as the returned-for-action
+ * The "waiting to be sent" worklist (plan Db1): a `where` on `currentReferralState`, as the returned-for-action
  * one is and for its reason, since api publishes no tab for it. A case holds at most one live referral, so the count
- * of cases is the count of referrals.
+ * of cases is the count of referrals. Where the count links for a caller who cannot send referrals (plan Fa1).
  */
 const WAITING_FOR_ASSIGNMENT_PATH = `${LIST_PATH}${caseListSearch({ conditions: waitingForAssignmentConditions() })}`;
 
@@ -106,6 +108,7 @@ const AWAITING_CONFIRMATION_PATH = `${LIST_PATH}${caseListSearch({ filter: AWAIT
 const en = {
   gazetteLink: "View London Gazette applications",
   settingsLink: "Service settings",
+  referralsLink: "Referrals",
   gazetteCountFor: (count: number) => `Applications ready for the London Gazette: ${count}`,
   gazetteUnavailable: "The number of applications ready for the London Gazette could not be loaded. Try opening the ready list.",
   title: "Deed poll cases",
@@ -151,12 +154,14 @@ const en = {
   awaitingConfirmationLink: "View applications awaiting confirmation",
   awaitingConfirmationUnavailable:
     "The number of applications waiting for the applicant to confirm could not be loaded, so this page cannot say whether any are waiting. Try again shortly.",
-  // Plan Db1: referrals no Master has, raised without one before assignment existed or returned by api's sweep.
+  // Plan Fa1: referrals in the queue, raised and waiting, or returned by api's sweep. Every caller is told; only a
+  // Team leader or Delivery Manager can send them, so the link goes to the queue for them and to the cases otherwise.
   waitingForAssignmentFor: (count: number) =>
-    count === 1 ? "1 referral is waiting to be assigned to a Master." : `${count} referrals are waiting to be assigned to a Master.`,
-  waitingForAssignmentLink: "View referrals waiting for assignment",
+    count === 1 ? "1 referral is waiting to be sent to a Master." : `${count} referrals are waiting to be sent to a Master.`,
+  waitingForAssignmentLink: "View referrals waiting to be sent",
+  waitingForAssignmentQueueLink: "Check and send referrals",
   waitingForAssignmentUnavailable:
-    "The number of referrals waiting to be assigned to a Master could not be loaded, so this page cannot say whether any are waiting. Try again shortly.",
+    "The number of referrals waiting to be sent to a Master could not be loaded, so this page cannot say whether any are waiting. Try again shortly.",
   // GOV.UK's own fallback for the warning icon, which is decorative and needs a text equivalent.
   warningIcon: "Warning",
   newCase: "New case",
@@ -286,6 +291,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
   const counts = worklistCounts(caller, can(userFromRequest(req), ACCESS_GAZETTE));
   // From the session's capability alone: the link needs no api read, and the area gate decides entry.
   const showSettings = can(userFromRequest(req), MANAGE_PROCESS_CONFIG);
+  const showReferrals = can(userFromRequest(req), ALLOCATE_REFERRALS);
 
   try {
     const results = await findDeedPolls({ filter: filter.key, q, conditions, sort: serialiseSort(sort), page }, caller);
@@ -303,6 +309,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
       savedQueries: await savedQueries,
       counts: await counts,
       showSettings,
+      showReferrals,
       cases: buildCaseList(results.cases),
       paging,
       rowErrors,
@@ -322,6 +329,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
       savedQueries: await savedQueries,
       counts: await counts,
       showSettings,
+      showReferrals,
       cases: [],
       paging: null,
       rowErrors: [...rowErrors, ...refusals.rows],
@@ -410,7 +418,11 @@ async function worklistCount(name: string, read: () => Promise<number>): Promise
   }
 }
 
-function render(res: Response, view: ListView, { savedQueries, counts, showSettings, cases, paging, rowErrors, unaddressed, submitted }: ListRenderData) {
+function render(
+  res: Response,
+  view: ListView,
+  { savedQueries, counts, showSettings, showReferrals, cases, paging, rowErrors, unaddressed, submitted }: ListRenderData
+) {
   // Resolved here as well as by the render interceptor, because the row builder needs the words before
   // the template does — the pattern `.claude/rules/frontend.md` gives for a schema's messages.
   const content = res.locals.locale === "cy" ? cy : en;
@@ -422,6 +434,8 @@ function render(res: Response, view: ListView, { savedQueries, counts, showSetti
   res.render("deed-polls/index", {
     cases,
     showSettings,
+    // The referral queue's link, from the session's capability as the settings link is (plan Fa1).
+    showReferrals,
     showGazette: counts.gazette !== undefined,
     gazetteCount: counts.gazette === undefined || counts.gazette === null ? "" : content.gazetteCountFor(counts.gazette),
     gazetteFailed: counts.gazette === null,
@@ -433,10 +447,12 @@ function render(res: Response, view: ListView, { savedQueries, counts, showSetti
     // logged it; this is what the caseworker is told.
     returnedForActionFailed: counts.returnedForAction === null,
     returnedForActionHref: RETURNED_FOR_ACTION_PATH,
-    // The third worklist, beside the first and in the same three states (plan Db1).
+    // The third worklist, beside the first and in the same three states (plan Db1). From the session's capability,
+    // as the settings link is: the queue's gate decides entry.
     waitingForAssignment: counts.waitingForAssignment ? content.waitingForAssignmentFor(counts.waitingForAssignment) : "",
     waitingForAssignmentFailed: counts.waitingForAssignment === null,
-    waitingForAssignmentHref: WAITING_FOR_ASSIGNMENT_PATH,
+    waitingForAssignmentHref: showReferrals ? REFERRAL_QUEUE_PATH : WAITING_FOR_ASSIGNMENT_PATH,
+    waitingForAssignmentLinkText: showReferrals ? content.waitingForAssignmentQueueLink : content.waitingForAssignmentLink,
     // The second worklist, in the same three states and read the same way — `notify-3b` decision 3. Two keys
     // per count rather than one shared list, so neither count's failure can change how the other renders.
     awaitingConfirmation: counts.awaitingConfirmation ? content.awaitingConfirmationFor(counts.awaitingConfirmation) : "",
@@ -648,6 +664,8 @@ interface ListRenderData {
   counts: WorklistCounts;
   /** Whether the caller holds MANAGE_PROCESS_CONFIG, and so is offered the service settings link. */
   showSettings: boolean;
+  /** Whether the caller holds ALLOCATE_REFERRALS, and so is offered the referral queue link and the count links to it. */
+  showReferrals: boolean;
   cases: CaseListRow[];
   paging: CaseListPaging | null;
   rowErrors: QueryRowError[];

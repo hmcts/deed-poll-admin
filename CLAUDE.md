@@ -24,15 +24,18 @@ yarn format                     # Format code with Biome
 yarn seed:cases                 # Preview/apply 30 representative cases through the real API; non-production only
                                 # See docs/SEED-DATA.md for targets, credentials and resumable journals
 yarn mock:api                   # The in-memory api the pages develop against, on port 3200
-yarn mock:seed                  # Seed the running mock: 57 cases across every tab plus nine referrals — four
+yarn mock:seed                  # Seed the running mock: 57 cases across every tab plus twelve referrals — four
                                 # Decided so the returned-for-action count is non-zero, two of those also
                                 # awaiting the applicant's confirmation (waiting 14 and 3 days) so the second
-                                # count, its tab and the Waiting column are non-empty too, two assigned to Master
-                                # Judge and two waiting for assignment — and three Masters, Master Wren
-                                # unavailable and Master Judge on the judge persona's email, so it links on that
-                                # persona's first judicial request and finds its two on My referrals. The directed
-                                # ones are Master Sullivan's, linked to a seed identity. Resets the store unless
-                                # given `--keep` (which skips Masters already listed), and exits non-zero on a mismatch
+                                # count, its tab and the Waiting column are non-empty too, two sent to Master
+                                # Judge on two different days, one closed, and five waiting in the queue to be
+                                # sent, two of them urgent. Everything past the queue is sent by a Team leader in
+                                # a past morning window, so the current window's count reads 0. Three Masters,
+                                # Master Wren unavailable and Master Judge on the judge persona's email, so it
+                                # links on that persona's first judicial request and finds its two on My
+                                # referrals. The directed ones are Master Sullivan's, linked to a seed identity.
+                                # Resets the store unless given `--keep` (which skips Masters already listed),
+                                # leaves the mock's clock at real time, and exits non-zero on a mismatch
 ```
 
 The mock starts **empty**, so a page whose data comes from a list — the case list, its filter tabs, the
@@ -48,6 +51,8 @@ which is what master's `caseworker-deedpoll-admin` gate got wrong once api moved
 independent main-list count is requested only for callers holding `ACCESS_GAZETTE`; zero and unavailable
 both retain the area link. Ready reads forward only paging and `filter=readyForPublication`, never a
 sort or local membership predicate. History preserves API totals and the explicit truncation flag.
+The Referrals area `/deed-polls/referrals/**` is gated the same way, beside it, on `ALLOCATE_REFERRALS` (Team leaders
+and Delivery Managers); see "Referrals wait in a queue" under "Personas and role gating".
 The recipient editor is the "London Gazette recipient" section of `/deed-polls/settings` (see "Delivery Manager
 settings" below); `/deed-polls/gazette/settings` is now only a `GET` 302 to `/deed-polls/settings#gazette-recipient`.
 It uses API GET/PUT settings, forwards the original revision on save and preserves input on 400/409. A conflict
@@ -219,8 +224,9 @@ of them:
 ## Personas and role gating
 
 **Four staff personas, one deployable.** Caseworkers, Team leaders and Delivery Managers work `/deed-polls/**`; a judge (a Master) works `/judicial/**` —
-My referrals, one referral, and the direction flow. There is no pool and no claim since api D2: a caseworker assigns
-each referral to a Master. Facts that are not derivable from a
+My referrals, one referral, and the direction flow. There is no pool and no claim since api D2, and since api F1 a
+caseworker raises a referral into a queue that a Team leader or Delivery Manager sends to a Master. Facts that are not
+derivable from a
 single file:
 
 - **`/judicial` is gated on the area, not the page.** `src/app.ts` mounts `requireJudicial()`
@@ -267,7 +273,7 @@ single file:
   a direction 409 means they can see it but it is not waiting for a direction from them (they have already directed
   it). So it names a *state* ("not waiting for a direction from you") and redirects to the **referral**, never to a
   sentence about another holder. A caseworker's 409s are a different thing entirely (two caseworkers racing, or the
-  cap), which is why `referrals/new.ts` and the assign page re-render at 409 instead.
+  window's cap), which is why `referrals/new.ts` and the queue's review re-render at 409 instead.
 - **Masters see only the fields they asked for (Master Sullivan's feedback, Steve, 2026-10-27).** This narrowed the
   whole-application view of 2026-10-19, and Steve chose to narrow api's data too (api#153), not only this page.
   `application` on `GET /judicial/referrals/{id}` is api's `JudicialApplicationView`: the reference (for captions), the
@@ -325,28 +331,55 @@ single file:
   `src/pages/index.ts` leaves such a user typing the URL. The gate admits them, so this is a missing route rather
   than a refusal; it is `referrals-admin-3`'s flagged open question, and the fix if the business confirms such a
   user is a conditional link on the case list, not a change to the landing.
-- **Referrals are assigned, never claimed (Master Sullivan's feedback, item D; plan
-  `docs/plans/completed/20261028-db1-assignment-contract-mock-and-pages.md`).** **Deploy order:** api D2 on every replica first, because against D1 the
-  Masters read fails validation and no referral can be raised (`docs/DEPLOYMENT.md`). The raise form's last question is "Which Master
-  should this go to?" (`masterId`, required here though api still accepts a raise without one for one release). The
-  radios come from `GET /caseworker/masters`' envelope (`window`, `cap`, each Master's `assignedInWindow`) through
-  `buildMasterChoices` (`libs/deed-poll/src/referrals/master-choices.ts`) and `src/master-radios.ts`: unavailable
-  Masters are not offered, a full one is listed disabled ("Full for this morning"), no Masters, a failed read or every
-  selectable Master full draws the form with its own sentence and no submit. api's cap 409 names `masterId`, which is how it is told from the
-  already-open-referral 409; it redraws beside the radios. Any caseworker assigns an `Open` referral or reassigns a
-  `Claimed` one at `deed-polls/[id]/referrals/[referralId]/assign` (`PUT …/assignment`), linked from the referral page
-  and the case page's panel; a 409 not naming `masterId` redirects to the fresh referral with a state sentence. The
-  current Master stays selectable when full, because choosing them again is api's no-op. The Master's 7 days are read
-  off `directionDueBy` − `assignedAt`, never restated. To a caseworker `Open` reads "Waiting for assignment" and
-  `Claimed` "With {Master}" (`REFERRAL_STATE_LABEL`/`_MEANING` in `referrals-view.ts`); api's `unassignOverdue`
-  returns a referral not directed in time to `Open`.
+- **Referrals wait in a queue, and a Team leader or Delivery Manager sends them (plan
+  `docs/plans/20261030-fa1-referral-queue-screen.md`, api F1's decision table F-1 to F-12 being the specification).**
+  **Deploy order:** api F1 on every replica first, then this app, with no expand-then-contract step. The raise form asks
+  no Master: every raise is `Open`, and `createReferralSchema` strips a posted `masterId`. Caseworkers no longer assign
+  or reassign; the assign page, its links, `src/master-radios.ts` and `master-choices.ts` are gone. To a caseworker
+  `Open` reads "Waiting to be sent" ("A Team leader or Delivery Manager will check this referral and send it to a
+  Master.") and `Claimed` "With {Master}" with the due date (`REFERRAL_STATE_LABEL`/`_MEANING` in `referrals-view.ts`);
+  api's `unassignOverdue` returns a referral not directed in time to the queue. The Master's 7 days are read off
+  `directionDueBy`, never restated.
+  - **The screen is `/deed-polls/referrals/**`, gated once in `app.ts` on `requireCapability(ALLOCATE_REFERRALS)`**
+    beside the Gazette and settings gates, and `app.test.ts` reads `src/pages/deed-polls/referrals/` off the
+    filesystem (a case's own `/deed-polls/<id>/referrals/**` is outside it). The case list's "Referrals" link is drawn
+    from the session's capability alone, as "Service settings" is. Every queue URL names the referral and carries its
+    case as `?case=` (`src/referral-queue/paths.ts`), because api addresses a referral under its case; a missing or
+    repeated `case` is a 404 before any read.
+  - **`index` is two GOV.UK tabs below the window panel**: **To send** (`Open`, load-bearing, carrying api's window
+    envelope) and **With a Master** (`Claimed`, degrading to a warning), read concurrently and paged independently
+    (`?page=…#to-send`, `?sentPage=…#with-a-master`). `buildQueueWindowView` (`libs/deed-poll/src/referrals/queue.ts`)
+    says the window closing or the next one opening, "N of CAP referrals sent.", and inside a window a per-Master
+    table. To send is in api's order (urgent first), never re-sorted, as one form of checkboxes (`referrals`) and a
+    select per row (`master-<referralId>`), posting to `review`. The page lives in `src/referral-queue/queue-page.ts`
+    so `review` and `send` can redraw it with the selection kept. `[referralId]` is a read-only check view of the
+    referral, the case page's General rows and the documents in the case-scoped viewer.
+  - **`review` and `send` carry the selection in hidden inputs, never the session**, parsed by `sendSelectionSchema`
+    (`referrals/schemas.ts`) into api's `allocations`. `review` re-reads that page of the queue and draws **Send
+    referrals** only when `buildSendReview` says `canSend`: inside a window, within the room left, and every pair
+    still queued with an available Master. That is presentation; api refuses the same things. A refusal about a row
+    (api's 409 on `allocations[i].referralId`, its 400 on `allocations[i].masterId`, or the re-read finding either)
+    goes back to the **queue**, the only page with a control to change it; a 409 naming no field (the window or the
+    cap) redraws the review from a fresh read with api's sentence. A lost response is recovered by pressing Send
+    again, because api's replay of a referral already sent to that Master is a no-op. Success is a 303 to the queue
+    with `?sent=N&masters=M`, from api's answer.
+  - **The window's cap is the window's total across every Master**, and reassignment
+    (`referrals/[referralId]/reassign`, `PUT …/assignment`) is `Claimed` only, at any time, using no place in a
+    window. Choosing the current Master is api's no-op and reads as success; any 409 goes to the queue with
+    `?reassign=conflict#with-a-master`.
+  - The case list's waiting count reads "N referrals are waiting to be sent to a Master." for everyone, linking a
+    holder of `ALLOCATE_REFERRALS` to the screen ("Check and send referrals") and anyone else to the `Open` worklist.
+  - **`yarn test:referrals` runs the screen's browser journeys** on a mock of their own (3218, app 3318, Redis database
+    5), out of `yarn test:e2e`, because they move the mock's clock in and out of a window (`/__mock/clock` with
+    `{ window: "open" | "closed" }`) and lower the cap, which would refuse every send a parallel worker makes.
 - **A Master has no pool: `/judicial/referrals` is a 302 to `/judicial/referrals/mine`.** api D2 keeps the deprecated
   pool (always empty) and claim for one release, and nothing here calls either. **Membership is api's answer about
   the token's IDAM subject**: do not derive "mine" from rows previously seen, session state or display text, and do
   not filter or re-sort the list. `buildMyReferralSections` (`libs/deed-poll/src/judicial/view.ts`) reads api's
-  `MINE_ORDER` into **Urgent** (urgent `Claimed`, "Referred dd-mm-yy"), **Awaiting your direction** and **Directed,
-  awaiting the office**, the last two as runs of consecutive rows sharing a "dd-mm-yy referrals" day (`createdOn` in
-  `Europe/London`). It never re-sorts, so a page that starts mid-day repeats that day's heading. The page asks for
+  `MINE_ORDER` (by `assignedAt` since api F1) into **Urgent** (urgent `Claimed`, "Sent dd-mm-yy"), **Awaiting your
+  direction** and **Directed, awaiting the office**, the last two as runs of consecutive rows sharing a "dd-mm-yy
+  referrals" day, the day **sent** (`assignedAt` in `Europe/London`, falling back to `createdOn` for a referral claimed
+  before assignment existed, since the summary carries no `claimedAt`). It never re-sorts, so a page that starts mid-day repeats that day's heading. The page asks for
   `size: 100`, api's `CasePaging.MAX_SIZE`, because `JudicialPoolQuery` publishes no bound. Every judicial page,
   including the shared "no longer available" page, links back to My referrals.
 - **A new page area must be added to `scripts/extract-welsh-strings.mjs`'s `INCLUDE`.** The script's scope is a
@@ -378,13 +411,13 @@ The judicial gate still requires `judicial` in the `/me` answer.
 
 api owns the capability matrix (`RoleCapabilities.java`); the mock mirrors it, and admin holds no copy:
 
-| Role | Privacy override, note/witness deletion, shared-query management, CCD repair | Gazette | Process settings | Judicial |
-|---|---|---|---|---|
-| `caseworker-deedpoll` | No | No | No | No |
-| `caseworker-deedpoll-team-leader` | Yes | No | No | No |
-| `caseworker-deedpoll-delivery-manager` | Yes | Yes | Yes | No |
-| `caseworker-deedpoll-admin` (temporary compatibility) | Yes | No | No | No |
-| `caseworker-deedpoll-judicial` | No | No | No | Yes |
+| Role | Privacy override, note/witness deletion, shared-query management, CCD repair | Send referrals | Gazette | Process settings | Judicial |
+|---|---|---|---|---|---|
+| `caseworker-deedpoll` | No | No | No | No | No |
+| `caseworker-deedpoll-team-leader` | Yes | Yes | No | No | No |
+| `caseworker-deedpoll-delivery-manager` | Yes | Yes | Yes | Yes | No |
+| `caseworker-deedpoll-admin` (temporary compatibility) | Yes | Yes | No | No | No |
+| `caseworker-deedpoll-judicial` | No | No | No | No | Yes |
 
 `can(user, capability)` is the UI policy entry point (`libs/deed-poll/src/auth/capabilities.ts`); `staffAccess(user)`
 gives `{ staff, judicial }` for the future staff block, which this app does not yet enforce. CCD repair has no
@@ -786,7 +819,7 @@ files:
 - **The referral process form is digits only and does not use `readNumericInput`.** `processSettingsFormSchema`
   (`libs/deed-poll/src/settings/schemas.ts`) reads the processing window in whole **days** (`PROCESSING_DAYS_LIMITS`,
   1–30; api stores minutes, days × 1,440, within `PROCESS_SETTINGS_LIMITS`' 1,440–43,200), the reminder interval in
-  hours (1–168) and the cap per Master per window (1–100), each as trimmed `^\d{1,4}$`, and the four window times
+  hours (1–168) and `windowCap`, "Referrals in each window", the most sent to all Masters together in one window (1–100), each as trimmed `^\d{1,4}$`, and the four window times
   against `WINDOW_TIME_PATTERN` (`HH:mm` on the quarter hour). Signs, decimals, exponents and a missing control are
   refused. Do not swap in the case form's parser, which accepts `+2` and `2.0`. Every save sends all seven fields.
   The ordering rule (morning start < morning end < afternoon start < afternoon end) runs only when every control is

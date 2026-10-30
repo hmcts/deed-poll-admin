@@ -40,7 +40,7 @@ describe("process settings adapter and mock", () => {
       data: {
         referralClaimExpiryMinutes: 10080,
         reminderIntervalHours: 48,
-        masterWindowCap: 10,
+        windowCap: 10,
         morningWindowStart: "07:00",
         morningWindowEnd: "10:30",
         afternoonWindowStart: "14:00",
@@ -68,7 +68,7 @@ describe("process settings adapter and mock", () => {
     const change = {
       referralClaimExpiryMinutes: 4320,
       reminderIntervalHours: 24,
-      masterWindowCap: 5,
+      windowCap: 5,
       morningWindowStart: "08:00",
       morningWindowEnd: "11:15",
       afternoonWindowStart: "13:30",
@@ -86,12 +86,12 @@ describe("process settings adapter and mock", () => {
 
   it("should keep a setting the adapter leaves out at its stored value", async () => {
     // Act
-    const result = await updateProcessSettings({ referralClaimExpiryMinutes: 2880, masterWindowCap: 3, revision: 0 }, config());
+    const result = await updateProcessSettings({ referralClaimExpiryMinutes: 2880, windowCap: 3, revision: 0 }, config());
 
     // Assert
     expect(result).toMatchObject({
       ok: true,
-      data: { referralClaimExpiryMinutes: 2880, masterWindowCap: 3, reminderIntervalHours: 48, morningWindowStart: "07:00", afternoonWindowEnd: "14:30" }
+      data: { referralClaimExpiryMinutes: 2880, windowCap: 3, reminderIntervalHours: 48, morningWindowStart: "07:00", afternoonWindowEnd: "14:30" }
     });
   });
 
@@ -105,7 +105,7 @@ describe("process settings adapter and mock", () => {
       data: {
         referralClaimExpiryMinutes: 10080,
         reminderIntervalHours: 48,
-        masterWindowCap: 10,
+        windowCap: 10,
         morningWindowStart: "07:00",
         morningWindowEnd: "10:30",
         afternoonWindowStart: "14:00",
@@ -169,8 +169,8 @@ describe("process settings adapter and mock", () => {
   it.each([
     { key: "reminderIntervalHours", value: 1 },
     { key: "reminderIntervalHours", value: 168 },
-    { key: "masterWindowCap", value: 1 },
-    { key: "masterWindowCap", value: 100 },
+    { key: "windowCap", value: 1 },
+    { key: "windowCap", value: 100 },
     { key: "morningWindowStart", value: "00:00" },
     { key: "afternoonWindowEnd", value: "23:45" }
   ])("should accept $key at its bound $value", async ({ key, value }) => {
@@ -186,9 +186,9 @@ describe("process settings adapter and mock", () => {
     { key: "reminderIntervalHours", value: 0 },
     { key: "reminderIntervalHours", value: 169 },
     { key: "reminderIntervalHours", value: null },
-    { key: "masterWindowCap", value: 0 },
-    { key: "masterWindowCap", value: 101 },
-    { key: "masterWindowCap", value: 2.5 },
+    { key: "windowCap", value: 0 },
+    { key: "windowCap", value: 101 },
+    { key: "windowCap", value: 2.5 },
     { key: "morningWindowStart", value: "07:10" },
     { key: "morningWindowStart", value: "7:00" },
     { key: "afternoonWindowEnd", value: "24:00" },
@@ -258,7 +258,7 @@ describe("process settings adapter and mock", () => {
 
   it("should take today's admin's old-shape body, changing only the processing window", async () => {
     // Arrange
-    await updateProcessSettings({ referralClaimExpiryMinutes: 10080, reminderIntervalHours: 24, masterWindowCap: 4, revision: 0 }, config());
+    await updateProcessSettings({ referralClaimExpiryMinutes: 10080, reminderIntervalHours: 24, windowCap: 4, revision: 0 }, config());
 
     // Act
     const response = await put({ referralClaimExpiryMinutes: 2880, revision: 1 });
@@ -268,7 +268,7 @@ describe("process settings adapter and mock", () => {
     expect(await response.json()).toMatchObject({
       referralClaimExpiryMinutes: 2880,
       reminderIntervalHours: 24,
-      masterWindowCap: 4,
+      windowCap: 4,
       morningWindowStart: "07:00",
       afternoonWindowEnd: "14:30",
       revision: 2
@@ -277,10 +277,10 @@ describe("process settings adapter and mock", () => {
 
   it("should refuse a stale revision even when an extended setting already matches", async () => {
     // Arrange
-    await updateProcessSettings({ referralClaimExpiryMinutes: 10080, masterWindowCap: 4, revision: 0 }, config());
+    await updateProcessSettings({ referralClaimExpiryMinutes: 10080, windowCap: 4, revision: 0 }, config());
 
     // Act
-    const result = await updateProcessSettings({ referralClaimExpiryMinutes: 10080, masterWindowCap: 4, revision: 0 }, config());
+    const result = await updateProcessSettings({ referralClaimExpiryMinutes: 10080, windowCap: 4, revision: 0 }, config());
 
     // Assert
     expect(result).toMatchObject({ ok: false, error: { kind: "conflict", status: 409 } });

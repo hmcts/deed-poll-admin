@@ -23,6 +23,7 @@ import {
   listMasters,
   previewDocument,
   previewJudicialDocument,
+  sendReferrals,
   uploadDocument
 } from "./client.js";
 
@@ -594,11 +595,20 @@ async function caseWithDocument(mimeType: string, bytes: Buffer, name = "documen
   return { caseId, documentId: uploaded.data.id };
 }
 
-/** A referral on the case, assigned to the Master entry for `subject` when one is named (api D2), else waiting. */
+/**
+ * A referral on the case, sent to the Master entry for `subject` from the queue by a Team leader inside a window the
+ * mock's clock is moved into when one is named (api F1), else waiting in the queue.
+ */
 async function referralOn(caseId: string, subject?: string): Promise<string> {
-  const masterId = subject === undefined ? undefined : await masterFor(subject);
-  const created = await createReferral(caseId, { reasons: ["Minor", "MinorCourtOrder"], masterId }, config);
+  const created = await createReferral(caseId, { reasons: ["Minor", "MinorCourtOrder"] }, config);
   if (!created.ok) throw new Error(`referral was not created: ${created.error.message}`);
+  if (subject === undefined) return created.data.id;
+
+  const masterId = await masterFor(subject);
+  await fetch(`${mock.url}/__mock/clock`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ window: "open" }) });
+  const teamLeader = { ...config, accessToken: token({ sub: "lead-1", roles: ["caseworker-deedpoll-team-leader"] }) };
+  const sent = await sendReferrals({ allocations: [{ referralId: created.data.id, masterId }] }, teamLeader);
+  if (!sent.ok) throw new Error(`referral was not sent: ${sent.error.message}`);
 
   return created.data.id;
 }

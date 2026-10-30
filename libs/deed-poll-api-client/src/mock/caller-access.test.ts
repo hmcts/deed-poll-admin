@@ -7,6 +7,8 @@ import { ROLE_ACCESS } from "./caller-access.js";
 import { type RunningMockApi, startMockApi } from "./server.js";
 
 const CASEWORK = ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD"];
+// Declared last at api, so it follows the Delivery Manager's own two.
+const ALLOCATE = "ALLOCATE_REFERRALS";
 const NO_ACCESS = { staff: false, judicial: false, capabilities: [] };
 
 let mock: RunningMockApi;
@@ -42,18 +44,18 @@ describe("the mock's role table", () => {
 describe("GET /me on the mock", () => {
   it.each([
     { persona: "caseworker", roles: ["caseworker-deedpoll"], expected: { staff: true, judicial: false, capabilities: [] } },
-    { persona: "Team leader", roles: ["caseworker-deedpoll-team-leader"], expected: { staff: true, judicial: false, capabilities: CASEWORK } },
+    { persona: "Team leader", roles: ["caseworker-deedpoll-team-leader"], expected: { staff: true, judicial: false, capabilities: [...CASEWORK, ALLOCATE] } },
     {
       persona: "Delivery Manager",
       roles: ["caseworker-deedpoll-delivery-manager"],
-      expected: { staff: true, judicial: false, capabilities: [...CASEWORK, "ACCESS_GAZETTE", "MANAGE_PROCESS_CONFIG"] }
+      expected: { staff: true, judicial: false, capabilities: [...CASEWORK, "ACCESS_GAZETTE", "MANAGE_PROCESS_CONFIG", ALLOCATE] }
     },
-    { persona: "legacy admin", roles: ["caseworker-deedpoll-admin"], expected: { staff: true, judicial: false, capabilities: CASEWORK } },
+    { persona: "legacy admin", roles: ["caseworker-deedpoll-admin"], expected: { staff: true, judicial: false, capabilities: [...CASEWORK, ALLOCATE] } },
     { persona: "judge", roles: ["caseworker-deedpoll-judicial"], expected: { staff: false, judicial: true, capabilities: [] } },
     {
       persona: "Delivery Manager who is also a judge",
       roles: ["caseworker-deedpoll-judicial", "caseworker-deedpoll-delivery-manager", "caseworker-deedpoll-admin"],
-      expected: { staff: true, judicial: true, capabilities: [...CASEWORK, "ACCESS_GAZETTE", "MANAGE_PROCESS_CONFIG"] }
+      expected: { staff: true, judicial: true, capabilities: [...CASEWORK, "ACCESS_GAZETTE", "MANAGE_PROCESS_CONFIG", ALLOCATE] }
     },
     { persona: "no deed-poll role", roles: ["citizen"], expected: NO_ACCESS },
     { persona: "malformed roles", roles: "caseworker-deedpoll-delivery-manager", expected: NO_ACCESS }

@@ -20,25 +20,19 @@
  * `ConflictError` reaching `domainErrorHandler` from here would be a bug in this handler. Resolving *which*
  * referral to link to costs a second read, which is why it only happens on that path.
  *
- * **Which Master is asked last** (plan Db1), after what and how urgent, because the caseworker decides who after
- * deciding what. Each radio carries the Master's room in the current window from `GET /caseworker/masters`; a full
- * Master is shown disabled and an unavailable one not at all (`buildMasterChoices`). The list is read beside the
- * case and degrades on its own: without it, or with no Master to offer, the form says so and offers no submit,
- * since api would take a referral with no Master and leave it waiting for assignment. api's cap 409 names
- * `masterId`, which is how it is told apart from the already-open 409 without reading api's prose.
+ * **No Master is asked** (plan Fa1): a referral is raised `Open` and waits in the queue until a Team leader or
+ * Delivery Manager checks it and sends it to a Master, so the case's referrals panel says it is waiting to be sent.
  *
  * **Validation re-renders rather than redirecting with `?error=`**, as every form in this app does: the notes
  * field takes up to 1,000 characters and losing them to a missed checkbox would be the expensive failure.
  */
 import {
-  buildMasterChoices,
   buildReferralsView,
   ConflictError,
   createReferral,
   createReferralSchema,
   type FieldError,
   findDeedPoll,
-  findMasterChoices,
   findReferrals,
   InvalidInputError,
   MAX_REFERRAL_NOTES,
@@ -46,20 +40,18 @@ import {
   MINOR_DETAIL_CHOICES,
   REFERRAL_REASON_CHOICES,
   REFERRAL_URGENCY_CHOICES,
-  UnauthorizedError,
   zodErrorToFieldErrors
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
 import { casePath } from "../../../../case-path.js";
 import { forLog } from "../../../../for-log.js";
-import { masterRadioItems } from "../../../../master-radios.js";
 import { pathSegment } from "../../../../path-segment.js";
 
 // The order the controls appear in, so the error summary reads down the page rather than in whatever order
 // the issues arrived.
 // `minorDetails` is the group revealed beneath "Applicant is a minor": its own place in the summary, posting `reasons`.
-const FIELD_ORDER = ["reasons", "minorDetails", "notes", "urgency", "urgencyReason", "masterId"];
+const FIELD_ORDER = ["reasons", "minorDetails", "notes", "urgency", "urgencyReason"];
 // The controls an api refusal of a reason can land on, both shown in this page's words rather than api's.
 const REASON_FIELDS = ["reasons", "minorDetails"];
 
@@ -76,19 +68,6 @@ const en = {
   urgencyLegend: "How urgent is this referral?",
   urgencyReasonLabel: "Why is this referral urgent?",
   urgencyReasonHint: "For example, a hearing date or a deadline the Master needs to know about.",
-  masterLegend: "Which Master should this go to?",
-  masterRoom: (held: number, cap: number, when: string) => `${held} of ${cap} ${cap === 1 ? "referral" : "referrals"} for ${when}`,
-  masterFull: (when: string) => `Full for ${when}`,
-  // When api sends no window, which its contract allows: the count without the words for when.
-  masterRoomUntimed: (held: number, cap: number) => `${held} of ${cap} ${cap === 1 ? "referral" : "referrals"}`,
-  masterFullUntimed: "Full",
-  thisMorning: "this morning",
-  thisAfternoon: "this afternoon",
-  morningOf: (date: string) => `the morning of ${date}`,
-  afternoonOf: (date: string) => `the afternoon of ${date}`,
-  noMasters: "There are no Masters to assign to. Ask a Delivery Manager to add one.",
-  mastersUnavailable: "The list of Masters could not be loaded, so this referral cannot be raised now. Try again later.",
-  everyMasterFull: "Every Master is full for this window, so this referral cannot be raised now. Try again in the next window.",
   submit: "Raise referral",
   cancel: "Cancel",
   errorSummaryTitle: "There is a problem",
@@ -128,10 +107,6 @@ export const POST = async (req: Request, res: Response) => {
     // the author it stamps from the token.
     await createReferral(req.params.id, parsed.data, callerFromRequest(req));
   } catch (error) {
-    if (error instanceof ConflictError && error.errors.some((rejection) => rejection.field === "masterId")) {
-      // The cap: this Master filled since the form was drawn. api's sentence names the window, beside the radios.
-      return rerender(req, res, 409, fieldMessages(error.errors.filter((rejection) => rejection.field === "masterId")));
-    }
     if (error instanceof ConflictError) {
       return rerender(req, res, 409, {}, undefined, await openReferralHref(req, caseHref));
     }
@@ -185,8 +160,7 @@ function submitted(req: Request): Record<string, unknown> {
     reasons,
     notes: reasons.includes("Other") ? body.notes : undefined,
     urgency: body.urgency,
-    urgencyReason: body.urgency === "Urgent" ? body.urgencyReason : undefined,
-    masterId: body.masterId
+    urgencyReason: body.urgency === "Urgent" ? body.urgencyReason : undefined
   };
 }
 
@@ -272,19 +246,8 @@ function submittedValues(req: Request): Record<string, unknown> {
 }
 
 async function render(req: Request, res: Response, values: Record<string, unknown>, errors: Record<string, string>, formError?: string, conflictHref?: string) {
-  const caller = callerFromRequest(req);
-  const [caseRead, mastersRead] = await Promise.allSettled([findDeedPoll(req.params.id, caller), findMasterChoices(caller)]);
-  // The case is the page; the Masters list is one question on it, so its failure is that question's state.
-  if (caseRead.status === "rejected") throw caseRead.reason;
-  if (mastersRead.status === "rejected") {
-    if (mastersRead.reason instanceof UnauthorizedError) throw mastersRead.reason;
-    console.error(`masters unavailable: ${forLog(mastersRead.reason instanceof Error ? mastersRead.reason.message : String(mastersRead.reason))}`);
-  }
-  const found = caseRead.value;
-  const content = res.locals.locale === "cy" ? cy : en;
-  const masters = mastersRead.status === "fulfilled" ? buildMasterChoices(mastersRead.value, values.masterId) : null;
+  const found = await findDeedPoll(req.params.id, callerFromRequest(req));
   const chosen = Array.isArray(values.reasons) ? values.reasons : [];
-  const masterItems = masters ? masterRadioItems(masters, content) : [];
 
   res.render("deed-polls/referral-form", {
     case: found,
@@ -294,12 +257,6 @@ async function render(req: Request, res: Response, values: Record<string, unknow
     reasonItems: REFERRAL_REASON_CHOICES.map((choice) => ({ ...choice, checked: chosen.includes(choice.value) })),
     minorDetailItems: MINOR_DETAIL_CHOICES.map((choice) => ({ ...choice, checked: chosen.includes(choice.value) })),
     urgencyItems: REFERRAL_URGENCY_CHOICES.map((choice) => ({ ...choice, checked: values.urgency === choice.value })),
-    masterItems,
-    // Three states that each take the submit away, kept apart because they need different sentences. Every Master
-    // full still lists them, so the caseworker sees who is full, but nothing they could choose would be sent.
-    isMastersUnavailable: masters === null,
-    hasNoMasters: masters !== null && masters.choices.length === 0,
-    isEveryMasterFull: masterItems.length > 0 && masterItems.every((item) => item.disabled),
     errors,
     errorList: summaryList(errors, formError),
     conflictHref,

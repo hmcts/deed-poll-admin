@@ -70,7 +70,7 @@
       {% if waitingForAssignment %}
         <p class="govuk-notification-banner__heading">{{ waitingForAssignment }}</p>
         <p class="govuk-body">
-          <a class="govuk-notification-banner__link" href="{{ waitingForAssignmentHref }}">{{ waitingForAssignmentLink }}</a>
+          <a class="govuk-notification-banner__link" href="{{ waitingForAssignmentHref }}">{{ waitingForAssignmentLinkText }}</a>
         </p>
       {% endif %}
       {% if awaitingConfirmation %}
@@ -92,6 +92,10 @@
       <p class="govuk-body">{{ gazetteCount }}</p>
     {% endif %}
     <p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette">{{ gazetteLink }}</a></p>
+  {% endif %}
+
+  {% if showReferrals %}
+    <p class="govuk-body"><a class="govuk-link" href="/deed-polls/referrals">{{ referralsLink }}</a></p>
   {% endif %}
 
   {% if showSettings %}

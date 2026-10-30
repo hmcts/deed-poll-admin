@@ -42,6 +42,7 @@ const referral = (overrides: Partial<JudicialReferralSummary> = {}): JudicialRef
     urgency: "Normal",
     urgencyReason: null,
     createdOn: new Date("2026-09-03T08:44:00Z"),
+    assignedAt: new Date("2026-09-04T09:00:00Z"),
     ...overrides
   }) as JudicialReferralSummary;
 
@@ -64,15 +65,15 @@ describe("my referrals template", () => {
     const html = await render({ referrals: [referral()], total: 1, totalPages: 1 });
 
     expect(html).toContain('href="/judicial/referrals/ref-1"');
-    expect(html).toContain('<span class="govuk-visually-hidden"> the referral referred on 03-09-26: Applicant is a minor</span>');
+    expect(html).toContain('<span class="govuk-visually-hidden"> the referral sent on 04-09-26: Applicant is a minor</span>');
   });
 
   it("should draw the three sections in order, each day under its own heading", async () => {
     const html = await render({
       referrals: [
-        referral({ id: "urgent", urgency: "Urgent", createdOn: new Date("2026-10-20T09:00:00Z"), directionDueBy: new Date("2026-10-27T09:00:00Z") }),
-        referral({ id: "await", createdOn: new Date("2026-10-21T09:00:00Z"), directionDueBy: new Date("2026-10-28T09:00:00Z") }),
-        referral({ id: "directed", state: "Decided", createdOn: new Date("2026-10-16T09:00:00Z") })
+        referral({ id: "urgent", urgency: "Urgent", assignedAt: new Date("2026-10-20T09:00:00Z"), directionDueBy: new Date("2026-10-27T09:00:00Z") }),
+        referral({ id: "await", assignedAt: new Date("2026-10-21T09:00:00Z"), directionDueBy: new Date("2026-10-28T09:00:00Z") }),
+        referral({ id: "directed", state: "Decided", assignedAt: new Date("2026-10-16T09:00:00Z") })
       ],
       total: 3,
       totalPages: 1
@@ -90,20 +91,20 @@ describe("my referrals template", () => {
     expect(positions).toEqual([...positions].sort((left, right) => left - right));
   });
 
-  it("should show an urgent row's referred and due dates, and only the due date under a day's heading", async () => {
+  it("should show an urgent row's sent and due dates, and only the due date under a day's heading", async () => {
     const html = await render({
       referrals: [
-        referral({ id: "urgent", urgency: "Urgent", createdOn: new Date("2026-10-20T09:00:00Z"), directionDueBy: new Date("2026-10-27T09:00:00Z") }),
-        referral({ id: "await", createdOn: new Date("2026-10-21T09:00:00Z"), directionDueBy: new Date("2026-10-28T09:00:00Z") })
+        referral({ id: "urgent", urgency: "Urgent", assignedAt: new Date("2026-10-20T09:00:00Z"), directionDueBy: new Date("2026-10-27T09:00:00Z") }),
+        referral({ id: "await", assignedAt: new Date("2026-10-21T09:00:00Z"), directionDueBy: new Date("2026-10-28T09:00:00Z") })
       ],
       total: 2,
       totalPages: 1
     });
 
-    expect(html).toContain("<li>Referred 20-10-26</li>");
+    expect(html).toContain("<li>Sent 20-10-26</li>");
     expect(html).toContain("<li>Direction due by 27-10-26</li>");
     expect(html).toContain("<li>Direction due by 28-10-26</li>");
-    expect(html).not.toContain("Referred 21-10-26");
+    expect(html).not.toContain("Sent 21-10-26");
   });
 
   it("should give a directed referral no due date and no dates column", async () => {
@@ -123,7 +124,7 @@ describe("my referrals template", () => {
 
   it("should repeat a day's heading on a page that starts inside it", async () => {
     const html = await render(
-      { referrals: [referral({ id: "second-half", createdOn: new Date("2026-10-19T15:00:00Z") })], page: 2, total: 101, totalPages: 2 },
+      { referrals: [referral({ id: "second-half", assignedAt: new Date("2026-10-19T15:00:00Z") })], page: 2, total: 101, totalPages: 2 },
       { page: "2" }
     );
 
@@ -185,7 +186,7 @@ describe("my referrals template", () => {
 
   // Each table is captioned for anyone who reaches it by landmark, and the caption is its heading.
   it("should caption each table with the heading it sits under", async () => {
-    const html = await render({ referrals: [referral({ createdOn: new Date("2026-10-21T09:00:00Z") })], total: 1, totalPages: 1 });
+    const html = await render({ referrals: [referral({ assignedAt: new Date("2026-10-21T09:00:00Z") })], total: 1, totalPages: 1 });
 
     expect(html).toContain('<caption class="govuk-table__caption govuk-visually-hidden">21-10-26 referrals</caption>');
   });
