@@ -59,14 +59,13 @@ describe("reassign a referral", () => {
       expect(model.checkHref).toBe("/deed-polls/referrals/referral-2?case=case-2");
     });
 
-    it("should say who has it, since when, and that the new Master's days start again, read off api's dates", async () => {
+    it("should say who has it and since when, read off api's dates", async () => {
       const res = pageResponse();
 
       await GET(request(), res);
 
       const model = res.render.mock.calls[0][1];
       expect(model.currentlyWith).toMatch(/^This referral is with Master Sullivan\. It was sent to them on /);
-      expect(model.restartsWindow).toBe("If you reassign it to another Master, they will have 7 days from today to give a direction.");
     });
 
     it("should send a referral no longer with a Master back to the queue with the conflict sentence", async () => {

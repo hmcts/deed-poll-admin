@@ -60,7 +60,7 @@ describe("reassign a referral template", () => {
 
     expect(markup).toContain('<h1 class="govuk-heading-xl">Reassign this referral</h1>');
     expect(markup).toContain("This referral is with Master Sullivan.");
-    expect(markup).toContain("they will have 7 days from today to give a direction.");
+    expect(markup).toContain("their time to give a direction starts again from today.");
     expect(markup).toContain("The Master you choose will be sent an email to tell them.");
     expect(markup).toContain("Reassigning does not use a place in a referral window.");
     expect(markup).toContain('action="/deed-polls/referrals/referral-2/reassign?case=case-2"');

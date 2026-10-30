@@ -273,17 +273,6 @@ describe("referrals/referrals-view", () => {
       });
     });
 
-    it("should read the processing window off api's two instants rather than restating it", () => {
-      const view = buildReferralDetail({ ...ASSIGNED, assignedAt: new Date("2026-10-20T09:00:00Z"), directionDueBy: new Date("2026-10-27T09:00:00Z") });
-
-      expect(view.assignment?.processingDays).toBe(7);
-    });
-
-    it("should say nothing about the window when the gap is not whole days or the due date is missing", () => {
-      expect(buildReferralDetail({ ...ASSIGNED, directionDueBy: new Date("2026-07-28T21:00:00Z") }).assignment?.processingDays).toBeNull();
-      expect(buildReferralDetail({ ...ASSIGNED, directionDueBy: null }).assignment?.processingDays).toBeNull();
-    });
-
     it("should leave the due date out of the meaning when api sent none", () => {
       const view = buildReferralDetail({ ...ASSIGNED, directionDueBy: null });
 

@@ -291,7 +291,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
   const counts = worklistCounts(caller, can(userFromRequest(req), ACCESS_GAZETTE));
   // From the session's capability alone: the link needs no api read, and the area gate decides entry.
   const showSettings = can(userFromRequest(req), MANAGE_PROCESS_CONFIG);
-  const canSendReferrals = can(userFromRequest(req), ALLOCATE_REFERRALS);
+  const showReferrals = can(userFromRequest(req), ALLOCATE_REFERRALS);
 
   try {
     const results = await findDeedPolls({ filter: filter.key, q, conditions, sort: serialiseSort(sort), page }, caller);
@@ -309,7 +309,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
       savedQueries: await savedQueries,
       counts: await counts,
       showSettings,
-      canSendReferrals,
+      showReferrals,
       cases: buildCaseList(results.cases),
       paging,
       rowErrors,
@@ -329,7 +329,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
       savedQueries: await savedQueries,
       counts: await counts,
       showSettings,
-      canSendReferrals,
+      showReferrals,
       cases: [],
       paging: null,
       rowErrors: [...rowErrors, ...refusals.rows],
@@ -421,7 +421,7 @@ async function worklistCount(name: string, read: () => Promise<number>): Promise
 function render(
   res: Response,
   view: ListView,
-  { savedQueries, counts, showSettings, canSendReferrals, cases, paging, rowErrors, unaddressed, submitted }: ListRenderData
+  { savedQueries, counts, showSettings, showReferrals, cases, paging, rowErrors, unaddressed, submitted }: ListRenderData
 ) {
   // Resolved here as well as by the render interceptor, because the row builder needs the words before
   // the template does — the pattern `.claude/rules/frontend.md` gives for a schema's messages.
@@ -435,7 +435,7 @@ function render(
     cases,
     showSettings,
     // The referral queue's link, from the session's capability as the settings link is (plan Fa1).
-    showReferrals: canSendReferrals,
+    showReferrals,
     showGazette: counts.gazette !== undefined,
     gazetteCount: counts.gazette === undefined || counts.gazette === null ? "" : content.gazetteCountFor(counts.gazette),
     gazetteFailed: counts.gazette === null,
@@ -451,8 +451,8 @@ function render(
     // as the settings link is: the queue's gate decides entry.
     waitingForAssignment: counts.waitingForAssignment ? content.waitingForAssignmentFor(counts.waitingForAssignment) : "",
     waitingForAssignmentFailed: counts.waitingForAssignment === null,
-    waitingForAssignmentHref: canSendReferrals ? REFERRAL_QUEUE_PATH : WAITING_FOR_ASSIGNMENT_PATH,
-    waitingForAssignmentLinkText: canSendReferrals ? content.waitingForAssignmentQueueLink : content.waitingForAssignmentLink,
+    waitingForAssignmentHref: showReferrals ? REFERRAL_QUEUE_PATH : WAITING_FOR_ASSIGNMENT_PATH,
+    waitingForAssignmentLinkText: showReferrals ? content.waitingForAssignmentQueueLink : content.waitingForAssignmentLink,
     // The second worklist, in the same three states and read the same way — `notify-3b` decision 3. Two keys
     // per count rather than one shared list, so neither count's failure can change how the other renders.
     awaitingConfirmation: counts.awaitingConfirmation ? content.awaitingConfirmationFor(counts.awaitingConfirmation) : "",
@@ -664,8 +664,8 @@ interface ListRenderData {
   counts: WorklistCounts;
   /** Whether the caller holds MANAGE_PROCESS_CONFIG, and so is offered the service settings link. */
   showSettings: boolean;
-  /** Whether the caller holds ALLOCATE_REFERRALS, and so the waiting count links to the referral queue. */
-  canSendReferrals: boolean;
+  /** Whether the caller holds ALLOCATE_REFERRALS, and so is offered the referral queue link and the count links to it. */
+  showReferrals: boolean;
   cases: CaseListRow[];
   paging: CaseListPaging | null;
   rowErrors: QueryRowError[];

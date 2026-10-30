@@ -125,7 +125,7 @@ test("a Team leader checks queued referrals, sends two to Masters inside a windo
 
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reassign this referral");
   await expect(page.getByText(`This referral is with ${second.name}.`)).toBeVisible();
-  await expect(page.getByText(/^If you reassign it to another Master, they will have \d+ days? from today to give a direction\.$/)).toBeVisible();
+  await expect(page.getByText("If you reassign it to another Master, their time to give a direction starts again from today.")).toBeVisible();
   await expect(page.getByText("Reassigning does not use a place in a referral window.")).toBeVisible();
   await expect(page.getByRole("radio", { name: second.name, exact: true })).toBeChecked();
   await expectNoAccessibilityViolations(page);

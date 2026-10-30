@@ -1,5 +1,5 @@
 import { findReferralQueue } from "@hmcts/deed-poll";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
 import { GET, POST } from "./review.js";
 
@@ -45,6 +45,10 @@ describe("referral queue review", () => {
     arrange();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("should send a GET back to the queue, because a selection only arrives posted", () => {
     const res = pageResponse();
 
@@ -85,7 +89,6 @@ describe("referral queue review", () => {
     arrange({ window: { ...OPEN_WINDOW, current: null, sent: 0 } });
 
     const { model } = await post(SELECTION);
-    vi.useRealTimers();
 
     expect(model.canSend).toBe(false);
     expect(model.totals).toEqual(["Referrals can be sent from 14:00 today.", "Go back to the referrals and send them once the window opens."]);
@@ -127,6 +130,14 @@ describe("referral queue review", () => {
       expect(model.errorList).toEqual([{ text: "Select at least one referral to send", href: "#select-1" }]);
     });
 
+    it("should link the selection's error to the tab when the page it redraws has no rows", async () => {
+      arrange({ queued: [] });
+
+      const { model } = await post({ page: "1" });
+
+      expect(model.errorList).toEqual([{ text: "Select at least one referral to send", href: "#to-send" }]);
+    });
+
     it("should refuse a ticked row with no Master beside its select, keeping the selection", async () => {
       const { res, model } = await post({ referrals: [REFERRAL_1, REFERRAL_2], [`master-${REFERRAL_1}`]: MASTER_1, [`master-${REFERRAL_2}`]: "" });
 
@@ -142,7 +153,7 @@ describe("referral queue review", () => {
       expect(findReferralQueue).toHaveBeenCalledWith({ state: "Open", page: 2 }, CALLER);
     });
 
-    it("should say a ticked referral is no longer waiting when it has left the page", async () => {
+    it("should say the page has changed, not that a referral was sent, when a ticked referral has left the page", async () => {
       arrange({ queued: [QUEUED[1]] });
 
       const { res, view, model } = await post(SELECTION);
@@ -150,7 +161,7 @@ describe("referral queue review", () => {
       expect(res.status).toHaveBeenCalledWith(409);
       expect(view).toBe("deed-polls/referrals/index");
       expect(model.errorList).toEqual([
-        { text: "A referral you selected is no longer waiting to be sent. Check the list and select again.", href: "#to-send" }
+        { text: "The referrals on this page have changed since you selected them. Check the list and select again.", href: "#to-send" }
       ]);
     });
 

@@ -196,7 +196,7 @@ describe("referral queue template", () => {
       const markup = await render({ page: "9" });
 
       expect(markup).toContain("There are no referrals on this page.");
-      expect(markup).toContain('href="/deed-polls/referrals">Go to the first page</a>');
+      expect(markup).toContain('href="/deed-polls/referrals#to-send">Go to the first page</a>');
     });
   });
 

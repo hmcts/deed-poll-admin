@@ -10,27 +10,27 @@ export default defineConfig({
   testIgnore: [],
   workers: 1,
   retries: 0,
-  use: { ...base.use, baseURL: "http://localhost:3317" },
+  use: { ...base.use, baseURL: "http://localhost:3318" },
   projects: [{ name: "referrals", testMatch: /referral-queue\.spec\.ts/, use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
-      command: "yarn mock:api --port 3217",
-      url: "http://localhost:3217/health",
+      command: "yarn mock:api --port 3218",
+      url: "http://localhost:3218/health",
       reuseExistingServer: false,
       cwd: "..",
       timeout: 60_000
     },
     {
       command: "yarn dev:app",
-      url: "http://localhost:3317",
+      url: "http://localhost:3318",
       reuseExistingServer: false,
       cwd: "..",
       timeout: 120_000,
       env: {
-        PORT: "3317",
-        DEED_POLL_API_URL: "http://localhost:3217",
+        PORT: "3318",
+        DEED_POLL_API_URL: "http://localhost:3218",
         REDIS_URL: "redis://127.0.0.1:6379/5",
-        IDAM_REDIRECT_URI: "http://localhost:3317/oauth2/callback"
+        IDAM_REDIRECT_URI: "http://localhost:3318/oauth2/callback"
       }
     }
   ]

@@ -41,9 +41,8 @@ const en = {
   checkReferral: "Check the referral",
   currentlyWithFor: (name: string, sentOn: string) => `This referral is with ${name}. It was sent to them on ${sentOn}.`,
   currentlyWithUnnamed: "This referral is with a Master.",
-  restartsWindowFor: (days: number) =>
-    `If you reassign it to another Master, they will have ${days} ${days === 1 ? "day" : "days"} from today to give a direction.`,
-  restartsWindowUntimed: "If you reassign it to another Master, their time to give a direction starts again from today.",
+  // Not a number of days: the new Master's time is api's, read off directionDueBy, and the window may have changed.
+  restartsWindow: "If you reassign it to another Master, their time to give a direction starts again from today.",
   emailed: "The Master you choose will be sent an email to tell them.",
   noPlaceInWindow: "Reassigning does not use a place in a referral window.",
   masterLegend: "Which Master should this go to?",
@@ -115,7 +114,6 @@ async function render(req: Request, res: Response, state: RenderState) {
     checkHref,
     action,
     currentlyWith: currentlyWith(view, content),
-    restartsWindow: restartsWindow(view, content),
     masterItems: masters.map((master) => ({ value: master.id, text: master.name, checked: master.id === selected })),
     errors: state.errors,
     errorList: state.formError ? [{ text: state.formError }] : state.errors.masterId ? [{ text: state.errors.masterId, href: "#masterId" }] : []
@@ -124,12 +122,6 @@ async function render(req: Request, res: Response, state: RenderState) {
 
 function currentlyWith(view: ReferralView, content: typeof en): string {
   return view.assignment?.hasName ? content.currentlyWithFor(view.assignment.masterName, view.assignment.assignedOn) : content.currentlyWithUnnamed;
-}
-
-function restartsWindow(view: ReferralView, content: typeof en): string {
-  const days = view.assignment?.processingDays ?? null;
-
-  return days === null ? content.restartsWindowUntimed : content.restartsWindowFor(days);
 }
 
 interface RenderState {

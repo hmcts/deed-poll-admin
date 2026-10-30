@@ -30,8 +30,6 @@ import { formatShortDate, formatTimestamp, NOT_RECORDED } from "../deed-poll/cas
 import { NOT_PROVIDED } from "../deed-poll/detail-view.js";
 import { MASTER_DECISION_LABEL, TERMINAL_REFERRAL_STATES } from "../deed-poll/enums/dynamics-values.js";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 /** Why a case is referred, in the words the business uses for each of api's members. */
 export const REFERRAL_REASON_LABEL: Record<ReferralReason, string> = {
   Minor: "Applicant is a minor",
@@ -352,21 +350,8 @@ function buildAssignmentView(referral: Referral): ReferralAssignmentView | null 
     masterName: orPlaceholder(master.name, NOT_RECORDED),
     hasName: typeof master.name === "string" && master.name.trim().length > 0,
     assignedOn: formatTimestamp(referral.assignedAt),
-    directionDueBy: referral.directionDueBy ? formatShortDate(referral.directionDueBy) : null,
-    processingDays: processingDays(referral.assignedAt, referral.directionDueBy)
+    directionDueBy: referral.directionDueBy ? formatShortDate(referral.directionDueBy) : null
   };
-}
-
-/**
- * The processing window in whole days, read off api's own two instants rather than restated (plan Db1): api computes
- * `directionDueBy` from `assignedAt` and the window as set now. Null when either is missing, or the gap is not a
- * positive whole number of days (a stored part-day window, which the settings form no longer offers).
- */
-function processingDays(assignedAt: Date | null | undefined, dueBy: Date | null | undefined): number | null {
-  if (!assignedAt || !dueBy) return null;
-  const days = (dueBy.getTime() - assignedAt.getTime()) / DAY_MS;
-
-  return Number.isInteger(days) && days > 0 ? days : null;
 }
 
 /** "With {name}" for an assigned `Claimed` referral, else the state's own label. */
@@ -559,8 +544,6 @@ export interface ReferralAssignmentView {
   assignedOn: string;
   /** `dd-mm-yy`, or null once directed or when api sent none. */
   directionDueBy: string | null;
-  /** How many days a Master has for a direction, from api's two instants, or null — see `processingDays`. */
-  processingDays: number | null;
 }
 
 /** Who is holding, or held, the referral. Both fields or neither — see `buildClaimView`. */

@@ -1,5 +1,5 @@
 import { findReferralQueue, NotFoundError } from "@hmcts/deed-poll";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
 import { GET } from "./index.js";
 
@@ -39,6 +39,10 @@ describe("referral queue page", () => {
     vi.mocked(findReferralQueue).mockImplementation(
       async (query) => (query.state === "Claimed" ? page([SENT], { window: WINDOW }) : page([QUEUED], { window: WINDOW })) as never
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("should read both halves of the queue, forwarding only each tab's own page", async () => {
@@ -87,7 +91,6 @@ describe("referral queue page", () => {
     const res = pageResponse();
 
     await GET(pageRequest({ teamLeader: true }), res);
-    vi.useRealTimers();
 
     expect(res.render.mock.calls[0][1].windowText).toEqual({ state: sentence, count: "0 of 10 referrals sent." });
   });
@@ -147,6 +150,19 @@ describe("referral queue page", () => {
     expect(model.toSend.paging.links.next.href).toBe("/deed-polls/referrals?page=2#to-send");
     expect(model.withMaster.paging.links.next.href).toBe("/deed-polls/referrals?sentPage=2#with-a-master");
     expect(model.toSend.pagingSummary).toBe("1 to 25 of 60 referrals");
+  });
+
+  it("should keep the other tab's page in each tab's links, so paging one never resets the other", async () => {
+    vi.mocked(findReferralQueue).mockResolvedValue(page([QUEUED], { page: 2, total: 60, totalPages: 3, window: WINDOW }) as never);
+    const res = pageResponse();
+
+    await GET(pageRequest({ teamLeader: true, query: { page: "2", sentPage: "2" } }), res);
+
+    const model = res.render.mock.calls[0][1];
+    expect(model.toSend.paging.links.next.href).toBe("/deed-polls/referrals?page=3&sentPage=2#to-send");
+    expect(model.toSend.paging.links.previous.href).toBe("/deed-polls/referrals?sentPage=2#to-send");
+    expect(model.withMaster.paging.links.next.href).toBe("/deed-polls/referrals?page=2&sentPage=3#with-a-master");
+    expect(model.withMaster.firstPageHref).toBe("/deed-polls/referrals?page=2#with-a-master");
   });
 
   it.each([

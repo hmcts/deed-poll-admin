@@ -19,7 +19,7 @@
 
 {% macro emptyTab(results, emptyText) %}
   <p class="govuk-body">{{ emptyPage if results.isBeyondEnd else emptyText }}</p>
-  {% if results.isBeyondEnd %}<p class="govuk-body"><a class="govuk-link" href="/deed-polls/referrals">{{ firstPage }}</a></p>{% endif %}
+  {% if results.isBeyondEnd %}<p class="govuk-body"><a class="govuk-link" href="{{ results.firstPageHref }}">{{ firstPage }}</a></p>{% endif %}
 {% endmacro %}
 
 {% block content %}

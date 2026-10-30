@@ -367,3 +367,9 @@ Final checks: format no fixes; `yarn lint` clean (the baseline warning was fixed
 deed-poll-api-client 1,448 (1,393), express-govuk-starter 132 (132), deed-poll 1,737 (1,723), express-session-postgres
 85 (85), express-session-redis 7 (7), cloud-native-platform 156 (156), app 3,340 (3,275); all passing, none skipped, no
 regressions. `yarn test:gazette` 10 passed. `git status` was clean apart from this task's changes before the commit.
+
+**Review.** `yarn test:referrals` moved to mock 3218 and app 3318, because `yarn test:session` already uses 3217/3317
+and both refuse to reuse a port. The reassign page no longer states a number of days (step 3: never restate it) and
+`processingDays` went with its last caller. A review whose ticked referral has left the page now says the page has
+changed rather than that the referral is no longer waiting, since an urgent raise or another send moves rows between
+pages; a row error with no row to sit beside becomes that sentence too. Each tab's paging keeps the other tab's page.

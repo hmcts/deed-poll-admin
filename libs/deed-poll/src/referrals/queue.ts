@@ -25,8 +25,8 @@ const LONDON_DAY = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2
 // A window's `date` is a calendar day with no zone, so it is formatted as UTC midnight to keep the day it names.
 const LONG_DAY = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
-/** One page of `Open` (the default) or `Claimed` referrals, with the window. Only paging travels. */
-export function findReferralQueue(query: { state?: "Open" | "Claimed"; page?: number }, caller: Caller): Promise<ReferralQueue> {
+/** One page of `Open` or `Claimed` referrals, with the window. Only the state and paging travel. */
+export function findReferralQueue(query: { state: "Open" | "Claimed"; page?: number }, caller: Caller): Promise<ReferralQueue> {
   return callApi(caller, (config) => getReferralQueue(query, config));
 }
 

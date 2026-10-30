@@ -131,6 +131,43 @@ describe("referral queue send", () => {
     expect(model.errorList).toEqual([{ text: "Select a Master who is available", href: "#master-2" }]);
   });
 
+  it("should read a 409 naming an index past the selection as the window or the cap, not as a row", async () => {
+    const message = "Only 1 more referral can be sent this morning.";
+    vi.mocked(sendReferrals).mockRejectedValue(new ConflictError(message, [{ field: "allocations[5].referralId", message }]));
+
+    const { res, view, model } = await post(SELECTION);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(view).toBe("deed-polls/referrals/review");
+    expect(model.errorList).toEqual([{ text: message }]);
+  });
+
+  it("should redraw the check page with its own sentence for a 400 on a referral, which no row's control can change", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(sendReferrals).mockRejectedValue(new InvalidInputError("bad id", [{ field: "allocations[0].referralId", message: "bad id" }]));
+
+    const { res, view, model } = await post(SELECTION);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(view).toBe("deed-polls/referrals/review");
+    expect(model.errorList).toEqual([{ text: "The referrals could not be sent. Go back to the referrals and try again." }]);
+    vi.mocked(console.error).mockRestore();
+  });
+
+  it("should say the page has changed when api refuses the Master of a referral no longer on it", async () => {
+    vi.mocked(findReferralQueue).mockResolvedValue({ referrals: [QUEUED[0]], page: 1, size: 25, total: 1, totalPages: 1, window: WINDOW } as never);
+    vi.mocked(sendReferrals).mockRejectedValue(
+      new InvalidInputError("Select a Master who is available", [{ field: "allocations[1].masterId", message: "Select a Master who is available" }])
+    );
+
+    const { res, model } = await post(SELECTION);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(model.errorList).toEqual([
+      { text: "The referrals on this page have changed since you selected them. Check the list and select again.", href: "#to-send" }
+    ]);
+  });
+
   it("should redraw the check page with its own sentence, and log api's, for a 400 it cannot place", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(sendReferrals).mockRejectedValue(new InvalidInputError("allocations: too many\r\nforged", [{ field: "allocations", message: "x" }]));

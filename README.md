@@ -161,16 +161,19 @@ yarn format                     # Format code with Biome
 
 # deed-poll-api
 yarn mock:api                   # The in-memory api, on port 3200 (yarn dev starts it too)
-yarn mock:seed                  # Fill the running mock with cases: every tab, a page of results, and nine
+yarn mock:seed                  # Fill the running mock with cases: every tab, a page of results, and twelve
                                 # referrals (four Decided, so the dashboard's "returned — action needed"
                                 # banner is non-zero; two of those also awaiting the applicant's
-                                # confirmation, so that banner and tab are non-empty as well), and three
-                                # Masters (Master Wren unavailable; Master Judge on the judge persona's
-                                # email, so it links on that persona's first judicial request and finds
-                                # its two assigned referrals on My referrals; two more wait for
-                                # assignment; the directed ones are Master Sullivan's, linked to a seed
-                                # identity). Resets the store first; `--keep` adds to it and skips
-                                # Masters already listed
+                                # confirmation, so that banner and tab are non-empty as well; two sent to
+                                # Master Judge on different days; one closed; five waiting in the queue to
+                                # be sent, two of them urgent), and three Masters (Master Wren unavailable;
+                                # Master Judge on the judge persona's email, so it links on that persona's
+                                # first judicial request and finds its two on My referrals; the directed
+                                # ones are Master Sullivan's, linked to a seed identity). Everything past
+                                # the queue is sent by a Team leader in a past morning window, so the
+                                # current window's count reads 0. Resets the store first and leaves the
+                                # mock's clock at real time; `--keep` adds to it and skips Masters already
+                                # listed
 ```
 
 The mock starts **empty**, so `yarn mock:seed` is what makes the list page, its filters and the dashboard's
@@ -197,7 +200,7 @@ belong to the current visit and are not persisted as business sign-off. See
 [plan 16](docs/plans/16-gazette-1-ready-list-review-and-send.md).
 
 Delivery Managers also reach **Service settings** (`/deed-polls/settings`) from the case list. It sets the
-referral process (the processing window in days, the reminder interval, the cap per Master per window and the two
+referral process (the processing window in days, the reminder interval, the number of referrals that can be sent in each window across all Masters, and the two
 referral windows' times, effective immediately for every referral), holds the London Gazette
 recipient for Delivery Managers who also have Gazette access, lists the Masters (adding one, and changing a Master's
 name, email or availability; a signed-in Master whose email changes signs in again before they see their referrals),
@@ -209,14 +212,19 @@ before this admin version; see [DEPLOYMENT.md](docs/DEPLOYMENT.md#what-a-deploy-
 [the settings plan](docs/plans/20261026-dm-settings-page.md) and
 [the Da1 plan](docs/plans/completed/20261028-da1-settings-contract-mock-and-page.md).
 
-Raising a referral asks which Master it should go to, showing each available Master's referrals for the current
-window against the cap. A full Master is listed but cannot be chosen, and a Master who is unavailable is not offered.
-Any caseworker can assign a referral that is waiting for assignment, or reassign one to another Master, from the
-referral page or the case page's Referrals panel, and the case list counts the referrals waiting for assignment.
-Masters have no pool and claim nothing: `/judicial/referrals` redirects to **My referrals**, grouped into Urgent,
-Awaiting your direction and Directed, awaiting the office. Deploy api D2 to every replica before this admin version;
-see [DEPLOYMENT.md](docs/DEPLOYMENT.md#what-a-deploy-of-this-app-needs-from-api) and
-[the Db1 plan](docs/plans/20261028-db1-assignment-contract-mock-and-pages.md).
+Raising a referral asks no Master: every referral waits in a queue, which a caseworker sees as "Waiting to be sent"
+and then "With {Master}" with its due date. Team leaders and Delivery Managers (`ALLOCATE_REFERRALS`) open
+**Referrals** (`/deed-polls/referrals`) from the case list. Its **To send** tab lists the queue, urgent first: they
+check a referral, choose a Master for each one selected, review the selection and press **Send referrals**, which is
+offered only inside a referral window and never takes the window past its cap, the total across every Master. Its
+**With a Master** tab lists the referrals already sent, each of which can be reassigned at any time without using a
+place in the window. Caseworkers no longer assign or reassign. The case list says how many referrals are waiting to
+be sent, linking a Team leader or Delivery Manager to the screen. Masters have no pool and claim nothing:
+`/judicial/referrals` redirects to **My referrals**, grouped into Urgent, Awaiting your direction and Directed,
+awaiting the office, the last two by the day each was sent. Deploy api F1 to every replica before this admin version;
+see [DEPLOYMENT.md](docs/DEPLOYMENT.md#what-a-deploy-of-this-app-needs-from-api),
+[the Db1 plan](docs/plans/completed/20261028-db1-assignment-contract-mock-and-pages.md) and
+[the Fa1 plan](docs/plans/20261030-fa1-referral-queue-screen.md).
 
 The seed includes 26 ready cases, cases excluded by the publication/sent-date rules, and 26 frozen
 history batches. The newest batch has 101 cases and a sorted 100-reference preview. No email is sent.
@@ -249,6 +257,11 @@ simulator seeded with `yarn idam:users`, and Redis on 6379. The suite starts its
 3219, uses Redis database 4, and is kept out of `yarn test:e2e` because it switches the mock's preview scenario. It
 runs one caseworker and one judicial journey over all five file types, including a PDF with a page too large to
 draw in full (see below).
+
+For the referral queue journeys (`yarn test:referrals`), prepare the same way: `yarn build`, the IDAM simulator
+seeded with `yarn idam:users`, and Redis on 6379. The suite starts its own app on 3318 and a fresh mock on 3218, uses
+Redis database 5, and is kept out of `yarn test:e2e` because it moves the mock's referral clock in and out of a window
+and lowers the window's cap, which would refuse every send a parallel worker makes on a shared mock.
 
 There are no database commands: this repo has no database.
 
@@ -310,7 +323,8 @@ sitting covers the caseworker screens, the staff controls and Gazette and `/judi
 needs `yarn idam:users` to have seeded the simulator, since the personas are four separate fixture accounts.
 
 Team leaders (`caseworker-deedpoll-team-leader`) can override privacy, delete notes/witnesses,
-manage shared queries and perform API CCD repair. Delivery Managers (`caseworker-deedpoll-delivery-manager`)
+manage shared queries, perform API CCD repair, and send referrals from the queue to Masters and reassign them
+(`ALLOCATE_REFERRALS`, `/deed-polls/referrals`). Delivery Managers (`caseworker-deedpoll-delivery-manager`)
 have those capabilities plus Gazette access and the service settings page (`MANAGE_PROCESS_CONFIG`, `/deed-polls/settings`). Neither role grants judicial access. The temporary legacy
 admin role retains Team leader capabilities and cannot use Gazette; its seeded account is only for
 migration-refusal checks. Ordinary caseworker and judge permissions are unchanged.

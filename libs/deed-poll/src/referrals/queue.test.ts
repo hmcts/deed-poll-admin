@@ -55,7 +55,7 @@ describe("referrals/queue", () => {
     it("should throw NotFoundError when api answers 404", async () => {
       vi.mocked(getReferralQueue).mockResolvedValue({ ok: false, error: { kind: "not-found", status: 404, message: "gone" } } as never);
 
-      await expect(findReferralQueue({}, CALLER)).rejects.toBeInstanceOf(NotFoundError);
+      await expect(findReferralQueue({ state: "Open" }, CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 
@@ -103,6 +103,18 @@ describe("referrals/queue", () => {
 
       expect(view?.opensDay).toBe(day);
       expect(view?.opensAt).toBe("07:00");
+    });
+
+    it.each([
+      ["2026-07-02", "today"],
+      ["2026-07-03", "tomorrow"]
+    ])("should count the day in London, not UTC, just after London midnight (%s is %s)", (date, day) => {
+      const view = buildQueueWindowView(
+        { ...OPEN_WINDOW, current: null, next: { date, slot: "AM", opensAt: `${date}T06:00:00Z` } },
+        new Date("2026-07-01T23:30:00Z")
+      );
+
+      expect(view?.opensDay).toBe(day);
     });
 
     it("should name the day of a next window after tomorrow", () => {

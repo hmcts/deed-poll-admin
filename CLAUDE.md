@@ -369,7 +369,7 @@ single file:
     `?reassign=conflict#with-a-master`.
   - The case list's waiting count reads "N referrals are waiting to be sent to a Master." for everyone, linking a
     holder of `ALLOCATE_REFERRALS` to the screen ("Check and send referrals") and anyone else to the `Open` worklist.
-  - **`yarn test:referrals` runs the screen's browser journeys** on a mock of their own (3217, app 3317, Redis database
+  - **`yarn test:referrals` runs the screen's browser journeys** on a mock of their own (3218, app 3318, Redis database
     5), out of `yarn test:e2e`, because they move the mock's clock in and out of a window (`/__mock/clock` with
     `{ window: "open" | "closed" }`) and lower the cap, which would refuse every send a parallel worker makes.
 - **A Master has no pool: `/judicial/referrals` is a 302 to `/judicial/referrals/mine`.** api D2 keeps the deprecated

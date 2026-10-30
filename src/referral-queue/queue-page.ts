@@ -78,8 +78,11 @@ export const queueContentEn = {
     `${referrals} ${referrals === 1 ? "referral" : "referrals"} sent to ${masters} ${masters === 1 ? "Master" : "Masters"}.`,
   reassignedBanner: "Referral reassigned.",
   reassignConflict: "That referral could not be reassigned because it is no longer with a Master waiting for a direction.",
-  // A referral the selection named is no longer on this page: someone else sent it, or it was withdrawn.
+  // api's refusal of a referral it no longer holds in the queue: someone else sent it, or it was withdrawn.
   noLongerWaiting: "A referral you selected is no longer waiting to be sent. Check the list and select again.",
+  // A referral the selection named is no longer on the page it was made on, which is not proof it was sent: an urgent
+  // raise or another send moves rows between pages.
+  listChanged: "The referrals on this page have changed since you selected them. Check the list and select again.",
   // api's own words for a Master no longer available, beside the row's select.
   masterUnavailable: "Select a Master who is available"
 };
@@ -96,8 +99,9 @@ export async function renderQueue(req: Request, res: Response, refusal?: QueueRe
   const content = res.locals.locale === "cy" ? queueContentCy : queueContentEn;
   const caller = callerFromRequest(req);
   const toSendPage = parsePage(refusal ? refusal.body.page : req.query.page);
+  const sentPage = parsePage(req.query.sentPage);
   // Started before the load-bearing read and caught where it is started, so a failure here never rejects unobserved.
-  const claimedRead = findReferralQueue({ state: "Claimed", page: parsePage(req.query.sentPage) }, caller).catch((error: unknown) => {
+  const claimedRead = findReferralQueue({ state: "Claimed", page: sentPage }, caller).catch((error: unknown) => {
     console.error(`referral queue (with a Master) unavailable: ${forLog(error instanceof Error ? error.message : String(error))}`);
     return null;
   });
@@ -106,7 +110,10 @@ export async function renderQueue(req: Request, res: Response, refusal?: QueueRe
   const window = buildQueueWindowView(open.window, new Date());
   const selection = selectionFrom(refusal?.body ?? {});
   const errors = new Map((refusal?.errors ?? []).map((error) => [error.field, error.message]));
-  const toSend = tab(open, (page) => `${REFERRAL_QUEUE_PATH}?page=${page}#to-send`, content);
+  // Each tab's links keep the other tab's page, so paging one never resets the other.
+  const toSendHref = (page: number) => queueHref({ page, sentPage }, "#to-send");
+  const withMasterHref = (page: number) => queueHref({ page: toSendPage, sentPage: page }, "#with-a-master");
+  const toSend = tab(open, toSendHref, toSendHref(1), content);
   const toSendRows = toSend.rows.map((row, index) => ({
     ...row,
     isSelected: selection.ticked.has(row.id),
@@ -122,10 +129,10 @@ export async function renderQueue(req: Request, res: Response, refusal?: QueueRe
     window,
     windowText: windowText(window, content),
     toSend: { ...toSend, rows: toSendRows, page: open.page },
-    withMaster: claimed === null ? null : tab(claimed, (page) => `${REFERRAL_QUEUE_PATH}?sentPage=${page}#with-a-master`, content),
+    withMaster: claimed === null ? null : tab(claimed, withMasterHref, withMasterHref(1), content),
     masterOptions: window?.masters.map((master) => ({ value: master.id, text: master.name })) ?? [],
     selectionError: errors.get("referrals") ?? "",
-    errorList: refusal ? errorList(refusal, errors, toSendRows) : [],
+    errorList: refusal ? errorList(refusal, errors, toSendRows, content) : [],
     banner: refusal ? null : banner(req, content)
   });
 }
@@ -157,8 +164,23 @@ function windowState(window: QueueWindowView, content: typeof queueContentEn): s
   return content.opensOnFor(window.opensAt, window.opensDate ?? "");
 }
 
+/** The queue's address for one tab, carrying whichever page of either tab is not the first. */
+function queueHref(pages: { page: number | undefined; sentPage: number | undefined }, fragment: string): string {
+  const query = [
+    ...(pages.page !== undefined && pages.page > 1 ? [`page=${pages.page}`] : []),
+    ...(pages.sentPage !== undefined && pages.sentPage > 1 ? [`sentPage=${pages.sentPage}`] : [])
+  ].join("&");
+
+  return `${REFERRAL_QUEUE_PATH}${query ? `?${query}` : ""}${fragment}`;
+}
+
 /** One tab: its rows with their links, and its paging. The links are built here, through the path helpers. */
-function tab(results: Awaited<ReturnType<typeof findReferralQueue>>, href: (page: number) => string, content: typeof queueContentEn): QueueTab {
+function tab(
+  results: Awaited<ReturnType<typeof findReferralQueue>>,
+  href: (page: number) => string,
+  firstPageHref: string,
+  content: typeof queueContentEn
+): QueueTab {
   const paging = buildPaging(results, href);
 
   return {
@@ -169,15 +191,29 @@ function tab(results: Awaited<ReturnType<typeof findReferralQueue>>, href: (page
     })),
     paging,
     isBeyondEnd: results.total > 0 && results.page > results.totalPages,
+    firstPageHref,
     pagingSummary: paging.first === 0 ? "" : content.pagingSummaryFor(paging.first, paging.last, paging.total)
   };
 }
 
-/** The summary in the page's order: the selection's own sentence, the selection's error, then each row's. */
-function errorList(refusal: QueueRefusal, errors: Map<string, string>, rows: { id: string; masterError: string; masterControlId: string }[]) {
+/**
+ * The summary in the page's order: the selection's own sentence, the selection's error, then each row's. A row's error
+ * whose referral the fresh read no longer has on this page has no control to sit beside, so it becomes the list's
+ * sentence instead, and a refusal never draws an error status with nothing on the page saying why.
+ */
+function errorList(
+  refusal: QueueRefusal,
+  errors: Map<string, string>,
+  rows: { id: string; masterError: string; masterControlId: string }[],
+  content: typeof queueContentEn
+) {
+  const drawn = new Set(rows.map((row) => `master-${row.id}`));
+  const isOrphaned = [...errors.keys()].some((field) => field.startsWith("master-") && !drawn.has(field));
+  const message = refusal.message ?? (isOrphaned ? content.listChanged : undefined);
+
   return [
-    ...(refusal.message ? [{ text: refusal.message, href: "#to-send" }] : []),
-    ...(errors.has("referrals") ? [{ text: errors.get("referrals") as string, href: "#select-1" }] : []),
+    ...(message ? [{ text: message, href: "#to-send" }] : []),
+    ...(errors.has("referrals") ? [{ text: errors.get("referrals") as string, href: rows.length > 0 ? "#select-1" : "#to-send" }] : []),
     ...rows.filter((row) => row.masterError !== "").map((row) => ({ text: row.masterError, href: `#${row.masterControlId}` }))
   ];
 }
@@ -205,5 +241,6 @@ interface QueueTab {
   rows: (QueueRow & { checkHref: string; reassignHref: string })[];
   paging: ReturnType<typeof buildPaging>;
   isBeyondEnd: boolean;
+  firstPageHref: string;
   pagingSummary: string;
 }

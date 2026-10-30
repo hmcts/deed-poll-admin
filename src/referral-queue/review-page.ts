@@ -4,8 +4,9 @@
  * api's sentence when api refuses the window or the cap.
  *
  * **It re-reads the page of the queue the selection was made on**, because the rows it lists and the window it totals
- * must be api's now, not as the queue was drawn. A ticked referral no longer on that page, or a Master no longer
- * available, sends the selection back to the queue beside its row, where it can be changed. Nothing here is a
+ * must be api's now, not as the queue was drawn. A ticked referral no longer on that page (sent, withdrawn, or moved to
+ * another page), or a Master no longer available, sends the selection back to the queue beside its row, where it can
+ * be changed. Nothing here is a
  * guarantee: api checks every pair, the window and the cap again at the send.
  *
  * The pairs travel in hidden inputs in the queue form's own shape, never in the session, so two tabs make two
@@ -62,7 +63,7 @@ export async function renderReview(req: Request, res: Response, body: Record<str
   const window = buildQueueWindowView(open.window, new Date());
   const review = buildSendReview(window, open.referrals, selection);
 
-  if (review.missing.length > 0) return renderQueue(req, res, { status: 409, body, errors: [], message: queueContent.noLongerWaiting });
+  if (review.missing.length > 0) return renderQueue(req, res, { status: 409, body, errors: [], message: queueContent.listChanged });
   if (review.unavailable.length > 0) {
     const errors = review.unavailable.map((referralId) => ({ field: `master-${referralId}`, message: queueContent.masterUnavailable }));
     return renderQueue(req, res, { status: 400, body, errors });

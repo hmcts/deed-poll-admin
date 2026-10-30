@@ -346,6 +346,19 @@ describe("referrals/schemas", () => {
       expect(errors({ referrals: ids })).toEqual([{ field: "referrals", message: SEND_SELECTION_MESSAGES.tooMany }]);
     });
 
+    it("should accept as many referrals as api sends at once", () => {
+      const ids = Array.from({ length: 100 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`);
+      const body = Object.fromEntries([["referrals", ids], ...ids.map((id) => [`master-${id}`, MASTER_1])]);
+
+      expect(sendSelectionSchema.parse(body).allocations).toHaveLength(100);
+    });
+
+    it("should refuse a Master that is not one the form offered, beside its row", () => {
+      expect(errors({ referrals: REFERRAL_1, [`master-${REFERRAL_1}`]: "not-a-uuid" })).toEqual([
+        { field: `master-${REFERRAL_1}`, message: SEND_SELECTION_MESSAGES.noMaster }
+      ]);
+    });
+
     it("should refuse every ticked row without a Master, beside its own select", () => {
       expect(errors({ referrals: [REFERRAL_1, REFERRAL_2], [`master-${REFERRAL_1}`]: "", [`master-${REFERRAL_2}`]: [MASTER_1, MASTER_2] })).toEqual([
         { field: `master-${REFERRAL_1}`, message: SEND_SELECTION_MESSAGES.noMaster },
