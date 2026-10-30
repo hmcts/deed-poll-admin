@@ -8,8 +8,9 @@
  *
  * **The window and its cap are the whole service's, and the mock's clock is global.** `openWindowWithRoom` therefore
  * only ever moves the clock *into* an open window, never out of one, so journeys in parallel workers never undo each
- * other's window; and when this run's window is full (the cap is across all Masters, and the store outlives a run
- * under `reuseExistingServer`) it moves a week on, to the same morning window, until one has room. The journeys that
+ * other's window. When the window is full (the cap is across all Masters, and the store outlives a run under
+ * `reuseExistingServer`) it raises the cap rather than moving the clock on, because a move of a processing window
+ * (a week, by default) would put every referral another worker had sent back in the queue (`unassignOverdue`). The journeys that
  * close the window or lower the cap run on a mock of their own (`referral-queue.spec.ts`, `yarn test:referrals`).
  *
  * `newMaster` mints a unique entry and a unique judge linked to it. `judgePersonaMaster` is the one shared entry,
@@ -36,11 +37,16 @@ const TEAM_LEADER = { sub: "e2e.masters.team-leader", roles: ["caseworker-deedpo
 
 const JUDICIAL_ROLE = "caseworker-deedpoll-judicial";
 
-/** How far to move on when a window is full or a bank holiday: a week keeps the same weekday's morning window. */
-const A_WEEK_IN_MINUTES = 7 * 24 * 60;
+/** api's upper bound on `windowCap` (`PROCESS_SETTINGS_LIMITS`), which the shared suite raises a full window to. */
+const MAXIMUM_WINDOW_CAP = 100;
 
-/** How many weeks on `openWindowWithRoom` looks before giving up, which only a store sent to its cap 12 times hits. */
-const WEEKS_TO_TRY = 12;
+const A_DAY_IN_MINUTES = 24 * 60;
+
+/**
+ * How many days on `openWindowWithRoom` looks for a window with room once even the raised cap is full. Fewer than the
+ * mock's 7-day processing window, so no move takes the clock past a referral another worker has sent.
+ */
+const DAYS_TO_TRY = 6;
 
 /** The name `yarn mock:seed` gives the judge persona's entry, reused so a seeded mock and a fresh one agree. */
 const JUDGE_PERSONA_MASTER_NAME = "Master Judge";
@@ -85,22 +91,25 @@ export async function sendToMaster(request: APIRequestContext, referralId: strin
 
 /**
  * Leave the mock's referral clock inside an open window with room for `room` more sends: as it is if it already is,
- * otherwise just inside the next morning window, or the same window a week on, and so on.
+ * otherwise just inside the next morning window, with the cap raised if that is full, and only then a day on at a
+ * time.
  */
 export async function openWindowWithRoom(request: APIRequestContext, room: number, mock = MOCK_API_URL): Promise<void> {
   if (await hasRoom(request, mock, room)) return;
   const opened = await request.post(`${mock}/__mock/clock`, { data: { window: "open" } });
   expect(opened.status(), await opened.text()).toBe(200);
   const morning: number = (await opened.json()).offsetMinutes;
+  if (await hasRoom(request, mock, room)) return;
+  await raiseCap(request, mock);
 
-  for (let week = 0; week < WEEKS_TO_TRY; week++) {
-    if (week > 0) {
-      const moved = await request.post(`${mock}/__mock/clock`, { data: { offsetMinutes: morning + week * A_WEEK_IN_MINUTES } });
+  for (let day = 0; day <= DAYS_TO_TRY; day++) {
+    if (day > 0) {
+      const moved = await request.post(`${mock}/__mock/clock`, { data: { offsetMinutes: morning + day * A_DAY_IN_MINUTES } });
       expect(moved.status(), await moved.text()).toBe(200);
     }
     if (await hasRoom(request, mock, room)) return;
   }
-  throw new Error(`no referral window with room for ${room} in the next ${WEEKS_TO_TRY} weeks`);
+  throw new Error(`no referral window with room for ${room} in the next ${DAYS_TO_TRY} days, even at a cap of ${MAXIMUM_WINDOW_CAP}`);
 }
 
 /**
@@ -138,6 +147,39 @@ async function hasRoom(request: APIRequestContext, mock: string, room: number): 
   const { window } = (await response.json()) as { window: { current: unknown; cap: number; sent: number } };
 
   return window.current !== null && window.sent + room <= window.cap;
+}
+
+/** Raise `windowCap` to api's maximum, keeping every other process setting. Only ever raised, so no worker is refused. */
+async function raiseCap(request: APIRequestContext, mock: string): Promise<void> {
+  const read = await request.get(`${mock}/caseworker/process-settings`, { headers: bearer(DELIVERY_MANAGER) });
+  expect(read.status(), await read.text()).toBe(200);
+  const {
+    referralClaimExpiryMinutes,
+    reminderIntervalHours,
+    morningWindowStart,
+    morningWindowEnd,
+    afternoonWindowStart,
+    afternoonWindowEnd,
+    windowCap,
+    revision
+  } = await read.json();
+  if (windowCap >= MAXIMUM_WINDOW_CAP) return;
+
+  const written = await request.put(`${mock}/caseworker/process-settings`, {
+    headers: bearer(DELIVERY_MANAGER),
+    data: {
+      referralClaimExpiryMinutes,
+      reminderIntervalHours,
+      morningWindowStart,
+      morningWindowEnd,
+      afternoonWindowStart,
+      afternoonWindowEnd,
+      windowCap: MAXIMUM_WINDOW_CAP,
+      revision
+    }
+  });
+  // A 409 is another worker's raise landing first, which leaves the same cap.
+  expect([200, 409], await written.text()).toContain(written.status());
 }
 
 async function mastersList(request: APIRequestContext, mock: string): Promise<{ masters: ListedMaster[] }> {
