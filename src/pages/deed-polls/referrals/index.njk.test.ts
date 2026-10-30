@@ -233,4 +233,27 @@ describe("referral queue template", () => {
       expect(markup).toContain("KBDP2026-00001");
     });
   });
+
+  describe("banners", () => {
+    it("should draw the send's success banner", async () => {
+      const markup = await render({ sent: "3", masters: "2" });
+
+      expect(markup).toContain("govuk-notification-banner--success");
+      expect(markup).toContain("3 referrals sent to 2 Masters.");
+    });
+
+    it("should draw the reassignment's conflict as an important banner", async () => {
+      const markup = await render({ reassign: "conflict" });
+
+      expect(markup).not.toContain("govuk-notification-banner--success");
+      expect(markup).toContain("That referral could not be reassigned");
+    });
+  });
+
+  it("should carry the page the selection was made on", async () => {
+    const markup = await render();
+
+    expect(markup).toContain('<input type="hidden" name="page" value="1">');
+    expect(markup).not.toContain("There is a problem");
+  });
 });

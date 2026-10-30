@@ -7,6 +7,8 @@
 {% from "govuk/components/select/macro.njk" import govukSelect %}
 {% from "govuk/components/pagination/macro.njk" import govukPagination %}
 {% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
 
 {% macro pagingFooter(results, pagingLabel) %}
   {% if results.pagingSummary %}<p class="govuk-body">{{ results.pagingSummary }}</p>{% endif %}
@@ -22,6 +24,18 @@
 
 {% block content %}
   <p class="govuk-body"><a class="govuk-link" href="/deed-polls">{{ back }}</a></p>
+
+  {% if errorList.length %}
+    {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
+  {% endif %}
+  {% if banner %}
+    {{ govukNotificationBanner({
+      type: "success" if banner.type == "success" else undefined,
+      titleText: successTitle if banner.type == "success" else importantTitle,
+      text: banner.text
+    }) }}
+  {% endif %}
+
   <h1 class="govuk-heading-xl">{{ heading }}</h1>
 
   {#
@@ -58,12 +72,17 @@
         checks every pair. A selection is per page, as api pages.
       #}
       <form method="post" action="/deed-polls/referrals/review" novalidate>
+        {# The page the selection was made on, so a refusal redraws that page rather than the first. #}
+        <input type="hidden" name="page" value="{{ toSend.page }}">
+        {% if selectionError %}
+          <p class="govuk-error-message" id="referrals-error"><span class="govuk-visually-hidden">{{ errorPrefix }}</span> {{ selectionError }}</p>
+        {% endif %}
         {% set sendRows = [] %}
         {% for r in toSend.rows %}
           {% set selectCell %}
             {{ govukCheckboxes({
               name: "referrals", classes: "govuk-checkboxes--small",
-              items: [{ value: r.id, text: selectFor(r.reference), label: { classes: "govuk-visually-hidden" }, id: "select-" + loop.index }]
+              items: [{ value: r.id, text: selectFor(r.reference), label: { classes: "govuk-visually-hidden" }, id: "select-" + loop.index, checked: r.isSelected }]
             }) }}
           {% endset %}
           {% set referenceCell %}
@@ -79,9 +98,11 @@
           {% endset %}
           {% set masterCell %}
             {{ govukSelect({
-              id: "master-" + loop.index, name: "master-" + r.id,
+              id: r.masterControlId, name: "master-" + r.id,
               label: { text: masterFor(r.reference), classes: "govuk-visually-hidden" },
-              items: [{ value: "", text: chooseMaster }].concat(masterOptions)
+              items: [{ value: "", text: chooseMaster }].concat(masterOptions),
+              value: r.masterValue,
+              errorMessage: { text: r.masterError } if r.masterError else undefined
             }) }}
           {% endset %}
           {% set sendRows = (sendRows.push([

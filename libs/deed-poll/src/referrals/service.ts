@@ -84,11 +84,11 @@ export function createReferral(deedPollId: string, dto: CreateReferralInput, cal
 }
 
 /**
- * Assign a referral to a Master, or move it to another (plan Db1): while it is `Open` or `Claimed`, by any caseworker.
+ * Reassign a referral already with a Master (api F1): `Claimed` only, by a holder of `ALLOCATE_REFERRALS`, at any time.
+ * It takes no place in a window and checks no cap; the Master it already has is api's no-op.
  *
- * **No pre-read.** api refuses a referral no longer waiting for a direction and a Master at the cap, both 409, and only
- * the cap names `masterId` on `ConflictError.errors`, which is how a page tells them apart. An unknown or unavailable
- * Master is api's 400 on `masterId`.
+ * **No pre-read.** api's 409 covers an `Open` referral and one no longer waiting for a direction, told apart only by
+ * prose, so a page answers both alike. An unknown or unavailable Master is api's 400 on `masterId`.
  */
 export function assignReferral(deedPollId: string, id: string, masterId: string, caller: Caller): Promise<Referral> {
   return callApi(caller, (config) => apiAssignReferral(deedPollId, id, masterId, config));

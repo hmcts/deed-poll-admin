@@ -199,8 +199,8 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Implement, run the per-task checks, and record the results.
 
 ### Task 3: Review, send and reassign
-- [ ] Add failing tests for `review` (shape refusals, totals, Send only inside a window, over the room left), `send` (success banner and every refusal) and `reassign` (GET, POST, the 409s, the no-op).
-- [ ] Implement, run the per-task checks, and record the results.
+- [x] Add failing tests for `review` (shape refusals, totals, Send only inside a window, over the room left), `send` (success banner and every refusal) and `reassign` (GET, POST, the 409s, the no-op).
+- [x] Implement, run the per-task checks, and record the results.
 
 ### Task 4: The Master's side and the settings cap
 - [ ] Add failing tests for My referrals grouped by the day sent and the settings page's window cap.
@@ -289,3 +289,33 @@ case page's Application/General rows (`buildDetailTabs`) and the documents linki
 privacy banner and no form. The copy's `cy` mirrors `en`, pending translation as the settings page's is; the extractor's
 `src/pages/deed-polls` entry already covers the area. Checks: format no fixes; `yarn lint` clean; `yarn build --force`
 8 of 8; tests: deed-poll 1,717 (+13), app 3,279 (+54); all passing.
+
+**Task 3.** Domain: `sendSelectionSchema` (`referrals/schemas.ts`) reads the queue form's own shape (`referrals`, one or
+many, and `master-<referralId>` per ticked row) into api's `allocations` in the order ticked: nothing ticked, a value
+that is not a UUID, a referral ticked twice or more than api's 100 is an error on `referrals`; a ticked row with no
+Master is an error on its `master-<id>`; a Master on an unticked row is dropped. `queue.ts` gained `sendReferrals`,
+`summariseSend` (the referrals api answered with and the distinct Masters holding them) and `buildSendReview` (each
+pair with its row and Master's name, `missing` and `unavailable` against a fresh page, `sentAfter`, `isOverRoom` and
+`canSend`, which needs an open window, room and both lists empty; with no window api lists no Masters, so nothing is
+called unavailable). The queue page moved to `src/referral-queue/queue-page.ts` (now on the Welsh extractor's
+`INCLUDE`) so the review and the send can redraw it with the posted selection ticked and chosen, the errors beside their
+rows and an error summary, on the page it was made on (a hidden `page`); `index.ts` is one line. The queue reads its
+banners from the redirects: `?sent=N&masters=M` ("3 referrals sent to 2 Masters."), `?reassigned=1` and
+`?reassign=conflict`. `review` (POST; GET 302s to the queue) re-reads that page of the queue and lists each pair
+(reference, reasons, urgent, Master) with the totals ("This sends 2 referrals." / "6 of 10 will have been sent this
+morning."), or, outside a window, when sending opens, or, over the room, "Only 1 more referral can be sent this
+morning." (no room: "No more …"); Send is drawn only when `canSend`, its pairs in hidden inputs in the queue form's shape.
+`send` (POST; GET 302s) parses the same schema and 303s to the queue with api's counts. **Deliberate deviation from step
+3:** a refusal about a row goes back to the *queue*, not the review, because only the queue has a control to change it:
+a referral no longer waiting (api's 409 on `allocations[i].referralId`, or found missing by the review's re-read) is the
+queue with "A referral you selected is no longer waiting to be sent. Check the list and select again."; an unavailable
+Master (api's 400 on `allocations[i].masterId`, or found by the re-read) is api's sentence beside that row's select. A
+409 naming no field (window or cap) redraws the review with api's sentence from a fresh read, so its totals and Send
+follow; any other 400 redraws it with its own sentence and a `forLog` line. `[referralId]/reassign` (GET, POST; template
+`referrals/[referralId]/reassign.njk`) needs `?case=` like the check view, reads the referral and the queue envelope's
+available Masters, says who has it and since when, that the chosen Master's days start again (from `processingDays`),
+that they will be emailed and that it uses no place in a window, and pre-selects the current Master. A referral not
+`Claimed` on GET, and every 409 on POST, goes to the queue with `?reassign=conflict#with-a-master`; the same Master is a
+success; api's 400 on `masterId` redraws beside the radios. `assignReferral`'s docblock now describes F1. Checks: format
+no fixes; `yarn lint` clean after `lint:fix` sorted two import lists; `yarn build --force` 8 of 8; tests: deed-poll
+1,735 (+18), app 3,339 (+60); the gate, href, layout, `forLog` and Welsh sweeps pass; all passing.

@@ -148,4 +148,39 @@ describe("referral queue page", () => {
     expect(model.withMaster.paging.links.next.href).toBe("/deed-polls/referrals?sentPage=2#with-a-master");
     expect(model.toSend.pagingSummary).toBe("1 to 25 of 60 referrals");
   });
+
+  it.each([
+    [
+      { sent: "3", masters: "2" },
+      { type: "success", text: "3 referrals sent to 2 Masters." }
+    ],
+    [
+      { sent: "1", masters: "1" },
+      { type: "success", text: "1 referral sent to 1 Master." }
+    ],
+    [{ reassigned: "1" }, { type: "success", text: "Referral reassigned." }],
+    [
+      { reassign: "conflict" },
+      { type: "important", text: "That referral could not be reassigned because it is no longer with a Master waiting for a direction." }
+    ],
+    [{ sent: "0", masters: "1" }, null],
+    [{ sent: "<b>", masters: "1" }, null],
+    [{}, null]
+  ])("should draw the banner the redirect asked for (%o)", async (query, banner) => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ teamLeader: true, query }), res);
+
+    expect(res.render.mock.calls[0][1].banner).toEqual(banner);
+  });
+
+  it("should draw no selection and no errors on a plain visit", async () => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ teamLeader: true }), res);
+
+    expect(res.status).not.toHaveBeenCalled();
+    expect(res.render.mock.calls[0][1]).toMatchObject({ errorList: [], selectionError: "" });
+    expect(res.render.mock.calls[0][1].toSend.rows[0]).toMatchObject({ isSelected: false, masterValue: "", masterError: "", masterControlId: "master-1" });
+  });
 });

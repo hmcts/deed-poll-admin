@@ -1,7 +1,15 @@
 import { CONFIRMATION_OUTCOME, REFERRAL_REASON, URGENCY } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
 import { zodErrorToFieldErrors } from "../errors.js";
-import { createReferralSchema, MAX_CONFIRMATION_NOTE, MAX_REFERRAL_NOTES, MAX_REFERRAL_URGENCY_REASON, recordConfirmationSchema } from "./schemas.js";
+import {
+  createReferralSchema,
+  MAX_CONFIRMATION_NOTE,
+  MAX_REFERRAL_NOTES,
+  MAX_REFERRAL_URGENCY_REASON,
+  recordConfirmationSchema,
+  SEND_SELECTION_MESSAGES,
+  sendSelectionSchema
+} from "./schemas.js";
 
 describe("referrals/schemas", () => {
   // Master Sullivan's feedback (Steve, 2026-10-27): what kind of minor's application this is, beneath "Applicant is a
@@ -288,6 +296,61 @@ describe("referrals/schemas", () => {
 
     it("should keep the note's bound no wider than api's, which is the rule that may only be tightened", () => {
       expect(MAX_CONFIRMATION_NOTE).toBeLessThanOrEqual(1000);
+    });
+  });
+
+  describe("sendSelectionSchema", () => {
+    const REFERRAL_1 = "11111111-1111-4111-8111-111111111111";
+    const REFERRAL_2 = "22222222-2222-4222-8222-222222222222";
+    const MASTER_1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const MASTER_2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const errors = (body: Record<string, unknown>) => {
+      const parsed = sendSelectionSchema.safeParse(body);
+      return parsed.success ? [] : zodErrorToFieldErrors(parsed.error);
+    };
+
+    it("should pair each ticked referral with its Master, in the order ticked", () => {
+      const parsed = sendSelectionSchema.parse({ referrals: [REFERRAL_2, REFERRAL_1], [`master-${REFERRAL_1}`]: MASTER_1, [`master-${REFERRAL_2}`]: MASTER_2 });
+
+      expect(parsed.allocations).toEqual([
+        { referralId: REFERRAL_2, masterId: MASTER_2 },
+        { referralId: REFERRAL_1, masterId: MASTER_1 }
+      ]);
+    });
+
+    it("should read a single ticked referral posted as one string", () => {
+      expect(sendSelectionSchema.parse({ referrals: REFERRAL_1, [`master-${REFERRAL_1}`]: MASTER_1 }).allocations).toHaveLength(1);
+    });
+
+    it("should drop a Master chosen on a row that was not ticked", () => {
+      const parsed = sendSelectionSchema.parse({ referrals: REFERRAL_1, [`master-${REFERRAL_1}`]: MASTER_1, [`master-${REFERRAL_2}`]: MASTER_2 });
+
+      expect(parsed.allocations).toEqual([{ referralId: REFERRAL_1, masterId: MASTER_1 }]);
+    });
+
+    it("should refuse a selection with nothing ticked on the selection", () => {
+      expect(errors({ [`master-${REFERRAL_1}`]: MASTER_1 })).toEqual([{ field: "referrals", message: SEND_SELECTION_MESSAGES.none }]);
+    });
+
+    it.each([
+      ["a value no form offered", { referrals: "not-a-referral" }],
+      ["a referral ticked twice", { referrals: [REFERRAL_1, REFERRAL_1], [`master-${REFERRAL_1}`]: MASTER_1 }],
+      ["a bracketed value parsed into an object", { referrals: { 0: REFERRAL_1 } }]
+    ])("should refuse %s on the selection", (_name, body) => {
+      expect(errors(body)).toEqual([{ field: "referrals", message: SEND_SELECTION_MESSAGES.unknown }]);
+    });
+
+    it("should refuse more referrals than api sends at once", () => {
+      const ids = Array.from({ length: 101 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`);
+
+      expect(errors({ referrals: ids })).toEqual([{ field: "referrals", message: SEND_SELECTION_MESSAGES.tooMany }]);
+    });
+
+    it("should refuse every ticked row without a Master, beside its own select", () => {
+      expect(errors({ referrals: [REFERRAL_1, REFERRAL_2], [`master-${REFERRAL_1}`]: "", [`master-${REFERRAL_2}`]: [MASTER_1, MASTER_2] })).toEqual([
+        { field: `master-${REFERRAL_1}`, message: SEND_SELECTION_MESSAGES.noMaster },
+        { field: `master-${REFERRAL_2}`, message: SEND_SELECTION_MESSAGES.noMaster }
+      ]);
     });
   });
 });

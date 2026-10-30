@@ -1,11 +1,12 @@
-import { getReferralQueue } from "@hmcts/deed-poll-api-client";
+import { sendReferrals as apiSendReferrals, getReferralQueue } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NotFoundError } from "../errors.js";
-import { buildQueueRows, buildQueueWindowView, findReferralQueue } from "./queue.js";
+import { ConflictError, NotFoundError } from "../errors.js";
+import { buildQueueRows, buildQueueWindowView, buildSendReview, findReferralQueue, sendReferrals, summariseSend } from "./queue.js";
 
 vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll-api-client")>()),
-  getReferralQueue: vi.fn()
+  getReferralQueue: vi.fn(),
+  sendReferrals: vi.fn()
 }));
 
 const CALLER = { accessToken: "team-leader-token" };
@@ -165,6 +166,102 @@ describe("referrals/queue", () => {
         raisedOn: "Not recorded",
         master: "Not recorded"
       });
+    });
+  });
+
+  describe("sendReferrals", () => {
+    const SELECTION = { allocations: [{ referralId: "referral-1", masterId: "master-1" }] };
+
+    it("should send the selection's pairs in their order and nothing else", async () => {
+      vi.mocked(apiSendReferrals).mockResolvedValue({ ok: true, data: { referrals: [], window: null } } as never);
+
+      await sendReferrals(SELECTION, CALLER);
+
+      expect(apiSendReferrals).toHaveBeenCalledWith({ allocations: SELECTION.allocations }, expect.anything());
+    });
+
+    it("should carry api's field on a refused referral", async () => {
+      vi.mocked(apiSendReferrals).mockResolvedValue({
+        ok: false,
+        error: {
+          kind: "conflict",
+          status: 409,
+          message: "This referral is no longer waiting to be sent",
+          fieldErrors: [{ field: "allocations[0].referralId", message: "This referral is no longer waiting to be sent" }]
+        }
+      } as never);
+
+      const refusal = await sendReferrals(SELECTION, CALLER).catch((error: unknown) => error);
+
+      expect(refusal).toBeInstanceOf(ConflictError);
+      expect((refusal as ConflictError).errors).toEqual([{ field: "allocations[0].referralId", message: "This referral is no longer waiting to be sent" }]);
+    });
+  });
+
+  describe("summariseSend", () => {
+    it("should count the referrals api answered with and the distinct Masters holding them", () => {
+      const sentTo = (id: string) => ({ ...ITEM, state: "Claimed" as const, assignedMaster: { id, name: id } });
+
+      expect(summariseSend({ referrals: [sentTo("master-1"), sentTo("master-2"), sentTo("master-1")], window: null } as never)).toEqual({
+        referrals: 3,
+        masters: 2
+      });
+    });
+  });
+
+  describe("buildSendReview", () => {
+    const window = (sent: number, isOpen = true) => {
+      const view = buildQueueWindowView({ ...OPEN_WINDOW, sent, current: isOpen ? OPEN_WINDOW.current : null }, NOW);
+      if (view === null) throw new Error("no window");
+      return view;
+    };
+    const SECOND = { ...ITEM, id: "referral-2", displayReference: "KBDP2026-00002", urgency: "Normal" as const };
+    const selection = (...pairs: [string, string][]) => ({ allocations: pairs.map(([referralId, masterId]) => ({ referralId, masterId })) });
+
+    it("should list each pair in the selection's order with its referral and its Master", () => {
+      const review = buildSendReview(window(4), [ITEM, SECOND] as never, selection(["referral-2", "master-1"], ["referral-1", "master-2"]));
+
+      expect(review.rows.map((row) => [row.reference, row.masterName, row.isUrgent])).toEqual([
+        ["KBDP2026-00002", "Master Sullivan", false],
+        ["KBDP2026-00001", "Not recorded", true]
+      ]);
+      expect(review).toMatchObject({ count: 2, sentAfter: 6, isOverRoom: false, canSend: true, missing: [], unavailable: [] });
+    });
+
+    it("should allow a selection that exactly fills the room left", () => {
+      const review = buildSendReview(window(9), [ITEM] as never, selection(["referral-1", "master-1"]));
+
+      expect(review).toMatchObject({ sentAfter: 10, isOverRoom: false, canSend: true });
+    });
+
+    it("should refuse to draw a send over the room left", () => {
+      const review = buildSendReview(window(9), [ITEM, SECOND] as never, selection(["referral-1", "master-1"], ["referral-2", "master-1"]));
+
+      expect(review).toMatchObject({ count: 2, isOverRoom: true, canSend: false });
+    });
+
+    it("should not draw a send outside a window", () => {
+      const review = buildSendReview(window(0, false), [ITEM] as never, selection(["referral-1", "master-1"]));
+
+      expect(review.canSend).toBe(false);
+    });
+
+    it("should not draw a send when api sent no window, and say nothing about the Masters it could not list", () => {
+      const review = buildSendReview(null, [ITEM] as never, selection(["referral-1", "master-1"]));
+
+      expect(review).toMatchObject({ canSend: false, unavailable: [] });
+      expect(review.rows[0].masterName).toBe("Not recorded");
+    });
+
+    it("should report a ticked referral no longer on the page and a Master no longer available", () => {
+      const review = buildSendReview(
+        window(0),
+        [ITEM, SECOND] as never,
+        selection(["gone", "master-1"], ["referral-1", "master-9"], ["referral-2", "master-1"])
+      );
+
+      expect(review).toMatchObject({ missing: ["gone"], unavailable: ["referral-1"], canSend: false });
+      expect(review.rows.map((row) => row.id)).toEqual(["referral-2"]);
     });
   });
 });
