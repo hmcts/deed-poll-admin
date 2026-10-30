@@ -118,6 +118,17 @@ describe("deed-polls list template", () => {
     expect(markup).toContain('<a class="govuk-link" href="/deed-polls/settings">Service settings</a>');
   });
 
+  it("should link a holder of ALLOCATE_REFERRALS to the referral queue", async () => {
+    const markup = await render({}, true);
+    expect(markup).toContain('<a class="govuk-link" href="/deed-polls/referrals">Referrals</a>');
+  });
+
+  it("should not link a caseworker to the referral queue", async () => {
+    const markup = await render();
+    expect(markup).not.toContain('href="/deed-polls/referrals"');
+    expect(markup).not.toContain(">Referrals</a>");
+  });
+
   it("should not link anyone else to the service settings page", async () => {
     const markup = await render();
     expect(markup).not.toContain("/deed-polls/settings");

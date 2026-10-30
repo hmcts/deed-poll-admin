@@ -68,6 +68,7 @@ import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
 import { casePath } from "../../case-path.js";
 import { forLog } from "../../for-log.js";
+import { REFERRAL_QUEUE_PATH } from "../../referral-queue/paths.js";
 
 const LIST_PATH = "/deed-polls";
 
@@ -91,9 +92,6 @@ const RETURNED_FOR_ACTION_PATH = `${LIST_PATH}${caseListSearch({ conditions: ret
  */
 const WAITING_FOR_ASSIGNMENT_PATH = `${LIST_PATH}${caseListSearch({ conditions: waitingForAssignmentConditions() })}`;
 
-/** The referral queue, where the same count links for a caller holding `ALLOCATE_REFERRALS` (plan Fa1). */
-const REFERRAL_QUEUE_PATH = "/deed-polls/referrals";
-
 /**
  * The "awaiting confirmation" worklist: api's own filter key, as a link — `notify-3b` decision 3.
  *
@@ -110,6 +108,7 @@ const AWAITING_CONFIRMATION_PATH = `${LIST_PATH}${caseListSearch({ filter: AWAIT
 const en = {
   gazetteLink: "View London Gazette applications",
   settingsLink: "Service settings",
+  referralsLink: "Referrals",
   gazetteCountFor: (count: number) => `Applications ready for the London Gazette: ${count}`,
   gazetteUnavailable: "The number of applications ready for the London Gazette could not be loaded. Try opening the ready list.",
   title: "Deed poll cases",
@@ -435,6 +434,8 @@ function render(
   res.render("deed-polls/index", {
     cases,
     showSettings,
+    // The referral queue's link, from the session's capability as the settings link is (plan Fa1).
+    showReferrals: canSendReferrals,
     showGazette: counts.gazette !== undefined,
     gazetteCount: counts.gazette === undefined || counts.gazette === null ? "" : content.gazetteCountFor(counts.gazette),
     gazetteFailed: counts.gazette === null,

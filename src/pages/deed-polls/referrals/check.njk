@@ -1,0 +1,66 @@
+{% extends "layouts/app-full-width.njk" %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/table/macro.njk" import govukTable %}
+{% from "govuk/components/tag/macro.njk" import govukTag %}
+{% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
+
+{# Read-only, with no form: a referral is sent from the queue, never from here. #}
+{% block content %}
+  <p class="govuk-body"><a class="govuk-link" href="{{ backHref }}">{{ back }}</a></p>
+
+  {% if privacyBanner %}
+    {{ govukNotificationBanner({ titleText: bannerTitle, text: privacyBanner, type: "important" }) }}
+  {% endif %}
+
+  <span class="govuk-caption-l">{{ pageCaption }}</span>
+  <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+  <h2 class="govuk-heading-m">{{ referralHeading }}</h2>
+  {% set reasonsHtml %}
+    {% if referral.migrated and referral.reasons.length == 0 %}
+      {{ migrated }}
+    {% else %}
+      <ul class="govuk-list">{% for reason in referral.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+    {% endif %}
+  {% endset %}
+  {{ govukSummaryList({ rows: [
+    { key: { text: status }, value: { html: govukTag({ text: referral.state, classes: referral.stateTagClasses }) } },
+    { key: { text: reasons }, value: { html: reasonsHtml } },
+    { key: { text: urgency }, value: { text: referral.urgency } },
+    { key: { text: urgencyReason }, value: { text: referral.urgencyReason } },
+    { key: { text: notes }, value: { text: referral.notes } },
+    { key: { text: raisedBy }, value: { text: referral.createdBy } },
+    { key: { text: raisedOn }, value: { text: referral.createdOn } }
+  ] }) }}
+
+  <h2 class="govuk-heading-m">{{ applicationHeading }}</h2>
+  {% set generalItems = [] %}
+  {% for row in generalRows %}
+    {% set generalItems = (generalItems.push({ key: { text: row.key }, value: { text: row.value } }), generalItems) %}
+  {% endfor %}
+  {% if generalItems.length %}
+    {{ govukSummaryList({ rows: generalItems }) }}
+  {% else %}
+    <p class="govuk-body">{{ noneRecorded }}</p>
+  {% endif %}
+
+  <h2 class="govuk-heading-m" id="documents">{{ documentsHeading }}</h2>
+  {% if documents.length %}
+    {% set docRows = [] %}
+    {% for d in documents %}
+      {% set nameCell %}
+        {% if d.downloadable %}<a class="govuk-link" href="{{ d.viewHref }}">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}
+      {% endset %}
+      {% set docRows = (docRows.push([{ html: nameCell }, { text: d.type }, { text: d.direction }, { text: d.added }]), docRows) %}
+    {% endfor %}
+    {{ govukTable({
+      caption: documentsHeading, captionClasses: "govuk-visually-hidden",
+      head: [{ text: documentColumns[0] }, { text: documentColumns[1] }, { text: documentColumns[2] }, { text: documentColumns[3] }],
+      rows: docRows
+    }) }}
+  {% else %}
+    <p class="govuk-body">{{ noneRecorded }}</p>
+  {% endif %}
+
+  <p class="govuk-body"><a class="govuk-link" href="{{ backHref }}">{{ back }}</a></p>
+{% endblock %}

@@ -334,6 +334,9 @@ const gates = vi.hoisted(() => ({
   settings: function requireSettingsDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
+  referrals: function requireReferralsDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
   judicial: function requireJudicialDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
@@ -360,7 +363,9 @@ const gates = vi.hoisted(() => ({
 
 vi.mock("./auth/require-auth.js", () => ({ requireAuth: () => gates.auth, isPublicPath: () => false }));
 vi.mock("./auth/require-role.js", () => ({
-  requireCapability: vi.fn((capability: string) => (capability === "MANAGE_PROCESS_CONFIG" ? gates.settings : gates.gazette)),
+  requireCapability: vi.fn((capability: string) =>
+    capability === "MANAGE_PROCESS_CONFIG" ? gates.settings : capability === "ALLOCATE_REFERRALS" ? gates.referrals : gates.gazette
+  ),
   requireJudicial: () => gates.judicial
 }));
 vi.mock("./auth/persona-switcher.js", () => ({ personaSwitcherLocals: () => gates.persona }));
@@ -771,6 +776,38 @@ function pagePaths(): string[] {
     });
 }
 
+describe("createApp's referral queue gate", () => {
+  it("should require ALLOCATE_REFERRALS after authentication and before routing for every referral queue page", async () => {
+    const { requireCapability } = await import("./auth/require-role.js");
+    const { ALLOCATE_REFERRALS } = await import("@hmcts/deed-poll");
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    const stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+    const index = stack.findIndex((entry) => entry.handle === gates.referrals);
+    const paths = judicialPagePaths("deed-polls/referrals");
+
+    expect(requireCapability).toHaveBeenCalledWith(ALLOCATE_REFERRALS);
+    expect(stack.filter((entry) => entry.handle === gates.referrals)).toHaveLength(1);
+    expect(index).toBeGreaterThan(stack.findIndex((entry) => entry.handle === gates.auth));
+    expect(index).toBeGreaterThan(stack.findIndex((entry) => entry.handle === gates.persona));
+    expect(index).toBeLessThan(stack.findIndex((entry) => entry.handle === gates.router));
+    expect(paths).toEqual(expect.arrayContaining(["/deed-polls/referrals", "/deed-polls/referrals/a-sample-id"]));
+    for (const url of [...paths, "/deed-polls/referrals/review", "/deed-polls/referrals/a-sample-id/reassign", "/deed-polls/referrals/future-page"]) {
+      expect(
+        stack[index].matchers.some((matches) => matches(url) !== false),
+        url
+      ).toBe(true);
+    }
+    // A case's own referrals are a caseworker's, under the case, and not the queue's.
+    for (const url of ["/deed-polls", "/deed-polls/abc", "/deed-polls/abc/referrals/new", "/deed-polls/referrals-other", "/deed-polls/gazette", "/login"]) {
+      expect(
+        stack[index].matchers.every((matches) => matches(url) === false),
+        url
+      ).toBe(true);
+    }
+  });
+});
+
 describe("createApp's abuse limits", () => {
   // Before the router is what puts the upload cap and limiter ahead of the page's multipart parser, and after the
   // Gazette gate so a refused user is not counted. See ./rate-limit/routes.ts.
@@ -784,6 +821,7 @@ describe("createApp's abuse limits", () => {
     expect(stack[upload]?.route?.stack).toHaveLength(2);
     expect(upload).toBeGreaterThan(stack.findIndex((layer) => layer.handle === gates.gazette));
     expect(upload).toBeGreaterThan(stack.findIndex((layer) => layer.handle === gates.settings));
+    expect(upload).toBeGreaterThan(stack.findIndex((layer) => layer.handle === gates.referrals));
     expect(upload).toBeLessThan(stack.findIndex((layer) => layer.handle === gates.router));
   });
 });

@@ -195,8 +195,8 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Implement, delete the assign page and the Master radios, run the per-task checks, and record the results.
 
 ### Task 2: The Referrals screen: queue, check view and gate
-- [ ] Add failing tests for the gate, the case-list link, `index` (both tabs, the window panel inside and outside a window, the rows, the selection form) and the check view.
-- [ ] Implement, run the per-task checks, and record the results.
+- [x] Add failing tests for the gate, the case-list link, `index` (both tabs, the window panel inside and outside a window, the rows, the selection form) and the check view.
+- [x] Implement, run the per-task checks, and record the results.
 
 ### Task 3: Review, send and reassign
 - [ ] Add failing tests for `review` (shape refusals, totals, Send only inside a window, over the room left), `send` (success banner and every refusal) and `reassign` (GET, POST, the 409s, the no-op).
@@ -266,3 +266,26 @@ case-list count reads "N referrals are waiting to be sent to a Master." (singula
 rewrites them. Checks: format fixed 1 file; `yarn lint` clean; `yarn build --force` 8 of 8; tests: deed-poll 1,704
 (1,719 less the deleted master-choices and assign-schema tests), app 3,225 (3,260 less the assign page, its template
 and the Master-radio tests, plus the new ones); all passing.
+
+**Task 2.** `libs/deed-poll/src/referrals/queue.ts`: `findReferralQueue` (state and page only), `buildQueueWindowView`
+(open or not, slot, `HH:mm` closing and opening times in London, the next window as today/tomorrow/a long date from
+the app's clock, cap, sent, room never negative, the available Masters with their counts; `null` without a window) and
+`buildQueueRows` (api's order, reasons through `referralReasonLabels`, `dd-mm-yy` dates, urgent flag, Master, sent on,
+due by). `src/referral-queue/paths.ts` holds `REFERRAL_QUEUE_PATH`, `queueReferralPath` and `queueReassignPath`
+(`/deed-polls/referrals/<pathSegment>?case=<encoded>`: the queue names the referral and carries its case, which api
+addresses it under); the case list now imports the constant. `app.ts` mounts `requireCapability(ALLOCATE_REFERRALS)` on
+`/deed-polls/referrals` beside the other two gates, and `app.test.ts` reads `src/pages/deed-polls/referrals/` off the
+filesystem (a case's own `/deed-polls/<id>/referrals/**` stays outside it). The case list draws a "Referrals" link for
+holders from the session's capability (`showReferrals`). `referrals/index` reads To send (load-bearing, carries the
+window) and With a Master (degrades to a warning and a `forLog` line) concurrently, each paged independently
+(`?page=…#to-send`, `?sentPage=…#with-a-master`); two GOV.UK tabs below the window panel ("This morning’s window closes
+at 10:30." / "Referrals can be sent from 14:00 today.", "4 of 10 referrals sent.", the per-Master table only inside a
+window, a warning when api sent no window). To send is one form posting to `/deed-polls/referrals/review` (Task 3):
+checkboxes `name="referrals"` valued with the referral id, and per row a select `name="master-<referralId>"` whose first
+option is "Choose a Master" (value empty); no Continue when no Master is available. With a Master links each row to
+`…/reassign?case=` (Task 3). The check view `referrals/[referralId]` (template `referrals/check.njk`) needs `?case=`
+(missing or repeated is a 404 before any read), reads the referral, the case and its rules, and shows the referral, the
+case page's Application/General rows (`buildDetailTabs`) and the documents linking to the case-scoped viewer, with the
+privacy banner and no form. The copy's `cy` mirrors `en`, pending translation as the settings page's is; the extractor's
+`src/pages/deed-polls` entry already covers the area. Checks: format no fixes; `yarn lint` clean; `yarn build --force`
+8 of 8; tests: deed-poll 1,717 (+13), app 3,279 (+54); all passing.
