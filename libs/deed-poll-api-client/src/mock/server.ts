@@ -1668,13 +1668,13 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
   /**
    * api's `ReferralQueue.windowAt`: the window open now or null, the next to open, the cap, and the referrals sent in
-   * the open window in any state since (decision A-2), in total and by each available Master. 0 outside a window.
+   * the open window and not since withdrawn (decision A-2), in total and by each available Master. 0 outside a window.
    */
   function queueWindow(now: Date): unknown {
     const times = windowTimes();
     const current = openAt(now, times, isWorkingDay);
     const next = nextToOpen(now, times, isWorkingDay);
-    const inWindow = current ? allReferrals().filter(({ referral }) => isInWindow(referral, current)) : [];
+    const inWindow = current ? allReferrals().filter(({ referral }) => holdsAPlaceIn(referral, current)) : [];
     return {
       current: current ? { ...current, closesAt: closesAt(current, times).toISOString() } : null,
       next: { ...next, opensAt: opensAt(next, times).toISOString() },
@@ -1754,7 +1754,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (unavailable.length > 0) return send(res, 400, { error: SELECT_A_MASTER, errors: unavailable });
 
     if (fresh.length > 0) {
-      const sent = allReferrals().filter(({ referral }) => isInWindow(referral, window)).length;
+      const sent = allReferrals().filter(({ referral }) => holdsAPlaceIn(referral, window)).length;
       const cap = processSettings.read().windowCap;
       if (sent + fresh.length > cap) return send(res, 409, { error: fullRefusal(window, Math.max(0, cap - sent), fresh.length) });
     }
@@ -3038,9 +3038,14 @@ function asUuid(value: unknown): string | null {
   return UUID_PATTERN.test(trimmed) ? trimmed : null;
 }
 
-/** Sent in this window: what the cap counts, in any state since (decision A-2). */
+/** Sent in this window, in any state since. */
 function isInWindow(referral: MockReferral, window: ReferralWindow): boolean {
   return referral.windowDate === window.date && referral.windowSlot === window.slot;
+}
+
+/** What the cap counts: sent in this window and not since withdrawn, which gives the place back (decision A-2). */
+function holdsAPlaceIn(referral: MockReferral, window: ReferralWindow): boolean {
+  return isInWindow(referral, window) && referral.state !== "Withdrawn";
 }
 
 /** The same send again, whose answer was lost: already `Claimed` by this Master in this window. */

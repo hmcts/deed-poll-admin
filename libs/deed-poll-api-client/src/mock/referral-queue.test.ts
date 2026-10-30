@@ -526,7 +526,7 @@ describe("POST /caseworker/referral-queue/sends", () => {
     expect(refused.json.error).toBe("Only 1 more referral can be sent this morning. Remove 1 and try again.");
   });
 
-  it("should count a referral sent and then withdrawn against the window, giving no place back (A-2)", async () => {
+  it("should give a referral's place in the window back when it is withdrawn after being sent (A-2)", async () => {
     // Arrange
     await setCap(1);
     const sullivan = await master("Master Sullivan", "sullivan@example.test");
@@ -537,11 +537,13 @@ describe("POST /caseworker/referral-queue/sends", () => {
     await sendAll([{ referralId: first, masterId: sullivan }]);
     await call("POST", `/caseworker/cases/${caseId}/referrals/${first}/withdrawal`, undefined, CASEWORKER);
 
+    expect((await queue("")).json.window.sent).toBe(0);
+
     // Act
-    const refused = await send([{ referralId: second, masterId: sullivan }]);
+    const sent = await send([{ referralId: second, masterId: sullivan }]);
 
     // Assert
-    expect(refused.json.error).toBe("No more referrals can be sent this morning.");
+    expect(sent.status).toBe(200);
     expect((await queue("")).json.window.sent).toBe(1);
   });
 
