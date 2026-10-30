@@ -49,7 +49,7 @@ import {
   TEAM_LEADER_EMAIL,
   TEAM_LEADER_STORAGE_STATE
 } from "./idam-session.js";
-import { newMaster } from "./masters.js";
+import { newMaster, sendToMaster } from "./masters.js";
 
 /** The mock api, which `playwright.config.ts` starts on 3200 beside the app on 3000. */
 const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
@@ -442,13 +442,14 @@ async function seedWaitingCases(
  * `daysAwaitingConfirmation` is a difference of UTC calendar days, `0` on the day the email went and never 1.
  */
 async function askApplicant(request: APIRequestContext, caseId: string, daysAgo: number): Promise<string> {
-  // A Master of its own, so the cap per Master never refuses the raise however many runs share the store.
+  // Raised into the queue and sent to a Master of its own, as the Referrals screen would (plan Fa1).
   const master = await newMaster(request, "Confirmation");
   const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, {
-    data: { reasons: ["Minor", "MinorCourtOrder"], masterId: master.id }
+    data: { reasons: ["Minor", "MinorCourtOrder"] }
   });
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;
+  await sendToMaster(request, referralId, master.id);
 
   // The Master's linked judge, because api shows an assigned referral to nobody else.
   const judge = bearer(master.judge);

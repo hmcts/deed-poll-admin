@@ -207,7 +207,7 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Implement, run the per-task checks, and record the results.
 
 ### Task 5: e2e journeys
-- [ ] Rewrite the journeys as step 6 says; run them on the temporary private-port config; record the result; delete the config.
+- [x] Rewrite the journeys as step 6 says; run them on the temporary private-port config; record the result; delete the config.
 
 ### Task 6: Documentation and final verification
 - [ ] Update `CLAUDE.md` and regenerate the Welsh CSV with `yarn welsh:extract`.
@@ -330,3 +330,28 @@ that can be sent to Masters in one referral window, across all Masters. Enter 1 
 referrals in each window as a whole number from 1 to 100"; `e2e-tests/tests/service-settings.spec.ts` uses the new label
 (it runs under `yarn test:gazette` in Task 6). The mock already took `windowCap` from Task 0. Checks: format no fixes;
 `yarn lint` clean; `yarn build --force` 8 of 8; tests: deed-poll 1,737 (+2), app 3,340 (+1); all passing.
+
+**Task 5.** **Deliberate deviation from step 6:** the Team leader's queue journeys are a new
+`e2e-tests/tests/referral-queue.spec.ts` on a mock of their own (`playwright.referrals.config.ts`, mock 3217, app 3317,
+Redis database 5, `yarn test:referrals`, excluded from `yarn test:e2e` like the document viewer), not in
+`deed-polls.spec.ts`. The referral clock and the window's cap are the whole service's, and moving the clock out of a
+window or lowering the cap on the shared mock would refuse every send a parallel worker makes. It signs itself in
+(no setup project, so the shared `.auth/` sessions are not rewritten for another port) and holds two journeys: queue
+outside a window (the next one at 14:00, no per-Master table), the check view, a ticked row with no Master refused
+beside it, a review with no Send outside a window, then inside it the review's totals, Send, the banner "2 referrals
+sent to 2 Masters." and the counts moved, With a Master, a reassignment outside a window and the caseworker's case
+page naming the new Master; and the cap lowered through api's settings to leave room for one, so two selected show
+"Only 1 more referral can be sent this morning." and no Send, and one that loses the last place to a send made
+meanwhile gets api's "No more referrals can be sent this morning." on the review. Every page is axe-checked; its
+copy's `cy` mirrors `en`, so no Welsh check. `masters.ts` gained `sendToMaster` and `openWindowWithRoom`, which only
+ever move the clock *into* an open window with room (a week on, the same morning, when this one is full or a bank
+holiday) and retry a send that lost its place; `assignReferral` and `referralCap` went. `confirmation`, `emails`,
+`persona-switcher`, `document-viewer`, `judicial` and `deed-polls` raise without a `masterId` and send. In
+`deed-polls.spec.ts` the raise journey asks no Master and reads "Waiting to be sent" (reassignment and the full Master
+went with the assign page), and the waiting journey now sends a Team leader through "Check and send referrals" to the
+screen and a caseworker through "View referrals waiting to be sent" to the worklist, with no Referrals link and a 403
+on the 404 view at `/deed-polls/referrals`; the computed disabled-radio waiver went with the full Master. In
+`judicial.spec.ts` My referrals is read by the day sent (`assignedAt`), urgent on top, with "Sent dd-mm-yy". Runs:
+`yarn test:referrals` 2 passed; the plan's temporary config (mock 3226, app 3326, Redis 6316/2) 36 passed (setup
+and the six changed specs), then deleted; `yarn test:document-viewer` 2 passed. Checks: format no fixes; `yarn lint`
+clean; `yarn build --force` 8 of 8; app 3,340, all passing.
