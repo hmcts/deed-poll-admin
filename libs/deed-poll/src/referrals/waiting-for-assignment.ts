@@ -1,10 +1,10 @@
 /**
- * "Waiting for assignment": the cases whose live referral no Master has (plan Db1), as a count and as the query that
+ * "Waiting to be sent": the cases whose live referral no Master has (plans Db1 and Fa1), as a count and as the query that
  * count links to.
  *
  * Built exactly as `returned-for-action.ts` is, for its reasons: one condition written down once, so the number and
  * the worklist behind it are the same question. **A `where` on `currentReferralState`, not a filter key**, because api
- * publishes no tab for it. A referral waits for assignment when it was raised without a Master before this release,
+ * publishes no tab for it. A referral waits to be sent when it has just been raised (plan Fa1: every raise is `Open`),
  * or when api's sweep took it back from a Master after the processing window passed with no direction; both are
  * `Open`, and this module decides nothing about which.
  */

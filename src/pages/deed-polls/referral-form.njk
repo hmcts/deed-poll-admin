@@ -133,31 +133,8 @@
         errorMessage: { text: errors.urgency } if errors.urgency
       }) }}
 
-      {#
-        Which Master, last (plan Db1). Without a list to choose from there is no question and no submit: api would
-        take the referral with no Master, and it would wait for assignment rather than go to anyone.
-      #}
-      {% if isMastersUnavailable %}
-        <p class="govuk-body" id="masterId">{{ mastersUnavailable }}</p>
-      {% elif hasNoMasters %}
-        <p class="govuk-body" id="masterId">{{ noMasters }}</p>
-      {% else %}
-        {{ govukRadios({
-          idPrefix: "masterId",
-          name: "masterId",
-          fieldset: { legend: { text: masterLegend, classes: "govuk-fieldset__legend--m" } },
-          items: masterItems,
-          errorMessage: { text: errors.masterId } if errors.masterId
-        }) }}
-        {% if isEveryMasterFull %}
-          <p class="govuk-body">{{ everyMasterFull }}</p>
-        {% endif %}
-      {% endif %}
-
       <div class="govuk-button-group">
-        {% if not isMastersUnavailable and not hasNoMasters and not isEveryMasterFull %}
-          {{ govukButton({ text: submit }) }}
-        {% endif %}
+        {{ govukButton({ text: submit }) }}
         <a class="govuk-link" href="{{ case.id | casePath }}#referrals">{{ cancel }}</a>
       </div>
     </form>

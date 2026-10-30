@@ -314,17 +314,20 @@ describe("case detail template — the referrals tab", () => {
     expect(rendered).toContain("Withdraw the open referral before raising another.");
   });
 
-  it("should say a referral is waiting for assignment rather than with a Master, and offer the assign link on its row", async () => {
+  it("should say a referral is waiting to be sent to a Master, with no assign link on its row", async () => {
     const rendered = await page([{ ...REFERRAL, state: "Open" }]);
 
     expect(rendered).not.toContain('href="/deed-polls/case-1/referrals/new"');
-    expect(rendered).toContain("This case has a referral waiting to be assigned to a Master.");
-    expect(rendered).toMatch(/href="\/deed-polls\/case-1\/referrals\/ref-1\/assign">Assign to a Master<span class="govuk-visually-hidden">/);
+    expect(rendered).toContain("This case has a referral waiting to be sent to a Master. Withdraw it before raising another.");
+    expect(rendered).toContain("Waiting to be sent");
+    expect(rendered).not.toContain("/assign");
   });
 
-  it("should offer Assign to another Master on a Claimed row, and no assign link on a directed one", async () => {
-    expect(await page([{ ...REFERRAL, state: "Claimed" }])).toContain(">Assign to another Master<");
-    expect(await page([{ ...REFERRAL, state: "Decided" }])).not.toContain("/assign");
+  it.each(["Claimed", "Decided"])("should offer no assign link on a %s row, since caseworkers no longer assign (plan Fa1)", async (state) => {
+    const rendered = await page([{ ...REFERRAL, state }]);
+
+    expect(rendered).not.toContain("/assign");
+    expect(rendered).not.toContain("Assign to");
   });
 
   it("should tell a caseworker with a returned direction to action it, never to withdraw it", async () => {

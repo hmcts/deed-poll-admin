@@ -92,7 +92,7 @@ describe("referral view page", () => {
 
     expect(res.render.mock.calls[0][0]).toBe("deed-polls/referral-detail");
     expect(res.render.mock.calls[0][1].case.displayReference).toBe("KBDP2026-00001");
-    expect(res.render.mock.calls[0][1].referral.state).toBe("Waiting for assignment");
+    expect(res.render.mock.calls[0][1].referral.state).toBe("Waiting to be sent");
   });
 
   it("should show the reasons as labels rather than api's enum members", async () => {
@@ -368,73 +368,23 @@ describe("referral view page", () => {
       directionDueBy: new Date("2026-10-27T09:00:00Z")
     };
 
-    it("should link an Open referral to the assign page as Assign to a Master", async () => {
+    it.each([{ ...REFERRAL }, ASSIGNED])("should offer no assign link and read no assign flags on a $state referral (plan Fa1)", async (referral) => {
+      vi.mocked(findReferral).mockResolvedValue(referral as never);
       const res = response();
 
-      await GET(request(), res);
+      await GET(request({ assigned: "1", assign: "conflict" }), res);
 
-      expect(res.render.mock.calls[0][1]).toMatchObject({ assignLink: "Assign to a Master", assignHref: "/deed-polls/case-1/referrals/ref-1/assign" });
+      const model = res.render.mock.calls[0][1];
+      for (const key of ["assignLink", "assignHref", "assigned", "assignRefused"]) expect(model).not.toHaveProperty(key);
     });
 
-    it("should link a Claimed referral as Assign to another Master", async () => {
+    it("should still show who a Claimed referral is with and when its direction is due", async () => {
       vi.mocked(findReferral).mockResolvedValue(ASSIGNED as never);
       const res = response();
 
       await GET(request(), res);
 
-      expect(res.render.mock.calls[0][1].assignLink).toBe("Assign to another Master");
       expect(res.render.mock.calls[0][1].referral.assignment).toMatchObject({ masterName: "Master Wren", directionDueBy: "27-10-26" });
-    });
-
-    it.each(["Decided", "Closed", "Withdrawn"])("should offer no assign link on a %s referral", async (state) => {
-      vi.mocked(findReferral).mockResolvedValue({ ...ASSIGNED, state } as never);
-      const res = response();
-
-      await GET(request(), res);
-
-      expect(res.render.mock.calls[0][1].assignLink).toBe("");
-    });
-
-    it("should announce the assignment with the Master named by the fresh read", async () => {
-      vi.mocked(findReferral).mockResolvedValue(ASSIGNED as never);
-      const res = response();
-
-      await GET(request({ assigned: "1" }), res);
-
-      expect(res.render.mock.calls[0][1].assigned).toBe("Referral assigned to Master Wren");
-    });
-
-    it("should announce nothing rather than a placeholder name when the assigned Master has no name", async () => {
-      vi.mocked(findReferral).mockResolvedValue({ ...ASSIGNED, assignedMaster: { id: "master-1", name: null } } as never);
-      const res = response();
-
-      await GET(request({ assigned: "1" }), res);
-
-      expect(res.render.mock.calls[0][1].assigned).toBe("");
-    });
-
-    it("should announce nothing without the flag", async () => {
-      vi.mocked(findReferral).mockResolvedValue(ASSIGNED as never);
-      const res = response();
-
-      await GET(request(), res);
-
-      expect(res.render.mock.calls[0][1].assigned).toBe("");
-      expect(res.render.mock.calls[0][1].assignRefused).toBe("");
-    });
-
-    it.each([
-      { state: "Decided", sentence: "A direction has been recorded on this referral, so it can no longer be assigned to a Master." },
-      { state: "Closed", sentence: "This referral has already been closed or withdrawn, so it cannot be assigned to a Master." },
-      { state: "Withdrawn", sentence: "This referral has already been closed or withdrawn, so it cannot be assigned to a Master." },
-      { state: null, sentence: "This referral could not be assigned to a Master. Check its status below." }
-    ])("should explain a refused assignment of a $state referral from the fresh read", async ({ state, sentence }) => {
-      vi.mocked(findReferral).mockResolvedValue({ ...ASSIGNED, state } as never);
-      const res = response();
-
-      await GET(request({ assign: "conflict" }), res);
-
-      expect(res.render.mock.calls[0][1].assignRefused).toBe(sentence);
     });
   });
 

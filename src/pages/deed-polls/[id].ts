@@ -111,9 +111,6 @@ const en = {
   // same sentence as the referral page's, which is where the case note api wrote is one click nearer.
   directionChangedFor: (changedOn: string) => `The Master changed this direction on ${changedOn}.`,
   raiseReferral: "Refer this case to a Master",
-  // The row's assign link (plan Db1), keyed by `assignAction`. The visually hidden part says which referral.
-  assignLinks: { assign: "Assign to a Master", reassign: "Assign to another Master" },
-  assignLinkHint: "for the referral raised on",
   viewReferralHint: "view this referral",
   // Decision 9: the previous system recorded no reasons, so a migrated referral has none and says which it is.
   migratedReferral: "Migrated from the previous system",
@@ -127,8 +124,8 @@ const en = {
   // `referralsUnavailable` says nothing was read, while this says a referral was read and could not be
   // understood.
   liveReferralMessages: {
-    // Plan Db1: an `Open` referral is no longer with anyone, so "withdraw it" is not the only thing to say.
-    waitingForAssignment: "This case has a referral waiting to be assigned to a Master. Assign it, or withdraw it before raising another.",
+    // Plan Fa1: an `Open` referral waits for a Team leader or Delivery Manager to send it to a Master.
+    waitingForAssignment: "This case has a referral waiting to be sent to a Master. Withdraw it before raising another.",
     withJudiciary: "This case is with a Master. Withdraw the open referral before raising another.",
     directionReceived:
       "A Master has returned a direction on this case. Carry out the direction, make any case updates it requires, and mark the referral as actioned before raising another.",

@@ -14,6 +14,7 @@
  */
 import {
   ACCESS_GAZETTE,
+  ALLOCATE_REFERRALS,
   type CallerAccess,
   currentUser,
   DELETE_NOTE,
@@ -28,7 +29,7 @@ import { vi } from "vitest";
 import type { RefreshClaim } from "./auth/guarded-session-store.js";
 import type { RefreshCoordinator, SessionReplacer } from "./auth/session.js";
 
-const CASEWORK = [OVERRIDE_PRIVACY, DELETE_NOTE, DELETE_WITNESS, MANAGE_SHARED_QUERIES, REPAIR_CCD];
+const CASEWORK = [OVERRIDE_PRIVACY, DELETE_NOTE, DELETE_WITNESS, MANAGE_SHARED_QUERIES, REPAIR_CCD, ALLOCATE_REFERRALS];
 
 /**
  * What api's `GET /me` answers for each persona, which is all a page decides from.

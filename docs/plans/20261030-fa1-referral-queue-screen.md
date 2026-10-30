@@ -191,8 +191,8 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Implement the adapter, the capability, the mock and the seed, run the seeder on a private-port mock, run the per-task checks, and record the results.
 
 ### Task 1: Raising without a Master, and the caseworker's side
-- [ ] Add failing handler, schema and template tests for the raise form without Masters, the removed assign page and links, the new state wording and the reworded count with its two link targets.
-- [ ] Implement, delete the assign page and the Master radios, run the per-task checks, and record the results.
+- [x] Add failing handler, schema and template tests for the raise form without Masters, the removed assign page and links, the new state wording and the reworded count with its two link targets.
+- [x] Implement, delete the assign page and the Master radios, run the per-task checks, and record the results.
 
 ### Task 2: The Referrals screen: queue, check view and gate
 - [ ] Add failing tests for the gate, the case-list link, `index` (both tabs, the window panel inside and outside a window, the rows, the selection form) and the check view.
@@ -250,3 +250,19 @@ ignores, until Task 5 rewrites them. Checks: format fixed 6 files; `yarn lint` c
 `yarn build --force` 8 of 8; tests: deed-poll-api-client 1,448, deed-poll 1,719, app 3,260 (3,275 less the 15 deleted),
 the other five packages unchanged; all passing.
 
+**Task 1.** The raise form asks no Master and reads no Masters list: `masterId`, the radios, their three degraded
+states and the cap-409 branch are gone, and `createReferralSchema` strips a posted `masterId`. Deleted: `assign.ts` and
+its test, `referral-assign.njk` and its test, `src/master-radios.ts`, and `master-choices.ts` with its test and export
+(the queue envelope carries the Masters the screen needs; settings keeps its own `listMasters`). `assignReferralSchema`
+went with the page; the `assignReferral` service stays for Task 3's reassign. `assignAction` and both assign links (the
+referral page and the case page's panel), with the `?assigned`/`?assign=conflict` banners, are gone. `Open` reads
+"Waiting to be sent" / "A Team leader or Delivery Manager will check this referral and send it to a Master."; the case
+panel's live-referral sentence for `Open`, which is what a caseworker sees after raising (the POST still redirects to
+`#referrals`), says "This case has a referral waiting to be sent to a Master. Withdraw it before raising another." The
+case-list count reads "N referrals are waiting to be sent to a Master." (singular and plural) for everyone; holders of
+`ALLOCATE_REFERRALS` get "Check and send referrals" to `/deed-polls/referrals` (a 404 until Task 2), everyone else
+"View referrals waiting to be sent" to the `Open` worklist. `src/express-doubles.ts`' Team leader set gained
+`ALLOCATE_REFERRALS`, as the mock's did in Task 0. The e2e specs still drive the assign page and the old wording; Task 5
+rewrites them. Checks: format fixed 1 file; `yarn lint` clean; `yarn build --force` 8 of 8; tests: deed-poll 1,704
+(1,719 less the deleted master-choices and assign-schema tests), app 3,225 (3,260 less the assign page, its template
+and the Master-radio tests, plus the new ones); all passing.
