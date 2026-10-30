@@ -210,8 +210,8 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Rewrite the journeys as step 6 says; run them on the temporary private-port config; record the result; delete the config.
 
 ### Task 6: Documentation and final verification
-- [ ] Update `CLAUDE.md` and regenerate the Welsh CSV with `yarn welsh:extract`.
-- [ ] Run all Validation Commands once more with `--force`, and `yarn test:gazette`; record the counts against the baseline, and confirm `git status` is clean apart from the task commits.
+- [x] Update `CLAUDE.md` and regenerate the Welsh CSV with `yarn welsh:extract`.
+- [x] Run all Validation Commands once more with `--force`, and `yarn test:gazette`; record the counts against the baseline, and confirm `git status` is clean apart from the task commits.
 
 ## Execution notes
 
@@ -355,3 +355,15 @@ on the 404 view at `/deed-polls/referrals`; the computed disabled-radio waiver w
 `yarn test:referrals` 2 passed; the plan's temporary config (mock 3226, app 3326, Redis 6316/2) 36 passed (setup
 and the six changed specs), then deleted; `yarn test:document-viewer` 2 passed. Checks: format no fixes; `yarn lint`
 clean; `yarn build --force` 8 of 8; app 3,340, all passing.
+
+**Task 6.** `CLAUDE.md`: "Referrals are assigned, never claimed" is now "Referrals wait in a queue, and a Team leader or
+Delivery Manager sends them" (deploy order api F1 first, the raise without a Master, the caseworker's wording, the
+screen's gate, tabs, review and send, the window-total cap, reassignment, the reworded count with its two links, and
+`yarn test:referrals`); the persona intro, the caseworker-409 sentence, My referrals by the day sent, a Referrals line
+beside the Gazette gate, a "Send referrals" column in the capability table and the settings cap's wording are updated.
+The extractor already covers `src/pages/deed-polls` and `src/referral-queue`; `yarn welsh:extract` regenerated the CSV.
+Final checks: format no fixes; `yarn lint` clean (the baseline warning was fixed in Task 0); `yarn build --force` 8 of 8;
+`REDIS_URL=redis://127.0.0.1:6379 yarn turbo test test:app --concurrency=1 --force`: simple-router 45 (baseline 45),
+deed-poll-api-client 1,448 (1,393), express-govuk-starter 132 (132), deed-poll 1,737 (1,723), express-session-postgres
+85 (85), express-session-redis 7 (7), cloud-native-platform 156 (156), app 3,340 (3,275); all passing, none skipped, no
+regressions. `yarn test:gazette` 10 passed. `git status` was clean apart from this task's changes before the commit.
