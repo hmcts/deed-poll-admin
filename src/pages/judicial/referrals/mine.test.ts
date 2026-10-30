@@ -41,6 +41,7 @@ const referral = (overrides: Partial<JudicialReferralSummary> = {}): JudicialRef
     urgency: "Normal",
     urgencyReason: null,
     createdOn: new Date("2026-09-03T08:44:00Z"),
+    assignedAt: new Date("2026-09-04T09:00:00Z"),
     ...overrides
   }) as JudicialReferralSummary;
 
@@ -98,11 +99,11 @@ describe("the judge's own referrals page", () => {
   // sections off that order rather than sorting.
   it("should split api's page into the three sections, keeping api's order inside each", async () => {
     const referrals = [
-      referral({ id: "urgent", urgency: "Urgent", createdOn: new Date("2026-10-20T09:00:00Z") }),
-      referral({ id: "await-a", createdOn: new Date("2026-10-19T09:00:00Z") }),
-      referral({ id: "await-b", createdOn: new Date("2026-10-19T10:00:00Z") }),
-      referral({ id: "await-c", createdOn: new Date("2026-10-21T09:00:00Z") }),
-      referral({ id: "directed", state: "Decided", createdOn: new Date("2026-10-16T09:00:00Z") })
+      referral({ id: "urgent", urgency: "Urgent", assignedAt: new Date("2026-10-20T09:00:00Z") }),
+      referral({ id: "await-a", assignedAt: new Date("2026-10-19T09:00:00Z") }),
+      referral({ id: "await-b", assignedAt: new Date("2026-10-19T10:00:00Z") }),
+      referral({ id: "await-c", assignedAt: new Date("2026-10-21T09:00:00Z") }),
+      referral({ id: "directed", state: "Decided", assignedAt: new Date("2026-10-16T09:00:00Z") })
     ];
     vi.mocked(listMyReferrals).mockResolvedValue(mine({ referrals, total: 5 }) as never);
     const res = pageResponse();
@@ -123,7 +124,7 @@ describe("the judge's own referrals page", () => {
   it("should resolve each row's dates and link hint into the page's words", async () => {
     vi.mocked(listMyReferrals).mockResolvedValue(
       mine({
-        referrals: [referral({ urgency: "Urgent", createdOn: new Date("2026-10-20T09:00:00Z"), directionDueBy: new Date("2026-10-27T09:00:00Z") })]
+        referrals: [referral({ urgency: "Urgent", assignedAt: new Date("2026-10-20T09:00:00Z"), directionDueBy: new Date("2026-10-27T09:00:00Z") })]
       }) as never
     );
     const res = pageResponse();
@@ -134,11 +135,11 @@ describe("the judge's own referrals page", () => {
       {
         id: "ref-1",
         reasons: ["Applicant is a minor"],
-        referredOn: "20-10-26",
+        sentOn: "20-10-26",
         directionDueBy: "27-10-26",
-        referredOnText: "Referred 20-10-26",
+        sentOnText: "Sent 20-10-26",
         dueByText: "Direction due by 27-10-26",
-        viewHint: "the referral referred on 20-10-26: Applicant is a minor"
+        viewHint: "the referral sent on 20-10-26: Applicant is a minor"
       }
     ]);
   });
@@ -163,9 +164,9 @@ describe("the judge's own referrals page", () => {
     expect(Object.keys(res.render.mock.calls[0][1].awaiting[0].rows[0])).toEqual([
       "id",
       "reasons",
-      "referredOn",
+      "sentOn",
       "directionDueBy",
-      "referredOnText",
+      "sentOnText",
       "dueByText",
       "viewHint"
     ]);
@@ -217,7 +218,7 @@ describe("the judge's own referrals page", () => {
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].awaiting[0].rows[0].viewHint).toBe("the referral referred on 03-09-26: Applicant is a minor");
+    expect(res.render.mock.calls[0][1].awaiting[0].rows[0].viewHint).toBe("the referral sent on 04-09-26: Applicant is a minor");
   });
 
   // Decision 8: the list is the whole page, so an unreadable one is not a page. An empty "My referrals" would

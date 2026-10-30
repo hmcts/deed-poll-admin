@@ -60,7 +60,7 @@ const PROCESS = {
 const BODY = {
   processingDays: "7",
   reminderIntervalHours: "48",
-  masterWindowCap: "10",
+  windowCap: "10",
   morningWindowStart: "07:00",
   morningWindowEnd: "10:30",
   afternoonWindowStart: "14:00",
@@ -157,6 +157,16 @@ describe("service settings page", () => {
     }
   });
 
+  // api F1: the cap is the window's total across every Master, no longer a per-Master limit.
+  it("should label the cap as the window's total across all Masters", async () => {
+    const { markup } = await render(GET);
+
+    const process = form(markup, "/deed-polls/settings#process-settings");
+    expect(process).toMatch(/<label[^>]*for="windowCap"[^>]*>\s*Referrals in each window\s*<\/label>/);
+    expect(process).toContain("The most referrals that can be sent to Masters in one referral window, across all Masters. Enter 1 to 100.");
+    expect(process).not.toContain("per Master");
+  });
+
   it("should show every referral process value in one form with the warning before its Save and escaped attribution", async () => {
     const { markup } = await render(GET);
 
@@ -164,7 +174,7 @@ describe("service settings page", () => {
     expect(markup).toContain('<h2 class="govuk-heading-m">Referral process</h2>');
     expect(process).toMatch(/id="processingDays"[^>]*value="7"/);
     expect(process).toMatch(/id="reminderIntervalHours"[^>]*value="48"/);
-    expect(process).toMatch(/id="masterWindowCap"[^>]*value="10"/);
+    expect(process).toMatch(/id="windowCap"[^>]*value="10"/);
     expect(process).toMatch(/id="morningWindowStart"[^>]*value="07:00"/);
     expect(process).toMatch(/id="morningWindowEnd"[^>]*value="10:30"/);
     expect(process).toMatch(/id="afternoonWindowStart"[^>]*value="14:00"/);
@@ -313,7 +323,7 @@ describe("service settings page", () => {
     it.each([
       ["invalid days", { ...BODY, processingDays: "1.5" }],
       ["invalid reminder", { ...BODY, reminderIntervalHours: "-1" }],
-      ["invalid cap", { ...BODY, masterWindowCap: "101" }],
+      ["invalid cap", { ...BODY, windowCap: "101" }],
       ["invalid time", { ...BODY, morningWindowStart: "7am" }],
       ["out of order", { ...BODY, afternoonWindowStart: "09:00" }],
       ["missing revision", { ...BODY, revision: undefined }],
@@ -322,7 +332,7 @@ describe("service settings page", () => {
         {
           processingDays: "x",
           reminderIntervalHours: "y",
-          masterWindowCap: "z",
+          windowCap: "z",
           morningWindowStart: "a",
           morningWindowEnd: "b",
           afternoonWindowStart: "c",

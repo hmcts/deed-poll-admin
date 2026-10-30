@@ -203,8 +203,8 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Implement, run the per-task checks, and record the results.
 
 ### Task 4: The Master's side and the settings cap
-- [ ] Add failing tests for My referrals grouped by the day sent and the settings page's window cap.
-- [ ] Implement, run the per-task checks, and record the results.
+- [x] Add failing tests for My referrals grouped by the day sent and the settings page's window cap.
+- [x] Implement, run the per-task checks, and record the results.
 
 ### Task 5: e2e journeys
 - [ ] Rewrite the journeys as step 6 says; run them on the temporary private-port config; record the result; delete the config.
@@ -319,3 +319,14 @@ that they will be emailed and that it uses no place in a window, and pre-selects
 success; api's 400 on `masterId` redraws beside the radios. `assignReferral`'s docblock now describes F1. Checks: format
 no fixes; `yarn lint` clean after `lint:fix` sorted two import lists; `yarn build --force` 8 of 8; tests: deed-poll
 1,735 (+18), app 3,339 (+60); the gate, href, layout, `forLog` and Welsh sweeps pass; all passing.
+
+**Task 4.** `buildMyReferralSections` groups by `sentOn`, the day of `assignedAt` in London (the row's `referredOn`
+became `sentOn`), falling back to `createdOn` for a referral claimed before assignment existed, because the summary
+carries no `claimedAt` (api orders by `coalesce(assignedAt, claimedAt, createdOn)`); still never re-sorted. My
+referrals' Urgent rows say "Sent dd-mm-yy" and each link's hidden text "the referral sent on …"; the test fixtures now
+drive `assignedAt`. Settings: the control is `windowCap` end to end (the form, the schema, which no longer renames it,
+api's field-error mapping and the stored value), labelled "Referrals in each window" with the hint "The most referrals
+that can be sent to Masters in one referral window, across all Masters. Enter 1 to 100." and the error "Enter the
+referrals in each window as a whole number from 1 to 100"; `e2e-tests/tests/service-settings.spec.ts` uses the new label
+(it runs under `yarn test:gazette` in Task 6). The mock already took `windowCap` from Task 0. Checks: format no fixes;
+`yarn lint` clean; `yarn build --force` 8 of 8; tests: deed-poll 1,737 (+2), app 3,340 (+1); all passing.

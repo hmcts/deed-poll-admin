@@ -45,7 +45,7 @@ const PROCESS = {
 const STORED_VALUES = {
   processingDays: "7",
   reminderIntervalHours: "48",
-  masterWindowCap: "10",
+  windowCap: "10",
   morningWindowStart: "07:00",
   morningWindowEnd: "10:30",
   afternoonWindowStart: "14:00",
@@ -224,7 +224,7 @@ describe("process section POST", () => {
   it.each([
     ["processing window", { processingDays: "31" }, "processingDays", "Enter the processing window as a whole number of days from 1 to 30"],
     ["reminder interval", { reminderIntervalHours: "+2" }, "reminderIntervalHours", "Enter the reminder interval as a whole number of hours from 1 to 168"],
-    ["cap", { masterWindowCap: "" }, "masterWindowCap", "Enter the referrals per Master as a whole number from 1 to 100"],
+    ["cap", { windowCap: "" }, "windowCap", "Enter the referrals in each window as a whole number from 1 to 100"],
     ["morning start", { morningWindowStart: "7:00" }, "morningWindowStart", expect.stringContaining("morning window’s start")],
     ["afternoon end", { afternoonWindowEnd: "14:20" }, "afternoonWindowEnd", expect.stringContaining("afternoon window’s end")],
     ["morning ordering", { morningWindowEnd: "06:00" }, "morningWindowEnd", "The morning window must end after it starts"],
@@ -297,7 +297,7 @@ describe("process section POST", () => {
       [{ field: "referralClaimExpiryMinutes", message: "x" }],
       { errors: { processingDays: "Enter the processing window as a whole number of days from 1 to 30" } }
     ],
-    [[{ field: "windowCap", message: "x" }], { errors: { masterWindowCap: "Enter the referrals per Master as a whole number from 1 to 100" } }],
+    [[{ field: "windowCap", message: "x" }], { errors: { windowCap: "Enter the referrals in each window as a whole number from 1 to 100" } }],
     [[{ field: "afternoonWindowStart", message: "x" }], { errors: { afternoonWindowStart: "The afternoon window must start after the morning window ends" } }],
     [[{ field: "morningWindowEnd", message: "x" }], { errors: { morningWindowEnd: "The morning window must end after it starts" } }],
     [

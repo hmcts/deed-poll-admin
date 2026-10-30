@@ -12,12 +12,14 @@ const summary = (overrides: Partial<JudicialReferralSummary> = {}): JudicialRefe
     urgency: "Normal",
     urgencyReason: null,
     createdOn: new Date("2026-09-03T08:44:00Z"),
+    assignedAt: new Date("2026-09-04T09:00:00Z"),
     ...overrides
   }) as JudicialReferralSummary;
 
 const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferralDetail =>
   ({
     ...summary(),
+    assignedAt: null,
     claimedBy: null,
     claimedAt: null,
     decision: null,
@@ -76,29 +78,29 @@ describe("judicial/view", () => {
         id: "urgent-1",
         state: "Claimed",
         urgency: "Urgent",
-        createdOn: new Date("2026-10-20T09:00:00Z"),
+        assignedAt: new Date("2026-10-20T09:00:00Z"),
         directionDueBy: new Date("2026-10-27T09:00:00Z")
       }),
       summary({
         id: "urgent-2",
         state: "Claimed",
         urgency: "Urgent",
-        createdOn: new Date("2026-10-22T09:00:00Z"),
+        assignedAt: new Date("2026-10-22T09:00:00Z"),
         directionDueBy: new Date("2026-10-29T09:00:00Z")
       }),
-      summary({ id: "await-1", state: "Claimed", createdOn: new Date("2026-10-19T08:00:00Z"), directionDueBy: new Date("2026-10-26T08:00:00Z") }),
-      summary({ id: "await-2", state: "Claimed", createdOn: new Date("2026-10-19T22:30:00Z"), directionDueBy: new Date("2026-10-26T22:30:00Z") }),
-      summary({ id: "await-3", state: "Claimed", createdOn: new Date("2026-10-21T10:00:00Z"), directionDueBy: new Date("2026-10-28T10:00:00Z") }),
-      summary({ id: "await-4", state: "Claimed", createdOn: new Date("2026-10-23T10:00:00Z"), directionDueBy: new Date("2026-10-30T10:00:00Z") }),
+      summary({ id: "await-1", state: "Claimed", assignedAt: new Date("2026-10-19T08:00:00Z"), directionDueBy: new Date("2026-10-26T08:00:00Z") }),
+      summary({ id: "await-2", state: "Claimed", assignedAt: new Date("2026-10-19T22:30:00Z"), directionDueBy: new Date("2026-10-26T22:30:00Z") }),
+      summary({ id: "await-3", state: "Claimed", assignedAt: new Date("2026-10-21T10:00:00Z"), directionDueBy: new Date("2026-10-28T10:00:00Z") }),
+      summary({ id: "await-4", state: "Claimed", assignedAt: new Date("2026-10-23T10:00:00Z"), directionDueBy: new Date("2026-10-30T10:00:00Z") }),
       summary({
         id: "directed-1",
         state: "Decided",
         urgency: "Urgent",
-        createdOn: new Date("2026-10-15T10:00:00Z"),
+        assignedAt: new Date("2026-10-15T10:00:00Z"),
         directionDueBy: new Date("2026-10-22T10:00:00Z")
       }),
-      summary({ id: "directed-2", state: "Decided", createdOn: new Date("2026-10-16T10:00:00Z") }),
-      summary({ id: "directed-3", state: "Decided", createdOn: new Date("2026-10-16T12:00:00Z") })
+      summary({ id: "directed-2", state: "Decided", assignedAt: new Date("2026-10-16T10:00:00Z") }),
+      summary({ id: "directed-3", state: "Decided", assignedAt: new Date("2026-10-16T12:00:00Z") })
     ];
 
     const ids = (rows: { id: string }[]) => rows.map((row) => row.id);
@@ -136,9 +138,29 @@ describe("judicial/view", () => {
       expect(ids(all).sort()).toEqual(ids(PAGE).sort());
     });
 
-    it("should read the day across midnight in London, not in UTC", () => {
+    // Plan Fa1 step 4: a referral can wait in the queue for days, so the day it was raised says nothing about when
+    // the Master received it.
+    it("should group by the day sent, not the day the referral was raised", () => {
+      const sections = buildMyReferralSections([
+        summary({ id: "a", state: "Claimed", createdOn: new Date("2026-10-19T10:00:00Z"), assignedAt: new Date("2026-10-22T08:00:00Z") }),
+        summary({ id: "b", state: "Claimed", createdOn: new Date("2026-10-21T10:00:00Z"), assignedAt: new Date("2026-10-22T09:00:00Z") })
+      ]);
+
+      expect(sections.awaiting.map((group) => [group.day, ids(group.rows)])).toEqual([["22-10-26", ["a", "b"]]]);
+      expect(sections.awaiting[0].rows[0].sentOn).toBe("22-10-26");
+    });
+
+    // api orders such a referral by `coalesce(assignedAt, claimedAt, createdOn)`, and the summary carries no
+    // `claimedAt`, so the day it was raised is the nearest date the row has.
+    it("should fall back to the day raised for a referral claimed before assignment existed", () => {
+      const sections = buildMyReferralSections([summary({ id: "claimed", state: "Claimed", createdOn: new Date("2026-10-19T10:00:00Z"), assignedAt: null })]);
+
+      expect(sections.awaiting[0].day).toBe("19-10-26");
+    });
+
+    it("should read the day sent across midnight in London, not in UTC", () => {
       // 23:30 UTC on 20 October is 00:30 on the 21st in London (BST).
-      const sections = buildMyReferralSections([summary({ id: "late", state: "Claimed", createdOn: new Date("2026-10-20T23:30:00Z") })]);
+      const sections = buildMyReferralSections([summary({ id: "late", state: "Claimed", assignedAt: new Date("2026-10-20T23:30:00Z") })]);
 
       expect(sections.awaiting[0].day).toBe("21-10-26");
     });
@@ -157,18 +179,18 @@ describe("judicial/view", () => {
 
     it("should not re-sort what api sent, so a broken run shows its day twice", () => {
       const sections = buildMyReferralSections([
-        summary({ id: "b", state: "Claimed", createdOn: new Date("2026-10-21T10:00:00Z") }),
-        summary({ id: "a", state: "Claimed", createdOn: new Date("2026-10-19T10:00:00Z") }),
-        summary({ id: "c", state: "Claimed", createdOn: new Date("2026-10-21T11:00:00Z") })
+        summary({ id: "b", state: "Claimed", assignedAt: new Date("2026-10-21T10:00:00Z") }),
+        summary({ id: "a", state: "Claimed", assignedAt: new Date("2026-10-19T10:00:00Z") }),
+        summary({ id: "c", state: "Claimed", assignedAt: new Date("2026-10-21T11:00:00Z") })
       ]);
 
       expect(sections.awaiting.map((group) => group.day)).toEqual(["21-10-26", "19-10-26", "21-10-26"]);
     });
 
-    it("should give the referred date and the due date in dd-mm-yy, and no due date once directed", () => {
+    it("should give the sent date and the due date in dd-mm-yy, and no due date once directed", () => {
       const sections = buildMyReferralSections(PAGE);
 
-      expect(sections.urgent[0]).toEqual({ id: "urgent-1", reasons: ["Applicant is a minor"], referredOn: "20-10-26", directionDueBy: "27-10-26" });
+      expect(sections.urgent[0]).toEqual({ id: "urgent-1", reasons: ["Applicant is a minor"], sentOn: "20-10-26", directionDueBy: "27-10-26" });
       expect(sections.directed[0].rows[0].directionDueBy).toBeNull();
     });
 

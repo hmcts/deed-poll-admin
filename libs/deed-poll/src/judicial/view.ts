@@ -92,12 +92,12 @@ export const DIRECTION_DECISION_CHOICES: { value: MasterDecision; text: string }
 
 /**
  * A Master's own referrals as the three sections of My referrals (Steve, 2026-10-28): the urgent ones still waiting
- * for a direction, then the rest of the undirected ones by the day they were referred, then the directed ones the
+ * for a direction, then the rest of the undirected ones by the day they were sent, then the directed ones the
  * office has not yet actioned, by day too.
  *
- * **Read off api's order, never re-sorted** (api D2's `MINE_ORDER`). api already lists undirected before directed,
- * urgent first among the undirected, then oldest first, so each section takes its rows in the order they arrived and
- * a day's group is a run of consecutive rows with the same day. Sorting here would make the page disagree with its
+ * **Read off api's order, never re-sorted** (api's `MINE_ORDER`, by `assignedAt` since api F1). api already lists
+ * undirected before directed, urgent first among the undirected, then oldest sent first, so each section takes its
+ * rows in the order they arrived and a day's group is a run of consecutive rows with the same day. Sorting here would make the page disagree with its
  * own pagination; if api's order ever broke a run, the day would simply appear twice.
  *
  * **Undirected means `Claimed`, the same key api orders on**, so a section boundary here is a boundary in api's list.
@@ -106,8 +106,10 @@ export const DIRECTION_DECISION_CHOICES: { value: MasterDecision; text: string }
  * **A page boundary inside a day repeats that day's heading on the next page**, without anything to arrange: each page
  * is grouped from its own rows, so the next page's first run gets its heading too.
  *
- * The day is `createdOn`'s day in `Europe/London`, which is `formatShortDate`'s, so the heading and the key cannot
- * disagree. The summary carries no case reference (decision 3), so a row is its reasons, its dates and its link.
+ * The day is the day sent, `assignedAt` in `Europe/London` (plan Fa1 step 4: a referral can wait in the queue for days,
+ * so the day raised says nothing about when the Master received it), and it is `formatShortDate`'s, so the heading and
+ * the key cannot disagree. The summary carries no case reference (decision 3), so a row is its reasons, its dates
+ * and its link.
  */
 export function buildMyReferralSections(referrals: JudicialReferralSummary[]): MyReferralSections {
   const rows = referrals.map((referral) => ({ referral, row: buildMyReferralRow(referral) }));
@@ -250,7 +252,9 @@ function buildMyReferralRow(referral: JudicialReferralSummary): MyReferralRow {
   return {
     id: referral.id,
     reasons: referralReasonLabels(referral.reasons),
-    referredOn: formatShortDate(referral.createdOn),
+    // api orders by `coalesce(assignedAt, claimedAt, createdOn)`; the summary carries no `claimedAt`, so a referral
+    // claimed before assignment existed falls back to the day it was raised.
+    sentOn: formatShortDate(referral.assignedAt ?? referral.createdOn),
     directionDueBy: isUndirected(referral) ? formatShortDate(referral.directionDueBy) : null
   };
 }
@@ -260,11 +264,11 @@ function isUndirected(referral: JudicialReferralSummary): boolean {
   return referral.state === "Claimed";
 }
 
-/** Consecutive rows referred on the same day, as one group each, in the order they came. */
+/** Consecutive rows sent on the same day, as one group each, in the order they came. */
 function groupByDay(rows: MyReferralRow[]): MyReferralDay[] {
-  const starts = rows.flatMap((row, index) => (index === 0 || rows[index - 1].referredOn !== row.referredOn ? [index] : []));
+  const starts = rows.flatMap((row, index) => (index === 0 || rows[index - 1].sentOn !== row.sentOn ? [index] : []));
 
-  return starts.map((start, index) => ({ day: rows[start].referredOn, rows: rows.slice(start, starts[index + 1]) }));
+  return starts.map((start, index) => ({ day: rows[start].sentOn, rows: rows.slice(start, starts[index + 1]) }));
 }
 
 /** A timestamp api may not have sent, formatted, or `null`. */
@@ -290,9 +294,9 @@ function orPlaceholder(raw: string | null | undefined, placeholder: string = NOT
 export interface MyReferralSections {
   /** Urgent and still waiting for a direction. */
   urgent: MyReferralRow[];
-  /** The other undirected referrals, one group per day referred. */
+  /** The other undirected referrals, one group per day sent. */
   awaiting: MyReferralDay[];
-  /** Directed, waiting for the office to action the direction, one group per day referred. */
+  /** Directed, waiting for the office to action the direction, one group per day sent. */
   directed: MyReferralDay[];
   /** api sent no rows on this page. */
   isEmpty: boolean;
@@ -300,7 +304,7 @@ export interface MyReferralSections {
 
 /** The referrals of one day, under that day's heading. */
 export interface MyReferralDay {
-  /** `dd-mm-yy`, the day referred in `Europe/London`. */
+  /** `dd-mm-yy`, the day sent in `Europe/London`. */
   day: string;
   rows: MyReferralRow[];
 }
@@ -313,8 +317,8 @@ export interface MyReferralRow {
   /** The referral's id — the only key any judicial URL takes, and the whole of the link. */
   id: string;
   reasons: string[];
-  /** `dd-mm-yy`, when the office referred it. */
-  referredOn: string;
+  /** `dd-mm-yy`, when the referral was sent to this Master. */
+  sentOn: string;
   /** `dd-mm-yy` while a direction is owed, `null` once one is recorded. */
   directionDueBy: string | null;
 }
