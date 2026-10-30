@@ -82,7 +82,8 @@
           {% set selectCell %}
             {{ govukCheckboxes({
               name: "referrals", classes: "govuk-checkboxes--small",
-              items: [{ value: r.id, text: selectFor(r.reference), label: { classes: "govuk-visually-hidden" }, id: "select-" + loop.index, checked: r.isSelected }]
+              items: [{ value: r.id, text: selectFor(r.reference), label: { classes: "govuk-visually-hidden" }, id: "select-" + loop.index, checked: r.isSelected,
+                attributes: { "aria-describedby": "referrals-error" } if selectionError else undefined }]
             }) }}
           {% endset %}
           {% set referenceCell %}

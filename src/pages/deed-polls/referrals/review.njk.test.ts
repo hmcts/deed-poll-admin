@@ -134,5 +134,6 @@ describe("referral queue review template", () => {
 
     expect(markup).toContain('href="#select-1">Select at least one referral to send</a>');
     expect(markup).toContain('id="referrals-error"');
+    expect(markup).toMatch(/id="select-1" name="referrals" type="checkbox" value="[^"]+"\s+aria-describedby="referrals-error"/);
   });
 });

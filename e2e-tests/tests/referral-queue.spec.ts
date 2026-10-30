@@ -17,7 +17,8 @@ import { type APIRequestContext, expect, type Locator, type Page, test } from "@
 import { CASEWORKER_EMAIL, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsTeamLeader } from "./idam-session.js";
 import { bearer, type Master, newMaster } from "./masters.js";
 
-const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3217";
+// The config hands DEED_POLL_API_URL to the app it starts, not to this process, so the default is its mock's port.
+const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3218";
 
 const QUEUE_PATH = "/deed-polls/referrals";
 
