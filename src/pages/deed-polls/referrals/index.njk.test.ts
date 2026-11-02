@@ -170,6 +170,18 @@ describe("referral queue template", () => {
       expect(form).not.toContain("Reassign");
     });
 
+    it("should hide only the checkbox label text so the box and its focus indicator stay visible", async () => {
+      const markup = await render();
+      const labels = [...markup.matchAll(/<label\b([^>]*\bclass="[^"]*govuk-checkboxes__label[^"]*"[^>]*)>([\s\S]*?)<\/label>/g)];
+
+      expect(labels).toHaveLength(QUEUED.length);
+      for (const [index, label] of labels.entries()) {
+        expect(label[1]).not.toContain("govuk-visually-hidden");
+        expect(label[1]).toContain(`for="select-${index + 1}"`);
+        expect(label[2]).toContain(`<span class="govuk-visually-hidden">Select ${QUEUED[index].displayReference}</span>`);
+      }
+    });
+
     it("should offer no Continue when there are no available Masters, and say so", async () => {
       arrange({ window: { ...OPEN_WINDOW, masters: [] } });
 
