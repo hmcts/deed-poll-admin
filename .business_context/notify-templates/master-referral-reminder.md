@@ -52,12 +52,17 @@ Changes from the wording as supplied, agreed with Steve on 2026-11-02:
 3. **No attachments, and no reply-to.**
 4. Save, and send the template id back so it can be read back and checked.
 
+## ✅ Authored and verified — 2026-11-02
+
+`784396ee-1184-49d5-9910-b135ef289bda`, version 1, named `master_referral_reminder`, read back with `GET /v2/template/{id}`: the subject and body are
+identical to the draft above, and the placeholders are `my_referrals_link` only, all of which api sends.
+
 ## After it is authored
 
 | Service | Template UUID |
 |---|---|
-| non-prod | not yet |
+| **non-prod** | `784396ee-1184-49d5-9910-b135ef289bda` |
 | prod | not yet: prod's Notify service needs its own copy |
 
-The id then goes into `deed-poll-api/charts/deed-poll-api/values.yaml` as `NOTIFY_TEMPLATE_MASTER_REFERRAL_REMINDER`,
+The id is set, by deed-poll-api#164 (chart 0.0.32), in `deed-poll-api/charts/deed-poll-api/values.yaml` as `NOTIFY_TEMPLATE_MASTER_REFERRAL_REMINDER`,
 with a chart version bump.
