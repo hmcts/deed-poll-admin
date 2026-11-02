@@ -166,6 +166,13 @@ them, and notify-1 carries a placeholder until they exist.
 - [x] `forms-for-completion-minor` **authored 2026-09-26, completed 2026-09-28** —
       **`a2500c11-b282-48c3-a196-9f5700d13c91`**. LOC024 was attached on 2026-09-28, and version 9 reads back
       `((LOC024.pdf))`. See [`notify-templates/forms-for-completion.md`](notify-templates/forms-for-completion.md)
+- [ ] `master-referral-sent` — **wording supplied 2026-11-02**, not yet authored. The Master's email for each send
+      from the referral queue (api plan F1). Draft and placeholder contract in
+      [`notify-templates/master-referral-sent.md`](notify-templates/master-referral-sent.md). It uses
+      `((processing_window))` and `((reminder_interval))`, which need the api that sends them deployed before its id
+      goes into the chart
+- [ ] `master-referral-reminder` — **wording supplied 2026-11-02**, not yet authored. The Master's reminder. See
+      [`notify-templates/master-referral-reminder.md`](notify-templates/master-referral-reminder.md)
 - [ ] Each template's UUID recorded per environment. **Corrected 2026-09-23: NOT in `application.yaml`.** That
       file deliberately keeps `${NOTIFY_TEMPLATE_*:DEED_POLL_PLACEHOLDER}`, so one grep still lists every
       external identifier the service is waiting on. The real value is an **environment variable per
