@@ -68,12 +68,17 @@ Changes from the wording as supplied, all agreed with Steve on 2026-11-02:
 3. **No attachments, and no reply-to.** It does not invite a reply.
 4. Save, and send the template id back so it can be read back and checked.
 
+## ✅ Authored and verified — 2026-11-02
+
+`65aefcb8-a6e1-463b-a520-87e686cb423f`, version 1, named `master_referral_sent`, read back with `GET /v2/template/{id}`: the subject and body are
+identical to the draft above, and the placeholders are `my_referrals_link`, `processing_window` and `reminder_interval`, all of which api sends. A preview (which sends nothing) rendered the link, `7 days` and `48 hours`.
+
 ## After it is authored
 
 | Service | Template UUID |
 |---|---|
-| non-prod | not yet |
+| **non-prod** | `65aefcb8-a6e1-463b-a520-87e686cb423f` |
 | prod | not yet: prod's Notify service needs its own copy |
 
-The id then goes into `deed-poll-api/charts/deed-poll-api/values.yaml` as `NOTIFY_TEMPLATE_MASTER_REFERRAL_SENT`, in
+The id is set, by deed-poll-api#164 (chart 0.0.32), in `deed-poll-api/charts/deed-poll-api/values.yaml` as `NOTIFY_TEMPLATE_MASTER_REFERRAL_SENT`, in
 the conditional form the case templates use so prod keeps its placeholder, with a chart version bump.
