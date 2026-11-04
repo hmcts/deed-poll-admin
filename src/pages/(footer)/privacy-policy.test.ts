@@ -14,8 +14,8 @@ describe("privacy-policy page", () => {
   });
 
   describe("GET", () => {
-    it("should render privacy-policy template", async () => {
-      await GET(req as Request, res as Response);
+    it("should render privacy-policy template", () => {
+      GET(req as Request, res as Response);
 
       expect(res.render).toHaveBeenCalledWith(
         "privacy-policy",
@@ -30,8 +30,8 @@ describe("privacy-policy page", () => {
       );
     });
 
-    it("should call render exactly once", async () => {
-      await GET(req as Request, res as Response);
+    it("should call render exactly once", () => {
+      GET(req as Request, res as Response);
 
       expect(res.render).toHaveBeenCalledTimes(1);
     });

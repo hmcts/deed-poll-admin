@@ -8,10 +8,11 @@
  * being implied by it.
  */
 
+import { createServer, type Server } from "node:http";
 import { PassThrough } from "node:stream";
-import { downloadDocument } from "@hmcts/deed-poll";
+import { downloadDocument, NotFoundError } from "@hmcts/deed-poll";
 import type { NextFunction, Response } from "express";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest } from "../../../../../express-doubles.js";
 import { GET } from "./file.js";
 
@@ -135,35 +136,19 @@ describe("document download route", () => {
     expect(res.headers["X-Content-Type-Options"]).toBe("nosniff");
   });
 
-  it("should download rather than render in place when the policy sent does not sandbox the response", async () => {
+  it.each([
     // The presence of a policy is not the same fact as the presence of an inert one. A proxy that inserts
     // its own `Content-Security-Policy`, or an api build that loosens this one, would otherwise both satisfy
     // the guard and replace helmet's `default-src 'self'` with something weaker — an applicant's PDF
     // executing in the admin origin under a policy that permits it.
-    vi.mocked(downloadDocument).mockResolvedValue(apiDownload({ contentSecurityPolicy: "default-src *" }) as never);
-    const res = streamResponse();
-
-    await GET(pageRequest({ params: PARAMS }), res, vi.fn());
-
-    expect(res.headers["Content-Disposition"]).toBe('attachment; filename="deed poll.pdf"');
-  });
-
-  it("should download rather than render in place when the sandbox allows scripts, which gives back what it took", async () => {
-    vi.mocked(downloadDocument).mockResolvedValue(
-      apiDownload({ contentSecurityPolicy: "default-src 'none'; sandbox allow-scripts allow-same-origin" }) as never
-    );
-    const res = streamResponse();
-
-    await GET(pageRequest({ params: PARAMS }), res, vi.fn());
-
-    expect(res.headers["Content-Disposition"]).toBe('attachment; filename="deed poll.pdf"');
-  });
-
-  it("should download rather than render in place when a later bare sandbox follows one allowing scripts", async () => {
+    ["the policy sent does not sandbox the response", "default-src *"],
+    ["the sandbox allows scripts, which gives back what it took", "default-src 'none'; sandbox allow-scripts allow-same-origin"],
     // A browser resolves a repeated directive to its first occurrence, so this policy renders with
     // scripting ON. Asking whether *some* sandbox is inert would find the trailing bare one and pass —
     // then forward the script-allowing policy as this origin's own.
-    vi.mocked(downloadDocument).mockResolvedValue(apiDownload({ contentSecurityPolicy: "default-src 'none'; sandbox allow-scripts; sandbox" }) as never);
+    ["a later bare sandbox follows one allowing scripts", "default-src 'none'; sandbox allow-scripts; sandbox"]
+  ])("should download rather than render in place when %s", async (_scenario, contentSecurityPolicy) => {
+    vi.mocked(downloadDocument).mockResolvedValue(apiDownload({ contentSecurityPolicy }) as never);
     const res = streamResponse();
 
     await GET(pageRequest({ params: PARAMS }), res, vi.fn());
@@ -221,5 +206,52 @@ describe("document download route", () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(download.body.destroyed).toBe(true);
+  });
+});
+
+// Through the real domain and adapter, against a server that records what reaches it (review finding R11). Over
+// HTTP a URL-parsing client resolves `..` before sending, so the dot-only id is handed to the handler directly.
+describe("document download route with an unusable id", () => {
+  let paths: string[];
+  let server: Server;
+  const previousUrl = process.env.DEED_POLL_API_URL;
+
+  beforeEach(async () => {
+    paths = [];
+    const actual = await vi.importActual<typeof import("@hmcts/deed-poll")>("@hmcts/deed-poll");
+    vi.mocked(downloadDocument).mockImplementation(actual.downloadDocument);
+    server = createServer((req, res) => {
+      paths.push(req.url ?? "");
+      res.writeHead(404).end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    process.env.DEED_POLL_API_URL = `http://127.0.0.1:${address && typeof address === "object" ? address.port : 0}`;
+  });
+
+  afterEach(async () => {
+    process.env.DEED_POLL_API_URL = previousUrl;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it.each([
+    { id: "case-1", documentId: ".." },
+    { id: "..", documentId: "doc-9" },
+    { id: "case-1", documentId: "." },
+    { id: "case-1", documentId: "" }
+  ])("should refuse $id/$documentId as not found without asking api", async (params) => {
+    const next = vi.fn() as unknown as NextFunction;
+
+    const outcome = GET(pageRequest({ params, accessToken: "session-token" }), streamResponse(), next);
+
+    // `NotFoundError` is what `src/errors.ts` renders as the 404 page.
+    await expect(outcome).rejects.toBeInstanceOf(NotFoundError);
+    expect(paths).toEqual([]);
+  });
+
+  it("should still ask api for an ordinary document", async () => {
+    await expect(GET(pageRequest({ params: PARAMS, accessToken: "session-token" }), streamResponse(), vi.fn())).rejects.toBeInstanceOf(NotFoundError);
+
+    expect(paths).toEqual(["/caseworker/cases/case-1/documents/doc-9/file"]);
   });
 });

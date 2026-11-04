@@ -1,0 +1,34 @@
+{% extends "layouts/app.njk" %}
+{% from "govuk/components/radios/macro.njk" import govukRadios %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{% block content %}
+  <p class="govuk-body"><a class="govuk-link" href="{{ backHref }}">{{ back }}</a></p>
+
+  {% if errorList.length %}
+    {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
+  {% endif %}
+
+  <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+  <p class="govuk-body">{{ currentlyWith }}</p>
+  <p class="govuk-body"><a class="govuk-link" href="{{ checkHref }}">{{ checkReferral }}</a></p>
+  <p class="govuk-body">{{ restartsWindow }}</p>
+  <p class="govuk-body">{{ emailed }}</p>
+  <p class="govuk-body">{{ noPlaceInWindow }}</p>
+
+  {% if masterItems.length %}
+    <form method="post" action="{{ action }}" novalidate>
+      {{ govukRadios({
+        idPrefix: "masterId", name: "masterId",
+        fieldset: { legend: { text: masterLegend, classes: "govuk-fieldset__legend--m" } },
+        items: masterItems,
+        errorMessage: { text: errors.masterId } if errors.masterId else undefined
+      }) }}
+      {{ govukButton({ text: submit }) }}
+    </form>
+  {% else %}
+    <p class="govuk-body">{{ noMasters }}</p>
+  {% endif %}
+{% endblock %}

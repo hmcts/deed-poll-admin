@@ -24,11 +24,18 @@ yarn format                     # Format code with Biome
 yarn seed:cases                 # Preview/apply 30 representative cases through the real API; non-production only
                                 # See docs/SEED-DATA.md for targets, credentials and resumable journals
 yarn mock:api                   # The in-memory api the pages develop against, on port 3200
-yarn mock:seed                  # Seed the running mock: 57 cases across every tab plus nine referrals — four
+yarn mock:seed                  # Seed the running mock: 57 cases across every tab plus twelve referrals — four
                                 # Decided so the returned-for-action count is non-zero, two of those also
                                 # awaiting the applicant's confirmation (waiting 14 and 3 days) so the second
-                                # count, its tab and the Waiting column are non-empty too. Resets the store
-                                # unless given `--keep`, and exits non-zero on a mismatch
+                                # count, its tab and the Waiting column are non-empty too, two sent to Master
+                                # Judge on two different days, one closed, and five waiting in the queue to be
+                                # sent, two of them urgent. Everything past the queue is sent by a Team leader in
+                                # a past morning window, so the current window's count reads 0. Three Masters,
+                                # Master Wren unavailable and Master Judge on the judge persona's email, so it
+                                # links on that persona's first judicial request and finds its two on My
+                                # referrals. The directed ones are Master Sullivan's, linked to a seed identity.
+                                # Resets the store unless given `--keep` (which skips Masters already listed),
+                                # leaves the mock's clock at real time, and exits non-zero on a mismatch
 ```
 
 The mock starts **empty**, so a page whose data comes from a list — the case list, its filter tabs, the
@@ -44,8 +51,11 @@ which is what master's `caseworker-deedpoll-admin` gate got wrong once api moved
 independent main-list count is requested only for callers holding `ACCESS_GAZETTE`; zero and unavailable
 both retain the area link. Ready reads forward only paging and `filter=readyForPublication`, never a
 sort or local membership predicate. History preserves API totals and the explicit truncation flag.
-The recipient editor at `/deed-polls/gazette/settings` uses API GET/PUT settings,
-forwards the original revision on save and preserves input on 400/409. A conflict
+The Referrals area `/deed-polls/referrals/**` is gated the same way, beside it, on `ALLOCATE_REFERRALS` (Team leaders
+and Delivery Managers); see "Referrals wait in a queue" under "Personas and role gating".
+The recipient editor is the "London Gazette recipient" section of `/deed-polls/settings` (see "Delivery Manager
+settings" below); `/deed-polls/gazette/settings` is now only a `GET` 302 to `/deed-polls/settings#gazette-recipient`.
+It uses API GET/PUT settings, forwards the original revision on save and preserves input on 400/409. A conflict
 requires a reload, never an automatic write with a fresh revision. Attribution comes
 from API; the page does not post it. The mock starts unset and resets settings with
 its other fixtures. Saving a setting sends no email.
@@ -64,8 +74,23 @@ status check replays that keyed POST without pre-reading changed case data. An A
 request status redirects to its read-only page. Unknown outcomes never offer a new key.
 The domain's `callGazetteApi` seam accepts only typed Gazette refusals as evidence of
 non-admission and strips provider diagnostics. Ordinary operations still use `callApi`.
+The submit (and the status check, which replays it) has its own 20 s timeout, `GAZETTE_SUBMIT_TIMEOUT_MS` in the
+api client, because api sends synchronously and the default 10 s turned a slow success into an unknown outcome
+(finding R03, `docs/plans/completed/20261021-r03-gazette-submit-timeout.md`). It is not api's 60 s Notify deadline,
+and not "just above 30 s" either: **both** Application Gateways default `request_timeout` to 30 s, the backend one
+between this app and api and the frontend one between the browser and this app. Past 30 s the caseworker would get
+the gateway's error page, not the recovery page with the request's key, and the send request first re-checks every
+selected review. So a send over 20 s is still an unknown outcome until both gateways' `request_timeout` is raised or
+api sends asynchronously. And 20 s alone is no end-to-end bound, because the re-check and a token refresh spend the
+same request's time first: `recordArrival` (`src/request-arrival.ts`, the first layer in `createApp`) stamps
+`res.locals.receivedAt` from the monotonic `performance.now()`, and the send and the status check wait only for what is left of a 25 s budget from it
+(`src/gazette/send-deadline.ts`), capped at 20 s and by `DEED_POLL_API_TIMEOUT_MS`, which can only shorten it. The
+budget bounds the send, not what precedes it: the re-check's reads and the refresh keep their own timeouts, so a
+pre-send phase that alone outlasts 30 s still ends on the gateway's page, having sent nothing. Under
+a 5 s floor nothing is sent: the confirm step or the recovery page re-renders with the same journey and key, saying
+nothing was sent or checked (`docs/plans/completed/20261021-r03b-gazette-send-deadline.md`).
 
-`yarn test:gazette` runs eight browser journeys against a fresh mock on 3216 and this app on 3316,
+`yarn test:gazette` runs ten browser journeys, the settings page's two included, against a fresh mock on 3216 and this app on 3316,
 using Redis on 6316/database 1 and local IDAM on 5556. It is separate from `yarn test:e2e` because its
 empty-state check must never reset a shared developer mock. See README for prerequisites.
 The standalone mock resolves missing token roles from local IDAM userinfo (override with
@@ -131,6 +156,9 @@ writing any query-shaped code:
 - **`libs/deed-poll-api-client` is the only thing that speaks HTTP to api**, and it never throws: it
   returns `ApiResult<T>`, a discriminated union, so an unreachable api is a state a page renders rather
   than a 500. Its wire types and its mock are deliberately not exported from the package index.
+  A 409 keeps api's `fieldErrors` when api sends any (otherwise none), and `ConflictError.errors` carries them. A
+  named field is the one sanctioned way to tell two 409s apart (the Master Change page: `email` is a duplicate, no
+  field a stale revision); api's prose still never is.
 - **`libs/deed-poll/src/api/deed-poll-api.ts` is the only place that knows where api is.** `callApi` turns
   a failed `ApiResult` into the domain errors `src/errors.ts` already renders. No page sees a base
   URL, and every service function takes a `Caller` — `{ accessToken }` — because api derives both the audit
@@ -151,13 +179,14 @@ Three facts about the confirmation worklist that are not derivable from a single
   (`isReorderable` in `libs/deed-poll/src/deed-poll/list-sort.ts`), because a `sort` reaches it three other ways —
   the tab link carrying the previous tab's order, a sortable column header, a bookmarked URL — and api's default is
   only a default. So the worklist drops any `sort` it is asked for and renders its headings as plain text; leaving
-  the headers as links while dropping the order would be seven controls that do nothing. Returned-for-action is a `where` on
-  `currentReferralState`, because api publishes no tab for it. Do not convert one into the other, and do not
+  the headers as links while dropping the order would be seven controls that do nothing. Returned-for-action and waiting-for-assignment
+  (`currentReferralState:is:Open`, `referrals/waiting-for-assignment.ts`) are each a `where` on
+  `currentReferralState`, because api publishes no tab for either. Do not convert one into the other, and do not
   narrow either list here.
 - **A case can be waiting for the applicant with no case state saying so.** There is no ninth `DeedPollState`:
   the case still reads `Returned`, and `awaitingConfirmationSince` — recomputed by api from its referrals' two
   confirmation columns — is the only thing that says it is waiting. So the case page says it as inset text
-  *beside* the State row (`src/pages/deed-polls/[id].ts`), and a referral is "waiting" by api's two-column
+  *beside* the Status row (the case's `state`, labelled Status since 2026-10-22) (`src/pages/deed-polls/[id].ts`), and a referral is "waiting" by api's two-column
   predicate rather than by its state: `Closed` clears neither column, so a closed referral can still be holding
   its case on the worklist.
 - **A recorded confirmation cannot be amended, and a 409's meaning comes from a fresh read.** api publishes no
@@ -194,8 +223,10 @@ of them:
 
 ## Personas and role gating
 
-**Four staff personas, one deployable.** Caseworkers, Team leaders and Delivery Managers work `/deed-polls/**`; a judge works `/judicial/**` — the
-shared referral pool, one referral, the claim, and the direction flow. Facts that are not derivable from a
+**Four staff personas, one deployable.** Caseworkers, Team leaders and Delivery Managers work `/deed-polls/**`; a judge (a Master) works `/judicial/**` —
+My referrals, one referral, and the direction flow. There is no pool and no claim since api D2, and since api F1 a
+caseworker raises a referral into a queue that a Team leader or Delivery Manager sends to a Master. Facts that are not
+derivable from a
 single file:
 
 - **`/judicial` is gated on the area, not the page.** `src/app.ts` mounts `requireJudicial()`
@@ -209,8 +240,12 @@ single file:
   caseworker who defeated this gate would see a screen of 403s, not a judge's referrals. The gate decides which
   chrome a signed-in user gets.
 - **It refuses with `next(new ForbiddenError(...))` and renders nothing.** `src/errors.ts` answers 403 on the
-  **404** view, so a guessed judicial URL discloses nothing, and logs the message the gate built — that render
-  is the end of the chain, and the starter's handler (the only thing that logs) is never reached.
+  **404** view and logs the message the gate built — that render is the end of the chain, and the starter's
+  handler (the only thing that logs) is never reached. The view says nothing about what was refused, and the gate
+  runs before anything is looked up, so a guessed judicial URL never discloses whether that referral exists. The
+  **403 status does disclose the area**: that `/judicial/**` exists and this caller may not enter it. That is
+  deliberate and pinned by `e2e-tests/tests/judicial.spec.ts` and `staff-roles.spec.ts`; do not describe the area
+  as non-enumerable (review finding R14, `docs/plans/completed/20261021-r10-r14-error-disclosure.md`).
   `src/pages/errors/403.njk` exists but belongs to the login flow, where the user already knows who they are.
 - **Staff capabilities do not imply judicial access.** Team leaders and Delivery Managers are refused
   `/judicial/**` unless they separately hold the judicial role. `isAdmin` remains only the privacy adapter.
@@ -224,8 +259,8 @@ single file:
   pins it to the `CallerAccessResponse` enum in `openapi.json`. `callerAccessFrom` drops unknown capability
   strings and turns a missing or malformed answer into no access, so an unlisted capability fails closed.
 - **`/` is where each persona's home is decided, and the only place it can be.** A judge's home is
-  `/judicial/referrals`, other staff land on `/deed-polls`. A judge who also has staff capabilities lands on the case list;
-  ordinary caseworker plus judicial still lands on the pool.
+  `/judicial/referrals/mine` (My referrals), other staff land on `/deed-polls`. A judge who also has staff capabilities
+  lands on the case list; ordinary caseworker plus judicial still lands on My referrals.
   `/login`'s `returnTo` fallback is therefore `/` and **not** a concrete list path: the `/me` answer does not
   exist until the token has been exchanged, so hard-coding `/deed-polls` there strands every judge on a list api answers
   403 to, with nothing in the logs to say why.
@@ -235,22 +270,53 @@ single file:
   implication the rule forbids.
 - **api checks visibility before state, so no 409 on the judicial surface can mean "somebody else has it".** By
   the time a 409 is possible the caller can already see the referral, which api's visibility narrows to their own:
-  a claim 409 means they hold it or have already directed it, a direction 409 means they can see it but do not
-  hold it. So both name a *state* ("not waiting to be claimed", "not waiting for a direction from you") and the
-  claim's 409 redirects to the **referral** rather than the pool — "This referral has already been claimed" plus a
-  bounce to the list would tell a judge somebody else has work that is in fact theirs. The pool therefore carries
-  one refusal, not two. A caseworker's 409s are a different thing entirely (two caseworkers racing), which is why
-  `referrals/new.ts` re-renders at 409 instead.
-- **Judges see the full application and its documents (business decision, 2026-10-19).** This replaces the
-  eight-field view of 2026-09-17. `application` on `GET /judicial/referrals/{id}` is api's `JudicialApplicationView`:
-  the details, witnesses and attached documents, with no payment, refund or fee data, and private cases in full.
-  `libs/deed-poll/src/judicial/view.ts` builds the read-only "Application" section from that type alone, listing its
-  fields in `APPLICATION_SECTIONS` and borrowing only labels and formatting from the caseworker metadata. Do not
-  import the caseworker view model: the judge's page must not grow a field because the caseworker's did. Documents
-  download through `src/pages/judicial/referrals/[referralId]/documents/[documentId]/file.ts`, which shares
-  `src/document-response.ts` with the caseworker route. Who may open one is api's visibility: any judge on `Open`,
-  the holder on `Claimed`, the director on `Decided`, nobody once closed. The same 404 covers each refusal and
-  renders the unavailable page.
+  a direction 409 means they can see it but it is not waiting for a direction from them (they have already directed
+  it). So it names a *state* ("not waiting for a direction from you") and redirects to the **referral**, never to a
+  sentence about another holder. A caseworker's 409s are a different thing entirely (two caseworkers racing, or the
+  window's cap), which is why `referrals/new.ts` and the queue's review re-render at 409 instead.
+- **Masters see only the fields they asked for (Master Sullivan's feedback, Steve, 2026-10-27).** This narrowed the
+  whole-application view of 2026-10-19, and Steve chose to narrow api's data too (api#153), not only this page.
+  `application` on `GET /judicial/referrals/{id}` is api's `JudicialApplicationView`: the reference (for captions), the
+  new and old names, type, nationality and section, `parents` (sent only for a minor's application) and the readable
+  documents. No witnesses, contact details, privacy, dates or previous-system fields, and **no `caseNotes`** on the
+  referral. The page reads top to bottom **General** (the eleven fields in `APPLICATION_SECTIONS`' order, "Minor’s
+  parents’ names" last and only on a minor's application), **Referral** (no "Waiting since") and **Supporting
+  documents**, then any recorded direction and the controls. `libs/deed-poll/src/judicial/view.ts` builds it from that
+  type alone, borrowing formatting and most labels from the caseworker metadata (`MASTER_LABELS` holds the Masters'
+  own). Do not import the caseworker view model: the Master's page must not grow a field because the caseworker's
+  did. **Deploy order:** this admin page before api#153, because the old admin pinned `witnesses` and `caseNotes` as
+  required and refuses the narrowed answer. Documents
+  open in the shared viewer (see "Document viewer" below); the original download, and the legacy
+  `src/pages/judicial/referrals/[referralId]/documents/[documentId]/file.ts`, share
+  `src/document-response.ts` with the caseworker route. Who may open one is api's visibility: no judge on `Open`,
+  the assigned Master on `Claimed`, the director on `Decided`, nobody once closed. On the legacy `file.ts` the same 404 covers
+  each refusal and renders the unavailable page, and its relay keeps api's `inline` only for PDF, JPEG and PNG under a policy with
+  `default-src 'none'` and a bare `sandbox` (no `allow-*` token), and downloads everything else, filename kept; the
+  caseworker upload page never renders api's 404 text, only its own sentence, logging api's through `forLog`
+  (review findings R09 and R13, `docs/plans/completed/20261021-r09-r13-document-responses.md`).
+- **The Master's Gazette answer is "changes to the standard publication", not "publish" (Master Sullivan's feedback,
+  Steve, 2026-10-27).** The direction form asks the decision, then "Are there any changes to the standard publications
+  in the Gazette?", then "Directions/Reasons", and the check page reads back in that order. Yes means do not publish,
+  or publish only as the directions say (the last name only, for example), so `directionSchema` requires
+  `directionsText` when the answer is Yes, as api does. The wire field is `changesToStandardPublication`; api#154
+  renamed its column and inverted every stored answer. Its deprecated `publishToGazette` alias is gone: api#156
+  removed it, the spec refreshes after it (`SPEC-PROVENANCE.md`, 2026-10-28) dropped it from the wire types, the client
+  and the mock, and `server.test.ts` pins that it is absent. The field rules' `publishToGazette` query parameter is a
+  different thing and stays. The caseworker
+  pages relabel the row "Changes to the standard publications in the Gazette" but keep "Directions"; only the Master's
+  own pages say "Directions/Reasons". The case's `publishToLondonGazette` (field rules, the Gazette ready list) is a
+  different fact and is untouched.
+- **A minor's referral says what kind it is (Master Sullivan's feedback, Steve, 2026-10-27).** api#155 added eight
+  `Minor*` reason members; `MINOR_DETAIL_REASONS` in `libs/deed-poll/src/referrals/referrals-view.ts` lists them,
+  because api publishes no flag, and its test fails if a `Minor*` member arrives that is not in it. The raise form
+  offers them as checkboxes revealed beneath "Applicant is a minor" (`idPrefix` `minorDetails`, `name` `reasons`, so
+  they post as api's one field). `createReferralSchema` requires at least one when "Applicant is a minor" is ticked,
+  refuses one without it (addressed to `reasons`, because the revealed group is hidden then) and refuses both halves
+  of a consent pair. Since api#156 api refuses `Minor` alone on a create too (and so does the mock, in api's words);
+  a referral raised before then keeps its bare `Minor`, which every page still reads. Every page reads reasons through `referralReasonLabels`, which folds the
+  details into "Applicant is a minor: Transgender, Have parental consent". Since api#155 the case notes api writes use
+  the same words (its `ReferralReason.label()`, semicolons between reasons), and the mock's `REASON_NOTE_LABEL`
+  restates them; change a label here, in api and in the mock together. Older notes keep api's raw names.
 - **The judge who gave a direction can change or withdraw it until the office closes the referral.** On a
   `Decided` referral (api shows it only to its director) the page links to `direction?change=1`, which reuses the
   direction form and check page, prefilled and worded as a change, and calls `reviseDirection` (`PUT`). It also
@@ -258,36 +324,80 @@ single file:
   same judge with no direction, so the page offers the ordinary direction form again. A 409 on either redirects to
   the freshly read referral with a state-only sentence, and a 404 is the unavailable page. api writes the
   caseworker a case note, keeps the earlier direction on its audit trail and sets `directionChangedAt`. The
-  caseworker's referral page and the case page's referrals panel show "The judge changed this direction on {date}."
+  caseworker's referral page and the case page's referrals panel show "The Master changed this direction on {date}."
   as inset text from that flag. It sits outside the direction section because a withdrawal leaves no direction.
-- **A user holding both roles still has no link to `/judicial/**`.** There is judicial navigation now, but it is
-  the two judicial lists' own (`src/pages/judicial/referrals/list-navigation.njk`) and it renders only on pages
-  inside the area; the shared chrome renders no service-navigation, so the caseworker-first landing in
+- **A user holding both roles still has no link to `/judicial/**`.** The judicial area has one list, so it has no
+  navigation of its own (`list-navigation.njk` went with the pool), and the shared chrome renders no service-navigation, so the caseworker-first landing in
   `src/pages/index.ts` leaves such a user typing the URL. The gate admits them, so this is a missing route rather
   than a refusal; it is `referrals-admin-3`'s flagged open question, and the fix if the business confirms such a
   user is a conditional link on the case list, not a change to the landing.
-- **The pool is `Open` only, so claiming a referral takes the row off it — and onto `/judicial/referrals/mine`.**
-  api filters `GET /judicial/referrals` to `Open` (the plan's "plus the judge's own `Claimed`/`Decided`" describes
-  `referrals-admin-3` decision 3's *read* visibility, not its list), and `GET /judicial/referrals/mine` is the
-  second collection that answers for the judge's own `Claimed`/`Decided` work — added by api follow-up 6 and
-  consumed by `referrals-admin-6`. **Membership is api's answer about the token's IDAM subject**: do not derive
-  "mine" from rows previously seen, session state, browser history or `claimedBy` display text, and do not filter
-  or re-sort either list here. The states the personal list admits live in one predicate —
-  `isMyListState` in `libs/deed-poll/src/judicial/view.ts` — which is also what decides whether a referral's detail
-  page links back to the pool or to My referrals, so the two cannot drift into returning a judge to a list their
-  referral is not on. A lapsed claim is keyed on the state, not the holder: api's inactivity sweep makes the row
-  `Open` again and it leaves the personal list even though the name is still on it.
+- **Referrals wait in a queue, and a Team leader or Delivery Manager sends them (plan
+  `docs/plans/20261030-fa1-referral-queue-screen.md`, api F1's decision table F-1 to F-12 being the specification).**
+  **Deploy order:** api F1 on every replica first, then this app, with no expand-then-contract step. The raise form asks
+  no Master: every raise is `Open`, and `createReferralSchema` strips a posted `masterId`. Caseworkers no longer assign
+  or reassign; the assign page, its links, `src/master-radios.ts` and `master-choices.ts` are gone. To a caseworker
+  `Open` reads "Waiting to be sent" ("A Team leader or Delivery Manager will check this referral and send it to a
+  Master.") and `Claimed` "With {Master}" with the due date (`REFERRAL_STATE_LABEL`/`_MEANING` in `referrals-view.ts`);
+  api's `unassignOverdue` returns a referral not directed in time to the queue. The Master's 7 days are read off
+  `directionDueBy`, never restated.
+  - **The screen is `/deed-polls/referrals/**`, gated once in `app.ts` on `requireCapability(ALLOCATE_REFERRALS)`**
+    beside the Gazette and settings gates, and `app.test.ts` reads `src/pages/deed-polls/referrals/` off the
+    filesystem (a case's own `/deed-polls/<id>/referrals/**` is outside it). The case list's "Referrals" link is drawn
+    from the session's capability alone, as "Service settings" is. Every queue URL names the referral and carries its
+    case as `?case=` (`src/referral-queue/paths.ts`), because api addresses a referral under its case; a missing or
+    repeated `case` is a 404 before any read.
+  - **`index` is two GOV.UK tabs below the window panel**: **To send** (`Open`, load-bearing, carrying api's window
+    envelope) and **With a Master** (`Claimed`, degrading to a warning), read concurrently and paged independently
+    (`?page=…#to-send`, `?sentPage=…#with-a-master`). `buildQueueWindowView` (`libs/deed-poll/src/referrals/queue.ts`)
+    says the window closing or the next one opening, "N of CAP referrals sent.", and inside a window a per-Master
+    table. To send is in api's order (urgent first), never re-sorted, as one form of checkboxes (`referrals`) and a
+    select per row (`master-<referralId>`), posting to `review`. The page lives in `src/referral-queue/queue-page.ts`
+    so `review` and `send` can redraw it with the selection kept. `[referralId]` is a read-only check view of the
+    referral, the case page's General rows and the documents in the case-scoped viewer.
+  - **`review` and `send` carry the selection in hidden inputs, never the session**, parsed by `sendSelectionSchema`
+    (`referrals/schemas.ts`) into api's `allocations`. `review` re-reads that page of the queue and draws **Send
+    referrals** only when `buildSendReview` says `canSend`: inside a window, within the room left, and every pair
+    still queued with an available Master. That is presentation; api refuses the same things. A refusal about a row
+    (api's 409 on `allocations[i].referralId`, its 400 on `allocations[i].masterId`, or the re-read finding either)
+    goes back to the **queue**, the only page with a control to change it; a 409 naming no field (the window or the
+    cap) redraws the review from a fresh read with api's sentence. A lost response is recovered by pressing Send
+    again, because api's replay of a referral already sent to that Master is a no-op. Success is a 303 to the queue
+    with `?sent=N&masters=M`, from api's answer.
+  - **The window's cap is the window's total across every Master**, and reassignment
+    (`referrals/[referralId]/reassign`, `PUT …/assignment`) is `Claimed` only, at any time, using no place in a
+    window. Choosing the current Master is api's no-op and reads as success; any 409 goes to the queue with
+    `?reassign=conflict#with-a-master`.
+  - The case list's waiting count reads "N referrals are waiting to be sent to a Master." for everyone, linking a
+    holder of `ALLOCATE_REFERRALS` to the screen ("Check and send referrals") and anyone else to the `Open` worklist.
+  - **`yarn test:referrals` runs the screen's browser journeys** on a mock of their own (3218, app 3318, Redis database
+    5), out of `yarn test:e2e`, because they move the mock's clock in and out of a window (`/__mock/clock` with
+    `{ window: "open" | "closed" }`) and lower the cap, which would refuse every send a parallel worker makes.
+- **A Master has no pool: `/judicial/referrals` is a 302 to `/judicial/referrals/mine`.** api D2 keeps the deprecated
+  pool (always empty) and claim for one release, and nothing here calls either. **Membership is api's answer about
+  the token's IDAM subject**: do not derive "mine" from rows previously seen, session state or display text, and do
+  not filter or re-sort the list. `buildMyReferralSections` (`libs/deed-poll/src/judicial/view.ts`) reads api's
+  `MINE_ORDER` (by `assignedAt` since api F1) into **Urgent** (urgent `Claimed`, "Sent dd-mm-yy"), **Awaiting your
+  direction** and **Directed, awaiting the office**, the last two as runs of consecutive rows sharing a "dd-mm-yy
+  referrals" day, the day **sent** (`assignedAt` in `Europe/London`, falling back to `createdOn` for a referral claimed
+  before assignment existed, since the summary carries no `claimedAt`). It never re-sorts, so a page that starts mid-day repeats that day's heading. The page asks for
+  `size: 100`, api's `CasePaging.MAX_SIZE`, because `JudicialPoolQuery` publishes no bound. Every judicial page,
+  including the shared "no longer available" page, links back to My referrals.
 - **A new page area must be added to `scripts/extract-welsh-strings.mjs`'s `INCLUDE`.** The script's scope is a
   list of directories, so a page area that is not on it contributes nothing to
   `.business_context/welsh-translation-request.csv` and nothing to `yarn welsh:check` — with no failure anywhere,
   because the pages still carry their `en`/`cy` pairs. `src/pages/judicial/**` shipped that way and was invisible
-  to the translation request until the directory was added. A page whose *second* content pair is named
+  to the translation request until the directory was added. The extractor parses with the
+  `typescript-6` alias, not the build's TypeScript: TypeScript 7 dropped the JavaScript compiler API it uses, and
+  `.github/renovate.json` holds the alias below 7. `src/welsh-extractor.test.ts` fails if it stops reaching its summary
+  line, because `--check` exits 1 by design and a crash once passed unnoticed for that reason. A page whose *second* content pair is named
   `<name>En`/`<name>Cy` is picked up too, under a `<name>.` key prefix.
 - **The same silence applies one level down, to a content *shape* the extractor cannot parse.** An unparsed key is
   not reported as unparsed — it is simply absent, and a page whose other twenty keys are present looks complete. All
   three shapes `.claude/rules/frontend.md` documents are handled now (string, nested object, and a **function** that
   interpolates a runtime value), but a fourth would need adding: `const en = (m) => ({ … })`, the whole-object
-  function form, is not read, and a page written that way would contribute nothing. A second pair mirrors the same
+  function form, is not read, and a page written that way would contribute nothing. Nor is a nested object under a
+  cast (`fieldErrors: { … } as Record<string, string>`): both witness pages' `fieldErrors` are missing that way, so
+  their `blankErrors` carry no cast and the lookup widens the type at the use site instead. A second pair mirrors the same
   way the first does, `<name>Cy = { ...<name>En }`: until 2026-10-19 only a bare `{ ...en }` counted, so a page with
   no plain pair (the judicial document route) reported its strings with no `cy`, and they were missing from
   `yarn welsh:check`'s count. Function entries are reported
@@ -301,13 +411,13 @@ The judicial gate still requires `judicial` in the `/me` answer.
 
 api owns the capability matrix (`RoleCapabilities.java`); the mock mirrors it, and admin holds no copy:
 
-| Role | Privacy override, note/witness deletion, shared-query management, CCD repair | Gazette | Judicial |
-|---|---|---|---|
-| `caseworker-deedpoll` | No | No | No |
-| `caseworker-deedpoll-team-leader` | Yes | No | No |
-| `caseworker-deedpoll-delivery-manager` | Yes | Yes | No |
-| `caseworker-deedpoll-admin` (temporary compatibility) | Yes | No | No |
-| `caseworker-deedpoll-judicial` | No | No | Yes |
+| Role | Privacy override, note/witness deletion, shared-query management, CCD repair | Send referrals | Gazette | Process settings | Judicial |
+|---|---|---|---|---|---|
+| `caseworker-deedpoll` | No | No | No | No | No |
+| `caseworker-deedpoll-team-leader` | Yes | Yes | No | No | No |
+| `caseworker-deedpoll-delivery-manager` | Yes | Yes | Yes | Yes | No |
+| `caseworker-deedpoll-admin` (temporary compatibility) | Yes | Yes | No | No | No |
+| `caseworker-deedpoll-judicial` | No | No | No | No | Yes |
 
 `can(user, capability)` is the UI policy entry point (`libs/deed-poll/src/auth/capabilities.ts`); `staffAccess(user)`
 gives `{ staff, judicial }` for the future staff block, which this app does not yet enforce. CCD repair has no
@@ -382,6 +492,13 @@ Facts that are easy to get wrong from the code alone, and expensive to get wrong
   build the Key Vault alias map, and `getPropertiesVolumeSecrets` swallows a missing chart by returning an
   empty map — so moving or excluding that file un-aliases every secret with nothing failing until the first
   `config.get` in a deployed pod.
+- **Admin carries no Google Tag Manager, and the CSP names no Google host** (review finding R12; plan
+  `docs/plans/completed/20261022-r12-r15-gtm-off-and-input-gaps.md`). `src/app.ts` calls `configureHelmet({ enableGoogleTagManager: false })` and passes no `gtm` nunjucks
+  global, so the starter's analytics templates render nothing; there is no `gtm` config. The template's placeholder
+  `GTM-XXXXXX` bootstrap was inline and un-nonced, and `*.googletagmanager.com` is a known CSP-bypass host, so the
+  allowance weakened containment for a feature admin does not use. Adopting GTM later needs a real container, a nonce
+  and analytics consent, not a config flag. The change is in the app, not `libs/express-govuk-starter`, and Dynatrace
+  is untouched. `src/analytics.test.ts` pins the rendered page and the exact CSP.
 - **This repo owns no Terraform.** The resource group, Key Vault, App Insights and Redis are all in
   [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra). **Do not create an `infrastructure/`
   directory here.** The Postgres that root also provisions is `deed-poll-api`'s now, not this app's.
@@ -400,11 +517,41 @@ Facts that are easy to get wrong from the code alone, and expensive to get wrong
 - **The readiness probe names Redis and api, and no database.** `deedPollApiStatus()` in
   `libs/deed-poll/src/api/deed-poll-api.ts` is what replaced the Postgres table check: a probe that went
   green while api was unreachable would have Kubernetes send traffic to a pod that 500s every case page.
+- **A failed IDAM discovery recovers on its own, and a restart is not the fix.** `idamConfiguration`
+  (`src/auth/idam.ts`) caches only a successful discovery. A failed one (a 503, a reset connection, the client's
+  own timeout) holds off the next attempt for `DISCOVERY_RETRY_COOLDOWN_MS` (5 s). Logins, callbacks and refreshes
+  inside that window fail at once with "IDAM discovery failed recently" and make no request, and the first request
+  after it starts one shared attempt. So a pod is back within about 5 s of IDAM recovering, at a cost of at most one
+  discovery request per 5 s during an outage, with no background retry. Only discovery is retried: a refused
+  discovery means the code exchange and refresh grant are never sent, and a refresh that cannot discover throws,
+  which keeps the session as transient instead of ending it. **A misconfigured issuer looks the same in the logs
+  but never recovers**: `openid-client`'s "discovered metadata issuer does not match the expected issuer", or an
+  HTTPS refusal, repeats once per interval indefinitely. That is fixed in `IDAM_ISSUER_URL` or the chart, not by
+  waiting or cycling the pod.
+- **Ending a session is local first, and IDAM is asked afterwards** (review finding R04; plan
+  `docs/plans/completed/20261021-r04-timeout-during-idam-outage.md`). A timeout (`endTimedOutSession` in
+  `src/auth/session-lifetime.ts`) and logout (`src/pages/logout.ts`) emit their ending event, end the session here
+  (regenerate or destroy; logout then sets `Clear-Site-Data`), and only then look up IDAM's end-session address,
+  through `availableEndSessionUrl` (`src/auth/end-session.ts`). A lookup that fails, the discovery cooldown included,
+  falls back exactly like an issuer advertising no endpoint (`TIMED_OUT_PATH` for a timed-out GET, `/login` as a
+  timed-out POST's sign-in link, `/signed-out` for logout), so an outage still ends the session on the first request rather than
+  answering 500 and emitting the event again on every retry. The IDAM session survives such an ending, and the sign-in
+  link can re-enter it once IDAM recovers; that is the accepted cost, and the fix is never to await IDAM before the local
+  end again. The event stays
+  *before* the local end, so it carries the old `sid`: fix an ordering problem here by moving the lookup, never the
+  event.
+- **A logout that cannot reach IDAM's end-session page lands on `/signed-out`, never on `/`** (plan
+  `docs/plans/completed/20261021-r04b-signed-out-page.md`). `/` sends an anonymous visitor straight to `/login`, which
+  starts IDAM sign-in without a click, so through the IDAM session that survives an outage (or an issuer advertising no
+  end-session endpoint) someone who clicked "Sign out" on a shared PC would be signed straight back in.
+  `src/pages/signed-out/` is public (`PUBLIC_PATHS`) and offers sign-in only as a link. Its copy says "signed out of
+  this service" because IDAM may still hold its own session. With IDAM healthy, logout still goes to IDAM's
+  end-session URL.
 
 ## Session writes
 
 A destroyed session must stay destroyed whatever request is still holding it (review finding E01; plan
-`docs/plans/20261020-e01-session-revocation.md`). `connect-redis`'s unconditional `SET` let a refresh waiting on IDAM,
+`docs/plans/completed/20261020-e01-session-revocation.md`). `connect-redis`'s unconditional `SET` let a refresh waiting on IDAM,
 an activity save or `express-session`'s own autosave put a logged-out session back. The rules, which every future
 authenticated writer must follow:
 
@@ -421,7 +568,22 @@ authenticated writer must follow:
   change, and on `conflict` reloads and re-derives the same change from what the store now holds, at most three
   times. The change must be computed from the re-read session, never copied from the request's snapshot, or an older
   snapshot rolls back newer tokens or access. `touchLastSeen`, `storeAccess` and `publishRefresh` are its callers.
-  Sign-in, persona switch and timeout restart regenerate instead: the old key is deleted, a new id created.
+  Sign-in, persona switch and timeout restart regenerate instead: the old key is deleted, a new id created (a persona
+  switch only if the old key still existed; see the next rule).
+- **A re-sign-in replaces its session only if that session still exists** (review finding R05; plan
+  `docs/plans/completed/20261021-r05-r06-session-edges.md`). A persona switch waits on IDAM's password grant, and a
+  logout on another pod can land meanwhile, so it calls `reSignIn` in `src/auth/session.ts`, not `signIn`.
+  `reSignIn` first runs the store's `destroyExisting` (one `DEL` that reports whether a key was there). If the key was
+  already gone it refuses with `SessionWriteRefusedError("missing")` and creates nothing, so the switch ends in
+  `endedElsewhere` with no cookie and no `auth.persona.switched` event, returning to `/` after sign-in because
+  `/switch-persona` has no `GET`. A store without the method fails closed. The
+  OAuth callback is the one unconditional regenerate: its session is anonymous, so there is nothing to protect, and a
+  sign-in must always mint a new id (session fixation). Do not route it through `reSignIn`. **One window is left
+  open, deliberately** (Steve, 2026-10-21): `regenerate` deletes and then saves, so a logout or timeout landing in the
+  couple of Redis round trips between `destroyExisting` and the new session's `CREATE` finds nothing to delete, and the
+  switch then completes. Closing it needs one script that creates the new key only if the old one still exists,
+  deleting it in the same step; that was judged not worth the risk in the store for a non-production tool. Revisit it
+  before the switcher is ever allowed near production.
 - **A gone session is one outcome: `isSessionGone(error)`.** Its handler is `endedElsewhere`
   (`src/auth/ended-elsewhere.ts`): destroy the request's copy and redirect to `/login`, emitting no event, because
   whatever ended the session already did. The keep-alive endpoint answers 401. A request whose write was refused never
@@ -432,6 +594,12 @@ authenticated writer must follow:
   refused if the lease expired or passed on; a lost lease fails the request and is never retried, because IDAM may
   already have rotated the refresh token. The lease is released in `finally`, only if still held, and dies with the
   session's `DEL`.
+- **The lifetime paths are never refreshed** (review finding R06, same plan). `refreshMiddleware` skips
+  `NOT_REFRESHED_PATHS`: `/logout`, `STATUS_PATH` and `TIMED_OUT_PATH`, the last two imported from
+  `session-lifetime.ts` rather than restated. The skip runs before the `/me` backfill as well. The lifetime middleware
+  exempts the timed-out page and only answers the status poll, so without the skip a session past its absolute limit
+  got fresh IDAM tokens from either one. Neither path's answer or render changed. Do not add a refresh for either one
+  anywhere else.
 - **TTL is the session's own.** `sessionStoreTtl`: signed-in until 15 minutes after the absolute deadline, anonymous
   10 minutes. Revision and lease share the key, so no coordination state can outlive or resurrect a session.
 - **Legacy and rollout.** Old `admin-sess:` string records are never read; they expire on their own TTL. Old pods can
@@ -472,6 +640,11 @@ only — api keeps the audit trail of writes and reads, and this app must not du
   - **Never a token, secret, raw session id, cookie, email address, display name or applicant data**, test fixtures
     included. A value the browser or IDAM chose (an `error` code, a `Sec-Fetch-Site`, an `Origin`) is recorded only if
     it has the expected shape — otherwise `unrecognised`, or the host alone, or nothing — and never as prose.
+- **The IDAM callback's refusal page shows only this app's sentences** (review finding R10,
+  `docs/plans/completed/20261021-r10-r14-error-disclosure.md`). The callback query is the browser's to write, so
+  `src/pages/oauth2/callback.ts` maps a known RFC 6749 `error` code to its own `en`/`cy` sentence through a `Map`
+  (so `constructor` finds nothing) and renders `errors/403` with no `reason` for anything else. `error_description`
+  is never displayed. Add a code by adding a sentence, never by echoing the query.
 - **Every 403 is emitted in one place, `src/errors.ts`.** `ForbiddenError` carries `reason` (`role`, `same-origin` or
   the default `api`, which `callApi` raises) and the gate's details; `requireJudicial`, `requireCapability` and
   `same-origin.ts` set them, and `errors.ts` maps them to `authz.denied` or `csrf.refused`. Do not emit a refusal at
@@ -480,6 +653,16 @@ only — api keeps the audit trail of writes and reads, and this app must not du
 - **An api error message reaches a log only through `forLog`** (`src/for-log.ts`), which strips CR, LF, ANSI escapes
   and other control characters and caps the text at 500 characters. `src/for-log.test.ts` scans `src/pages` and fails
   a `console.*` call that interpolates `.message` without it.
+- **`forLog` bounds text; it is not a privacy filter.** What goes *into* an error message is the control (review
+  finding E03, `docs/plans/completed/20261020-e03-safe-error-diagnostics.md`). A request's query values and raw headers never
+  belong in one: a search's `q` and `where` are applicant names, and an `Origin` or `Sec-Fetch-Site` is whatever the
+  browser sent. Safe inputs are the method, a route built from `req.baseUrl + req.path` (never `originalUrl`), a
+  fixed operation or reason phrase, an HTTP status and schema field paths. The api client cuts a request path at its
+  first `?` or `#` before `parseResponse` composes a diagnostic (`withoutQuery` in `client.ts`); the CSRF gate names
+  the initiator with fixed prose and keeps the bounded `fetchSite`/`originHost` for the event only. Removal happens
+  where the message is built, by position rather than by parameter name, because telemetry URL redaction cannot
+  repair an exception that already embeds the value. `src/error-diagnostics.test.ts` drives both parse failures and
+  the refusals through the real final handlers with synthetic markers.
 
 ## Abuse limits
 
@@ -503,9 +686,175 @@ Search, email preview, email send and upload are limited per IDAM subject
   (`rateLimit.uploadInFlight`) enforces in every mode.
 - **Search counts only a non-blank `q`.** Saved-query and worklist links carry `where` or `filter`, and the dashboard's
   counts are internal reads; counting either would refuse a caseworker for clicking their own dashboard.
+- **The observe-check script's tests skip without `python3`.** `src/rate-limit-observe-check.test.ts` drives
+  `scripts/rate-limit-observe-check.sh` and its parser (review finding R16) only when `python3` runs, and nobody has
+  confirmed the Jenkins agents have it, so a green pipeline may not have run them. Run them locally before changing
+  either file.
 - **Gazette's 429 stays an unknown outcome.** `callGazetteApi` turns it into `GazetteOutcomeUnknownError`, not
   `TooManyRequestsError`, because only a published Gazette refusal proves nothing was admitted under the request's
   key. The Gazette batch page is not limited here; api limits it.
+
+## Document viewer
+
+Every document link opens one app-owned viewer (plan `docs/plans/completed/20261023-full-page-document-viewer.md`). Facts that
+span several files:
+
+- **Two scoped route sets, never one generic URL.** `deed-polls/[id]/documents/[documentId]/` and
+  `judicial/referrals/[referralId]/documents/[documentId]/` each have `view`, `preview` and `download`, and a
+  judicial URL never carries a case id. Each route builds its paths with `caseViewerScope`/`referralViewerScope` and
+  `documentPaths` (`src/document-viewer/context.ts`) **before any read**. The return link is that scope's fixed
+  `#documents` anchor and never a `returnTo`. The legacy `file.ts` routes stay for existing consumers.
+- **The view reads its context once, and each binary request is authorised on its own.** The selector, title and
+  return link come from the one case or referral read (`libs/deed-poll/src/document-viewer/view.ts`, api's order).
+  `preview` and `download` read nothing first, and nothing loads every document to fill the selector. A preview 404
+  is `{ code: "DOCUMENT_UNAVAILABLE" }` inside the viewer, never the referral-unavailable page; a referral 404 on
+  `view` is that page.
+- **api's preview refusals are typed, and their prose never travels.** `callPreviewApi`
+  (`libs/deed-poll/src/api/deed-poll-api.ts`) maps the four codes to `DocumentPreviewRefusedError` only on their
+  published status. It replaces api's message with `document preview failed (<kind> <status>)`, because api's prose
+  can hold a converter's words or a file name. The relay (`src/document-viewer/preview-response.ts`) answers a
+  fixed `preview.pdf` attachment under `default-src 'none'; sandbox`, and the shell's CSP is the app's own, not the
+  binary's.
+- **The limits are the producer's, restated once.** `DOCUMENT_PREVIEW_LIMITS` and `PREVIEW_TIMEOUT_MS` (27 s, a ceiling
+  `DEED_POLL_API_TIMEOUT_MS` can only shorten) are in the api client, and `contract.test.ts` pins the limits to
+  `openapi.json`. The page passes them to the browser as `data-max-bytes`/`data-max-pages`; do not restate them in
+  the client.
+- **PDF.js runs with WebAssembly off (`useWasm: false`) so the CSP stays unchanged.** Turning it on needs
+  `'wasm-unsafe-eval'`. Also off: scripting, XFA, the annotation layer and range or streamed loading. It is the
+  **legacy** build in both the browser and the Node tests. `pdfjs-dist` is a devDependency because vite bundles it.
+  Its data files are copied by `vite.build.ts` to `/assets/pdfjs/` (`PDFJS_ASSET_MOUNT`), which
+  `src/document-viewer/pdfjs-assets.ts` serves in development; `pdfjs-assets.test.ts` pins both lists, and that
+  `package.json` resolves `pdfjs-dist` through a patch file that exists.
+- **`pdfjs-dist` is patched, and a page it cannot draw in full is a page state, not a document state** (plans
+  `docs/plans/completed/20261025-document-viewer-incomplete-pages.md` and
+  `docs/plans/completed/20261025-document-viewer-oversized-image-only.md`). **Only an oversized image fails a page**:
+  an image whose declared size is over `maxImageSize` makes the patched worker throw its own `ImageTooLargeError`
+  whatever `ignoreErrors` says, and the patch rethrows it at each catch it passes through (the XObject `Do`, nested
+  form XObjects and inline images, tiling patterns, an ExtGState SMask and an annotation's appearance stream).
+  **`stopAtErrors` is deliberately off.** It is PDF.js's whole `ignoreErrors`, so it also failed or silently emptied
+  pages for a broken font, ToUnicode map, colour space, shading or pattern, where PDF.js falls back and draws: an
+  empty `FontFile2` drew none of its text. Do not turn it back on to catch some other fault; patch that fault's check
+  instead. On the display side the patch fails each pending render task instead of completing it with the truncated
+  operator list, and drops the failed list from `_intentStates`, so drawing the page again asks the worker rather
+  than drawing a cached blank page; the worker resets an annotation's streams even when its appearance fails, or the
+  next draw would read an emptied appearance and draw the page without its stamp as if complete. Unpatched, 6.4.299 draws the page without the image and resolves.
+  `package.json` resolves `pdfjs-dist` through `.yarn/patches/` (committed; `.gitignore` admits only that directory
+  under `.yarn/`), and the browser loads the **unminified** legacy worker (`pdf.worker.mjs?url`) because the minified
+  files are unpatched. `pdf-document.test.ts` fails if the patch's behaviour is lost, which is what a version bump does,
+  and Renovate never automerges `pdfjs-dist`. Re-apply the patch to a new version with `yarn patch` on the original
+  package (not `--update`, which stacks a second patch). An upstream fix for the swallowed error (draft issue:
+  `docs/pdfjs-render-error-upstream-issue.md`, not yet filed) retires only the display hunks; the worker hunks are
+  this app's own and stay. **Three gaps are known and left** (Steve,
+  2026-10-25: patching further into PDF.js costs more than the rare cases are worth). An oversized image can still be
+  dropped silently when it is (1) an image's own `/SMask` or `/Mask` stream, which PDF.js builds as a `PDFImage`
+  without the size check and whose decode failure it swallows; (2) a JPEG 2000 (JPX) image whose codestream is larger
+  than its declared `/Width × /Height`, because PDF.js replaces the declared size after the check; or (3) inside a
+  Type3 glyph, because PDF.js catches every Type3 glyph error itself. Each needs an exotic or crafted PDF over 64
+  megapixels. The viewer's footer therefore says it is a preview and points to **Download original** for anything that
+  looks missing; do not reword it into a promise of completeness.
+  `renderPage` answers `incomplete` with the canvas emptied, and the viewer shows the page's sentence with **Download
+  original** while every control keeps working; a thumbnail gets a grey placeholder. A page that cannot be read at all
+  is still `failed`, the document's unavailable state. Never remove `maxImageSize`.
+- **`src/assets/**` has its own type check, `tsconfig.assets.json`**, which `build:app` runs after
+  `tsconfig.app.json` (which excludes it), so a type error in a browser bundle fails the image build. No unit test
+  imports `viewer.ts` or `thumbnails.ts`; their behaviour is covered only by `yarn test:document-viewer`, which no
+  pipeline stage runs. `render-page.test.ts` drives `renderPage` against real PDF.js with a minimal DOM stand-in. It and `pdf-document.test.ts` draw onto PDF.js's Node canvas, `@napi-rs/canvas`, which arrives only as an
+  optional dependency of `pdfjs-dist`, so an install that skips optional dependencies fails them. Keep rules in DOM-free `presentation.ts`, where tests reach them.
+  Switching documents replaces history and never pushes, and per-document state lives only in memory,
+  `history.state` and a validated fragment, never in storage. `viewer.test.ts` scans the sources for storage,
+  logging and requests, and allows a network call only in `fetch-preview.ts`.
+- **`yarn test:document-viewer` runs the viewer's browser journeys** (caseworker and judge, all five formats) against
+  a fresh mock on 3219 and this app on 3319, with Redis database 4 and local IDAM on 5556. It is kept out of
+  `yarn test:e2e` because it switches the mock's preview scenario, which must never happen on a shared developer mock.
+- **A browser that goes away mid-preview is not an error.** `relayPreview` aborts api's read on the response's
+  `close` and drops the failure that produces, which the adapter would otherwise report as an api timeout: the
+  loader aborts on every document switch. A close after the headers have gone is cut off in `domainErrorHandler` (`res.destroy()`,
+  nothing logged for a premature close) and never passed on: the starter's handler would render over the sent headers
+  and throw outside any handler, taking the pod down.
+- **A preview fetch past a session limit is refused 401 and does not end the session.** The viewer's fetch never
+  follows a redirect, so ending it there would leave IDAM's session standing and "Sign in again" would sign the reader
+  straight back in. `sessionLifetime` leaves a non-navigating GET (`Sec-Fetch-Mode` present and not `navigate`) for
+  the next navigation, the sign-in link to `view`, to end through IDAM. A refusal keeps api's own status, carried on `DocumentPreviewRefusedError`.
+- **`download` (either scope) always answers `attachment`** through `sendDownload`, and its 404 is the shared "Page
+  not found", not the referral-unavailable page. The `inline` rules in "Personas and role gating" are the legacy
+  `file.ts` routes'.
+- **Welsh:** `src/document-viewer` is on the extractor's `INCLUDE`, and `src/welsh-extractor.test.ts` compares every
+  `en` key of `content.ts` with the extracted rows.
+
+## Delivery Manager settings
+
+`/deed-polls/settings` is where a Delivery Manager changes the service's process values while it runs (plan
+`docs/plans/20261026-dm-settings-page.md`, extended for item D by `docs/plans/completed/20261028-da1-settings-contract-mock-and-page.md`).
+It holds, in order, the referral process, the London Gazette recipient, the Masters, the bank holidays and a link to
+XUI staff administration, each its own GOV.UK tab as on the case page (Steve, 2026-10-29). Add no field or placeholder
+for a value api has not made a setting. **Each tab panel's id is that section's fragment, and every form's `action`
+carries it** (`/deed-polls/settings/masters#masters`): a refused save renders at the POST address, and without the
+fragment it opened on the first tab with its error in a hidden panel, where the error summary's link could not reach
+the field. Saves, the Gazette pages' links and the Change and Remove back links already end in the fragment. A new
+section needs a tab, a panel id and that fragment on its form; `index.njk.test.ts` pins all three. **Deploy order:** api D1 (the
+Masters, the bank holidays and the extended process settings) on every replica first, then this app. Against an older
+api the Masters and bank holiday lists show their unavailable sentences and a referral-process save is refused, because
+every save sends seven fields and the window's minimum is now a day (`docs/DEPLOYMENT.md`). Facts that span several
+files:
+
+- **The area is gated once, on `MANAGE_PROCESS_CONFIG`.** `src/app.ts` mounts
+  `requireCapability(MANAGE_PROCESS_CONFIG)` on `/deed-polls/settings`, after `requireAuth`, beside the Gazette gate;
+  `src/app.test.ts` reads `src/pages/deed-polls/settings/` off the filesystem and fails if the mount stops covering a
+  page. Only Delivery Managers hold it. The case list's "Service settings" link is drawn from the session's capability
+  alone, with no api read. The capability arrives through `/me`, so an existing session gets the link within one token
+  lifetime, or at once on signing in again: a missing link straight after a deploy is that, not a failed deployment.
+- **One form, one Save and (where api keeps one) one revision per section.** The process section posts to
+  `/deed-polls/settings` and the Gazette section to `/deed-polls/settings/gazette-recipient`, each with only its own
+  revision, so a conflict in one never touches the other's stored value. The Masters and Bank holidays add forms post
+  to `/deed-polls/settings/masters` and `/deed-polls/settings/bank-holidays` with no revision, since a new row has none. A browser submits only the form whose button was pressed, so unsaved edits in the other
+  section are lost, and the intro says "Save each section before you change another". A refused Gazette save renders
+  at `/deed-polls/settings/gazette-recipient`, so that address also answers a `GET` with a 302 back to the page's
+  `#gazette-recipient`; without it the language link and a reload were a 404. The two add addresses do the same for
+  `#masters` and `#bank-holidays`. The handler code is in
+  `src/service-settings/` (every `.ts` under `src/pages` is a route). The submitted section is redrawn from the body
+  with its **original** revision on a 400 or 409, never re-read; the other section is re-read and, if that read fails,
+  degrades to a sentence with no form (the Masters and bank holiday lists degrade on their own, above a form that is
+  still drawn). A success is a 303 through `savedRedirect` to one of `SAVED`'s keys and its section's fragment
+  (`src/service-settings/page.ts`), and the banner shows even if the follow-up read fails.
+- **The referral process form is digits only and does not use `readNumericInput`.** `processSettingsFormSchema`
+  (`libs/deed-poll/src/settings/schemas.ts`) reads the processing window in whole **days** (`PROCESSING_DAYS_LIMITS`,
+  1–30; api stores minutes, days × 1,440, within `PROCESS_SETTINGS_LIMITS`' 1,440–43,200), the reminder interval in
+  hours (1–168) and `windowCap`, "Referrals in each window", the most sent to all Masters together in one window (1–100), each as trimmed `^\d{1,4}$`, and the four window times
+  against `WINDOW_TIME_PATTERN` (`HH:mm` on the quarter hour). Signs, decimals, exponents and a missing control are
+  refused. Do not swap in the case form's parser, which accepts `+2` and `2.0`. Every save sends all seven fields.
+  The ordering rule (morning start < morning end < afternoon start < afternoon end) runs only when every control is
+  valid and is refused on the field api names, so a morning end not before the afternoon start is the **afternoon
+  start**'s error. A stored part-day window (only an old claim window could be one) is shown to two places, never
+  rounded, so the digits-only form refuses it rather than silently changing it. The bounds are api's and pinned to
+  `openapi.json` by `contract.test.ts`; do not restate them in a page.
+- **A 409's field errors are what tell a duplicate from a stale revision.** api's duplicate-email 409 on a Master
+  names `email` and a stale revision names no field, so the adapter keeps a 409's `fieldErrors` when api sends any and
+  `ConflictError` carries them as `errors`. The Change page (`masters/[masterId]`) reads `email` as the duplicate and
+  anything else as a reload; on the add form every 409 is the duplicate, because a new Master has no revision. The
+  Change page sends name, email and available at the original revision. api has no single-Master read, so its `GET`
+  finds the Master on the list and is a 404 when absent. A linked Master's page warns first that an email change means
+  signing in again before they see their referrals, and a refused save re-reads only `linked` for it (showing the
+  warning if that read fails). The IDAM subject is never in api's answer, so never on a page.
+- **A bank holiday is removed only by a POST from its confirmation page.** The list's Remove link goes to
+  `bank-holidays/[date]/remove`, whose `GET` confirms and whose one form posts the removal; never a state-changing
+  `GET`. A removal api answers 404 for reads as removed. Dates are shown as `dd-mm-yy` and kept as api's `yyyy-MM-dd`
+  string, never a `Date`; the add form is a GOV.UK date input (`date-day`/`-month`/`-year`) read into a real calendar
+  date, every date issue on `date`.
+- **The Gazette section needs `ACCESS_GAZETTE` as well.** The area gate admits every Delivery Manager, so the section
+  is drawn and read only for holders, and its POST refuses anyone else with a `role` `ForbiddenError` before any read
+  or write, because api checks the same capability.
+- **The XUI link is per environment, from the chart, and is a link, never a permission.**
+  `externalLinks.xuiStaffAdmin` (`XUI_STAFF_ADMIN_URL`) is AAT's address in `config/default.json`; `values.yaml` drops
+  the environment segment only for `prod`, and preview pins AAT's. A non-production environment must never name
+  production XUI; `src/deployment-chart.test.ts` renders every environment through `helm template` to prove it, and
+  **those render tests skip without `helm`**. XUI checks `staff-admin` itself, which the copy says.
+- **The mock starts the referral process at api's seed** (10,080 minutes, 48 hours, 10, 07:00–10:30 and 14:00–14:30),
+  revision 0, with no attribution, no Masters, and api's V42 bank holidays (24 dates, 2026–2028), and resets all of it
+  with its other fixtures. That is the state in which the section says the process has never been changed. The mock
+  links a judge to an unlinked Master whose email matches their token's on their first `/judicial/` request
+  (`linkIfListed`, api's `MasterLinking`), and an email change unlinks. Saving sends no email.
+- **The page's Welsh is pending.** `src/service-settings` is on the extractor's `INCLUDE`; the new copy's `cy` mirrors
+  its `en`, so it adds to `yarn welsh:check`'s identical count.
 
 ## Redirect paths
 
@@ -523,13 +872,122 @@ referral under a case, a saved query, a Gazette request, an email — goes throu
   a dot segment. Build the path **before** any write (and, on the judicial pages, before any read), so a refusal
   cannot follow a write. For an api-returned id (`created.id`, `referenceMatch`) build it after the response and
   never retry the write.
-- **Templates are not covered yet.** About 25 `.njk` hrefs still interpolate `{{ case.id }}` and child ids directly,
-  some with `| urlencode`; those ids come from api, and the sweep was deliberately kept to TypeScript. A new link
-  should be built in the handler with the helpers and passed in, rather than added to that list.
+- **Templates use the same helpers, as Nunjucks filters.** `{{ case.id | casePath }}`, `{{ row.id | referralPath }}`
+  and `{{ n.id | pathSegment }}` come from `src/path-filters.ts`, which `app.ts` and every template test register
+  (`addPathFilters(environment)`). Not `| urlencode`: it leaves dot segments alone. `src/template-hrefs.test.ts`
+  fails on any id interpolated into an href path without one of the three filters (a `#fragment` is exempt).
 - `gazette/batch.ts`'s 303 after a send keeps plain `encodeURIComponent`: it sits inside the outcome-unknown catch,
   so a refusal there would report a completed send as an unknown outcome.
 - `src/case-redirects.test.ts` drives the two reported handlers over HTTP. A URL-parsing client resolves `.`, `..`
   and `%2E` as dot segments before sending, so the dot-only refusal is tested at the handler boundary instead.
+- **The api adapter refuses the same three ids itself, so no api request ever carries one** (review finding R11; plan
+  `docs/plans/completed/20261022-r11-r16-path-segments-and-observe-guard.md`). The check is once, in `exchange`
+  (`hasUsableSegments` in `libs/deed-poll-api-client/src/api/client.ts`), which every operation reaches, so a new
+  operation cannot skip it. Such a path answers `{ kind: "not-found" }` with a fixed message naming no id, sends
+  nothing, and reaches a page as `NotFoundError`. That does not replace `pathSegment`: the adapter guards api's
+  paths, the helpers guard this app's redirects. The Gazette batch page's `review:<id>` reads a not-found case as
+  its existing `invalid` state, not as a Gazette outage.
+
+## Numeric case-form input
+
+A typo in a number field used to reach the patch as `null`, an instruction to clear the stored value (review finding
+E04; plan `docs/plans/completed/20261020-e04-numeric-input-validation.md`). The rules for every `kind: "number"` field:
+
+- **One parser, four outcomes.** `readNumericInput` (`libs/deed-poll/src/deed-poll/numeric-input.ts`) reads a
+  submitted control as `absent` (not in the body: omitted from the patch, never nulled), `blank` (empty or
+  whitespace-only: `null`, unless the field is `notNullable`), `valid` (the number) or `invalid`. Only `blank` clears.
+  `readFieldInput` (`form-input.ts`) hands every number field to it, and `collectFormErrors` and `buildUpdatePatch`
+  both read through `readFieldInput`, so validation and patch construction cannot drift; do
+  not convert a numeric string anywhere else, and never with a bare `Number()`.
+- **Accepted syntax is plain decimal after trimming: `^[+-]?(\d+(\.\d*)?|\.\d+)$`.** Signs are kept because
+  `UpdateCaseRequest` sets no minimum. Exponents, `0x`/`0b`/`0o` prefixes, `NaN`, `Infinity`, currency symbols,
+  thousands separators and non-ASCII digits are refused, never stripped, and a non-finite result is invalid. A value
+  that is not one string (a repeated field arriving as an array, a bracketed name parsed into an object) is invalid.
+- **Integer versus decimal comes from the contract.** `numberFormat: "integer"` on the `FieldDef` marks api's
+  `int32` fields (`ageOfMinor`, `ageOfMinorMonths`), and `form-fields.test.ts` pins every editable number field to
+  `openapi.json`. An integer must be whole and within int32: `7.0` reads as 7, while `7.5` and
+  `7.00000000000000001` are refused rather than rounded (the fraction is checked on the text, since `Number()`
+  rounds the second to 7). Absent means `decimal` (`refundAmount`), and a decimal longer than a double holds is
+  rounded by `Number()`. Add no range, precision or positivity rule here; those belong to api.
+- **Validate before mutation.** The edit handler runs `collectFormErrors` (dates, numbers and any input the form could
+  not have sent, together in field order) before building the patch, and re-renders the exact submitted text with
+  GOV.UK field errors and no write. `buildUpdatePatch` also throws `InvalidInputError` on any invalid reading, a
+  number included, so a future caller that skips validation
+  still gets no patch. Read-only numbers are never patched, whatever is posted.
+- **api's validation still applies.** This guard only stops unreadable text becoming a clearing patch. api remains
+  authoritative for permissions and business rules, and its 400s still come back through the handler's existing
+  `InvalidInputError` path. `src/case-edit-numeric.test.ts` drives real URL-encoded posts through the handler with
+  persistence mocked; it proves the outgoing patch, not a live save.
+- **The field-error messages are English-only domain strings** in `form-validation.ts`, like the date-part messages, so
+  they sit outside the Welsh extractor's page scope and add nothing to `yarn welsh:check`. Do not add `cy` strings.
+
+## Case edit form saves
+
+An unchanged save must write back exactly what is stored, and a refused save must redraw exactly what was submitted
+(review findings R01 and R02; plan `docs/plans/completed/20261020-r01-r02-edit-form-untouched-fields.md`). The POST handler reads
+no case first, so the body is the only evidence of what the page rendered. The rules:
+
+- **"Absent" means something different for each field kind.** A rendered text input, textarea or select always
+  submits its value, even an empty one, and a rendered date always submits its three parts. So when one of these is
+  missing from the body, it was never rendered: hidden by its rule, locked, or not on this tab. `buildUpdatePatch`
+  (`libs/deed-poll/src/deed-poll/form-payload.ts`) leaves it out of the patch. A date counts as absent only when all
+  three parts are missing. A *present* empty value still clears a nullable field; a `notNullable` one (`privacy`, `urgency`) is
+  silently left out instead, because nulling its column is a 500 and the stored value stands. Numbers
+  follow `readNumericInput` (above), which has the same rule.
+- **Checkboxes are the exception, because an unticked box is absent too.** An absent boolean is `false` and an
+  absent multiselect is `[]`, so a hidden checkbox field would be cleared on every save. Today `getFieldRules` hides
+  none, and `deed-poll-validation.test.ts` fails if a rule ever hides a boolean or multiselect for any type, migrated
+  or not, published or not. A rule that needs to hide one first needs a different way to tell "unticked" from "not
+  rendered".
+- **A nullable boolean is Yes / No radios, not a checkbox** (review finding R07; plan
+  `docs/plans/completed/20261020-r07-r08-edit-form-input-shapes.md`). A checkbox has two states and `inPerson` has three:
+  api types it `["boolean", "null"]`, and as a checkbox an unanswered question read as unticked, so every save of the
+  Application tab turned "not answered" into "No". `nullable: true` on the `FieldDef` renders it as radios with
+  neither selected for `null`; nothing selected is absent and leaves the stored value alone, Yes sends `"true"` and
+  No `"false"`. `form-fields.test.ts` pins which booleans are nullable to `openapi.json`, so a contract change
+  fails there. `retainPermanently` is a plain `boolean` and stays a checkbox. This is not required-field
+  enforcement: an unanswered question may stay unanswered, and "required" is api's rule.
+- **A value the rendered form could not have sent is a field error and no write** (review finding R08, same plan).
+  `readFieldInput` (`libs/deed-poll/src/deed-poll/form-input.ts`) is the one parser per kind, shared by
+  `collectFormErrors` and `buildUpdatePatch` as `readNumericInput` is for numbers, and reads each field as absent,
+  valid or invalid. What each kind may send: a text input or textarea one string (trimmed); a select one string, exactly `""` or one of its `enumOptions` values (not trimmed); each date part
+  one string; a checkbox `"true"` (or a browser's default `"on"`) when ticked and nothing when not; Yes / No radios
+  `"true"`, `"false"` or nothing; a multiselect zero or more strings, each exactly equal to one of its `enumOptions`
+  values, none repeated. Anything else (an array or object from a repeated or bracketed name, `"TRUE"`, a member such
+  as `"1e0"`, `"0x2"`, `" 3 "`, `""`, `"2.5"`, one outside the option set or one sent twice, a select value such as `"NotAStatus"`) is refused by `collectFormErrors` in field order
+  before any write, and `buildUpdatePatch` throws `InvalidInputError` on the same input. It used to be coerced into
+  a clear, a first element or `false`. Nothing ticked still clears a multiselect. A refused field redraws from the
+  stored record rather than as sent, except a mistyped number or a textarea string, which redraw as typed. The messages are
+  English-only domain strings like the numeric ones and add nothing to `yarn welsh:check`. The date-part rule is
+  `readDateInput`, which `collectDateErrors` uses, so the new-case form's date received and the query builder's date
+  rows refuse a repeated or bracketed part the same way rather than reading it as blank.
+- **The minor-only fields and the Gazette notice date are cleared by api, not here.** The old behaviour cleared them
+  only by accident. api's update applies `applyGazetteGate` and `applyMinorGate` to the merged record
+  (`DeedPollService.java` around lines 410-415 on api `origin/master` `554fe49`), and the mock's `patchCase` applies
+  the same two (`writeGates`), so a local save behaves as api's does. The fields a Deed of Relinquishment hides (old
+  names, marital status, nationality) are cleared by nobody, and no rule says they should be. If a clear is ever
+  needed here, call the gate function explicitly, never through absent-means-null.
+- **Checked state is computed in the view model, never in the template.** `decorate()` in
+  `libs/deed-poll/src/deed-poll/edit-view.ts` sets `checked` on a boolean field and on each multiselect option. It
+  reads stored values (`true`, numbers) and replayed ones (`"true"`/`"on"`, strings) through `checkbox-input.ts`, and
+  sets `answer` (`true`, `false` or `null`) on a nullable boolean. A replayed value reaches it only once
+  `readFieldInput` has accepted it, so it reads a box the way the patch does. `edit.njk` reads only those flags. A template that compares raw values redraws every ticked box unticked on
+  a replay, and the corrected resubmit then clears them.
+- **A textarea's advertised `maxlength` is also its enforced limit** (review finding R15; plan
+  `docs/plans/completed/20261022-r12-r15-gtm-off-and-input-gaps.md`). `TEXTAREA_MAX_LENGTH` (2,000, in `libs/deed-poll/src/deed-poll/form-fields.ts`) is the one constant:
+  `[tab].ts` passes it to `edit.njk` as `textareaMaxLength`, and `readFieldInput` reads a textarea whose trimmed text
+  is longer as invalid (`too-long`), so `collectFormErrors` refuses it in field order and `buildUpdatePatch` throws.
+  It counts `string.length` (UTF-16 code units) with a submitted CRLF counted once, because that is what the
+  browser's `maxlength` and character count measure before the form turns each line break into CRLF, so text a
+  browser accepts is never refused. api stores the three textareas as unbounded `text`; a longer legacy value is
+  refused on its next save with the field error and redrawn as typed for the caseworker to shorten, never cleared.
+  Do not restate the number in a page or template.
+- **A locked field redraws from the stored record.** A non-admin's privacy select is rendered disabled, so it is
+  never in the body; replaying it would redraw it blank. Read-only fields are excluded from the replay for the same
+  reason, and so is any other field the body does not carry, by the same absence test as the patch: drawn empty, a
+  field whose rule changed between render and redraw would be cleared by the corrected resubmit.
+  `src/case-edit-untouched-fields.test.ts` drives the real handler and the real `edit.njk`, reads the
+  rendered page back as the form a browser would submit, and pins both round trips.
 
 # Agent instructions
 
@@ -627,9 +1085,12 @@ Follow these strict naming conventions throughout the project:
   check the payload before assuming one carried it.** A case's *referrals* are not on it, so the referrals tab
   is a justified second call, made alongside the case (`src/pages/deed-polls/[id].ts`). The rule forbids
   re-reading what the first call already answered, not calling for something it never held
-- **A second call for one panel must not be able to lose the page.** `[id].ts` reads the case and its
-  referrals with `Promise.allSettled`, not `Promise.all`: the case read stays fatal, the referrals read
-  degrades to `unavailableReferralsView()` and a log line. `client.ts` classifies by status, so under
+- **A second call for one panel must not be able to lose the page.** `[id].ts` reads the case, its
+  referrals and its emails with `Promise.allSettled`, not `Promise.all`: the case read stays fatal, the referrals
+  read degrades to `unavailableReferralsView()` and a log line. The field rules need only the case, so they are
+  chained off the case promise inside the same `allSettled` rather than awaited after it, which would make them
+  wait for the panels too (review finding E05, `docs/plans/completed/20261020-e05-case-detail-concurrency.md`; the
+  `read scheduling` tests in `[id].test.ts` pin the order). `client.ts` classifies by status, so under
   `Promise.all` a referrals 404 rendered "Page not found" for a case that exists, a 5xx the 500 page, and a 403
   the 404 template — three disguises for a failure the adapter itself calls "try again shortly". The test for
   which way a given call goes is **load-bearing versus additive**: `findDeedPoll` is the case and
@@ -638,10 +1099,10 @@ Follow these strict naming conventions throughout the project:
   depend on the degraded call must render outside every branch of it**: the Referrals panel's "Previous system
   referral information" snapshot comes off the case, so nesting it inside the live-history branch would let a
   failed referrals read hide a historical record that was never at risk
-- **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its additive calls — the saved-query nav, the returned-for-action and awaiting-confirmation
-  counts, and the Delivery Manager-only Gazette count — *before* the list read and awaits each inside a helper that catches everything, logs, and returns a sentinel
+- **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its additive calls — the saved-query nav, the returned-for-action, awaiting-confirmation and
+  waiting-for-assignment counts, and the Delivery Manager-only Gazette count — *before* the list read and awaits each inside a helper that catches everything, logs, and returns a sentinel
   (`[]`, `null`); only the list read is fatal. Reach for that shape on a page with one load-bearing call rather
-  than `Promise.allSettled`, which is `[id].ts`'s answer to two. `worklistCount(name, read)` is the generalised
+  than `Promise.allSettled`, which is `[id].ts`'s answer to two load-bearing reads beside two additive ones. `worklistCount(name, read)` is the generalised
   degrade-and-log helper, and the counts are separate reads on purpose: a caseworker whose confirmation count
   failed must still be told about a returned direction
 - **A log is not a way of telling the caseworker.** Every degraded state must be distinguishable from an empty

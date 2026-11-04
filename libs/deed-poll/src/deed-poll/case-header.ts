@@ -29,6 +29,9 @@ export const ENTITY_LABEL = "Deed Poll";
  */
 export const NOT_RECORDED = "Not recorded";
 
+// en-GB gives `dd/mm/yy`; `formatShortDate` swaps the separator.
+const SHORT_DAY = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "Europe/London" });
+
 export interface CaseHeaderRow {
   key: string;
   value: string;
@@ -53,9 +56,10 @@ export type CaseHeaderInput = Partial<Pick<CaseDetail, "type" | "state" | "modif
 
 /** Look a stored enum member up in the shared label registry. */
 function label(set: string, value: unknown): string {
-  if (value === null || value === undefined || value === "") return NOT_RECORDED;
+  if (typeof value !== "string" || value === "") return NOT_RECORDED;
   const map = (LABELS as Record<string, Record<string, string>>)[set];
-  return map?.[String(value)] ?? String(value);
+  const mapped = map?.[value];
+  return typeof mapped === "string" ? mapped : value;
 }
 
 /**
@@ -68,8 +72,8 @@ function label(set: string, value: unknown): string {
  * zone explicitly also keeps the output independent of the server's local TZ.
  */
 export function formatTimestamp(raw: unknown): string {
-  if (raw === null || raw === undefined || raw === "") return NOT_RECORDED;
-  const d = raw instanceof Date ? raw : new Date(String(raw));
+  if (!(raw instanceof Date) && typeof raw !== "string") return NOT_RECORDED;
+  const d = raw instanceof Date ? raw : new Date(raw);
   if (Number.isNaN(d.getTime())) return NOT_RECORDED;
 
   const date = d.toLocaleDateString("en-GB", {
@@ -91,6 +95,18 @@ export function formatTimestamp(raw: unknown): string {
   return `${date} at ${time}`;
 }
 
+/**
+ * An instant as its `dd-mm-yy` day in Europe/London, the short form Steve chose for the referral dates (plan Db1):
+ * "29-10-26". The day is London's, so a due time just after midnight BST is not reported as the day before.
+ */
+export function formatShortDate(raw: unknown): string {
+  if (!(raw instanceof Date) && typeof raw !== "string") return NOT_RECORDED;
+  const d = raw instanceof Date ? raw : new Date(raw);
+  if (Number.isNaN(d.getTime())) return NOT_RECORDED;
+
+  return SHORT_DAY.format(d).replaceAll("/", "-");
+}
+
 /** A stored author name, or the placeholder for a record predating the columns. */
 function author(raw: unknown): string {
   const name = typeof raw === "string" ? raw.trim() : "";
@@ -108,7 +124,7 @@ export function buildCaseHeader(record: CaseHeaderInput): CaseHeader {
     entityLabel: ENTITY_LABEL,
     rows: [
       { key: "Type", value: label("type", record.type) },
-      { key: "State", value: label("state", record.state), tag: true },
+      { key: "Status", value: label("state", record.state), tag: true },
       { key: "Modified By", value: author(record.modifiedBy) },
       { key: "Modified On", value: formatTimestamp(record.modifiedOn) },
       { key: "Created By", value: author(record.createdBy) }

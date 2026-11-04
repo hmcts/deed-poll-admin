@@ -137,8 +137,9 @@ deployable, separated by routing and a single role gate
 authenticated-or-not. `requireJudicial()` (`src/auth/require-role.ts`) is mounted on the `/judicial` prefix in
 `src/app.ts`, **after** `requireAuth`, and is the only place the app refuses a request on a role — a page under
 `src/pages/judicial/` is gated by where it lives, and `src/app.test.ts` pins that from the filesystem. It
-refuses with `next(new ForbiddenError(...))`; `src/errors.ts` logs it and answers 403 on the **404** view, so
-the area stays non-enumerable. api gates the same routes itself, so this is the UI boundary and not the data
+refuses with `next(new ForbiddenError(...))`; `src/errors.ts` logs it and answers 403 on the **404** view: the view reveals
+nothing about the resource, which is never looked up, while the 403 status deliberately reveals that the area
+exists and is closed to the caller. api gates the same routes itself, so this is the UI boundary and not the data
 one.
 
 **Architecture Decisions**:

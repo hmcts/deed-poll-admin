@@ -5,6 +5,8 @@ import {
   buildReferralsView,
   CONFIRMATION_OUTCOME_CHOICES,
   CONFIRMATION_OUTCOME_LABEL,
+  MINOR_DETAIL_CHOICES,
+  MINOR_DETAIL_REASONS,
   REFERRAL_REASON_CHOICES,
   REFERRAL_REASON_LABEL,
   REFERRAL_STATE_LABEL,
@@ -12,6 +14,7 @@ import {
   REFERRAL_STATE_TAG,
   REFERRAL_URGENCY_CHOICES,
   REFERRAL_URGENCY_LABEL,
+  referralReasonLabels,
   unavailableReferralsView
 } from "./referrals-view.js";
 
@@ -27,13 +30,22 @@ const REFERRAL: Referral = {
   claimedAt: null,
   decision: null,
   directionsText: null,
-  publishToGazette: null,
+  changesToStandardPublication: null,
   decisionDate: null,
   decidedBy: null,
   createdBy: "A Caseworker",
   modifiedBy: "A Caseworker",
   createdOn: new Date("2026-05-13T08:44:00Z"),
   modifiedOn: new Date("2026-05-14T08:44:00Z")
+};
+
+/** Assigned to a Master and waiting for their direction (plan Db1). */
+const ASSIGNED: Referral = {
+  ...REFERRAL,
+  state: "Claimed",
+  assignedMaster: { id: "master-1", name: "Master Wren" },
+  assignedAt: new Date("2026-07-28T09:00:00Z"),
+  directionDueBy: new Date("2026-10-29T23:30:00Z")
 };
 
 /**
@@ -58,7 +70,7 @@ const DECIDED: Referral = {
   claimedAt: new Date("2026-05-15T08:44:00Z"),
   decision: "Approved",
   directionsText: "Enrol the deed once the fee is paid.",
-  publishToGazette: true,
+  changesToStandardPublication: false,
   decisionDate: new Date("2026-05-16T08:44:00Z"),
   decidedBy: "A Judge"
 };
@@ -81,9 +93,45 @@ describe("referrals/referrals-view", () => {
       expect(REFERRAL_URGENCY_LABEL.Normal).toBe("Standard");
     });
 
-    it("should offer the reason choices in api's published order, built from its member array", () => {
-      expect(REFERRAL_REASON_CHOICES.map((choice) => choice.value)).toEqual([...REFERRAL_REASON]);
+    it("should offer the reason choices in api's published order, built from its member array, less a minor's details", () => {
+      expect(REFERRAL_REASON_CHOICES.map((choice) => choice.value)).toEqual(REFERRAL_REASON.filter((reason) => !MINOR_DETAIL_REASONS.includes(reason)));
       expect(REFERRAL_REASON_CHOICES[0]).toEqual({ value: "Minor", text: "Applicant is a minor" });
+    });
+
+    // api marks its details `isMinorDetail()` but publishes no flag, so this is what catches a new one arriving
+    // as a top-level box: every `Minor*` member but `Minor` itself must be a detail here.
+    it("should treat every Minor* member api publishes as a minor's detail", () => {
+      expect([...MINOR_DETAIL_REASONS]).toEqual(REFERRAL_REASON.filter((reason) => reason.startsWith("Minor") && reason !== "Minor"));
+    });
+
+    it("should offer the minor's details in the Masters' own words", () => {
+      expect(MINOR_DETAIL_CHOICES.map((choice) => choice.text)).toEqual([
+        "Transgender",
+        "Have parental consent",
+        "Do not have parental consent",
+        "Stepparent parental consent",
+        "Do not have stepparent consent",
+        "Court Order",
+        "16/17 year old applicant has consented",
+        "16/17 year old applicant has not consented"
+      ]);
+    });
+
+    describe("referralReasonLabels", () => {
+      it("should fold a minor's details into Applicant is a minor, in the order they were ticked", () => {
+        expect(referralReasonLabels(["Minor", "MinorTransgender", "DomesticAbuse", "MinorParentalConsent"])).toEqual([
+          "Applicant is a minor: Transgender, Have parental consent",
+          "Domestic abuse considerations"
+        ]);
+      });
+
+      it("should leave Minor alone when it has no details, as a referral raised before them does", () => {
+        expect(referralReasonLabels(["Minor", "Other"])).toEqual(["Applicant is a minor", "Other"]);
+      });
+
+      it("should keep a detail stored without Minor as its own entry rather than drop it", () => {
+        expect(referralReasonLabels(["MinorCourtOrder"])).toEqual(["Court Order"]);
+      });
     });
 
     it("should offer the urgency choices in api's published order", () => {
@@ -203,6 +251,59 @@ describe("referrals/referrals-view", () => {
       });
     });
 
+    it("should call an Open referral waiting to be sent and say who sends it, since caseworkers no longer assign", () => {
+      const view = buildReferralDetail(REFERRAL);
+
+      expect(view).toMatchObject({
+        state: "Waiting to be sent",
+        stateMeaning: "A Team leader or Delivery Manager will check this referral and send it to a Master.",
+        assignment: null
+      });
+      expect(view).not.toHaveProperty("assignAction");
+    });
+
+    it("should name the assigned Master and the due date on a Claimed referral, in London's dd-mm-yy", () => {
+      // 23:30 UTC on 29 October is still the 29th in London (GMT by then), and 23:30 UTC on 1 August is the 2nd (BST).
+      const view = buildReferralDetail({ ...ASSIGNED, directionDueBy: new Date("2026-08-01T23:30:00Z") });
+
+      expect(view).toMatchObject({
+        state: "With Master Wren",
+        stateMeaning: "Waiting for a direction from Master Wren, due by 02-08-26",
+        assignment: { masterName: "Master Wren", assignedOn: "28 July 2026 at 10:00am", directionDueBy: "02-08-26" }
+      });
+    });
+
+    it("should leave the due date out of the meaning when api sent none", () => {
+      const view = buildReferralDetail({ ...ASSIGNED, directionDueBy: null });
+
+      expect(view.stateMeaning).toBe("Waiting for a direction from Master Wren");
+      expect(view.assignment?.directionDueBy).toBeNull();
+    });
+
+    it("should fall back to With a Master for a claim made before assignment, which has a holder and no assignment", () => {
+      const view = buildReferralDetail({ ...REFERRAL, state: "Claimed", claimedBy: "A Judge", claimedAt: new Date("2026-05-15T08:44:00Z") });
+
+      expect(view).toMatchObject({ state: "With a Master", stateMeaning: "Waiting for a direction from a Master", assignment: null });
+    });
+
+    it("should not say With a placeholder when api sent an assignment with no name", () => {
+      const view = buildReferralDetail({ ...ASSIGNED, assignedMaster: { id: "master-1", name: null }, directionDueBy: null });
+
+      expect(view.state).toBe("With a Master");
+      expect(view.stateMeaning).toBe("Waiting for a direction from a Master");
+    });
+
+    it("should keep the assigned Master on a directed referral but not rename its state", () => {
+      const view = buildReferralDetail({ ...ASSIGNED, state: "Decided", directionDueBy: null });
+
+      expect(view.state).toBe("Direction received");
+      expect(view.assignment).toMatchObject({ masterName: "Master Wren", directionDueBy: null });
+    });
+
+    it("should label the live referral the way its row does, so the panel and the table agree", () => {
+      expect(buildReferralsView([ASSIGNED]).liveReferral?.state).toBe("With Master Wren");
+    });
+
     it("should tag the state so the lifecycle is scannable", () => {
       expect(buildReferralDetail(REFERRAL).stateTagClasses).toBe("govuk-tag--blue");
     });
@@ -234,7 +335,7 @@ describe("referrals/referrals-view", () => {
       expect(view.direction).toEqual({
         decision: "Approved",
         directionsText: "Enrol the deed once the fee is paid.",
-        publishToGazette: true,
+        changesToStandardPublication: false,
         decidedBy: "A Judge",
         decidedOn: "16 May 2026 at 9:44am"
       });
@@ -244,7 +345,7 @@ describe("referrals/referrals-view", () => {
       // Closing records that the office carried the direction out, not that it was undone.
       const view = buildReferralDetail({ ...DECIDED, state: "Closed", modifiedBy: "A Caseworker" });
 
-      expect(view.direction).toMatchObject({ decision: "Approved", decidedBy: "A Judge", publishToGazette: true });
+      expect(view.direction).toMatchObject({ decision: "Approved", decidedBy: "A Judge", changesToStandardPublication: false });
     });
 
     it("should name the deciding judge and never the last modifier, which closure changes", () => {
@@ -265,15 +366,15 @@ describe("referrals/referrals-view", () => {
     });
 
     it("should leave an unanswered Gazette question null rather than turning it into No", () => {
-      const view = buildReferralDetail({ ...DECIDED, publishToGazette: null });
+      const view = buildReferralDetail({ ...DECIDED, changesToStandardPublication: null });
 
-      expect(view.direction?.publishToGazette).toBeNull();
+      expect(view.direction?.changesToStandardPublication).toBeNull();
     });
 
     it("should carry an explicit No on the Gazette question as false, distinct from unanswered", () => {
-      const view = buildReferralDetail({ ...DECIDED, publishToGazette: false });
+      const view = buildReferralDetail({ ...DECIDED, changesToStandardPublication: false });
 
-      expect(view.direction?.publishToGazette).toBe(false);
+      expect(view.direction?.changesToStandardPublication).toBe(false);
     });
 
     it("should still render the direction section when the state says there is one but the fields did not arrive", () => {
@@ -284,7 +385,7 @@ describe("referrals/referrals-view", () => {
       expect(view.direction).toEqual({
         decision: "Not recorded",
         directionsText: "Not provided",
-        publishToGazette: null,
+        changesToStandardPublication: null,
         decidedBy: "Not recorded",
         decidedOn: "Not recorded"
       });
@@ -328,8 +429,8 @@ describe("referrals/referrals-view", () => {
   describe("the applicant's confirmation", () => {
     it("should carry nothing at all for a referral nobody asked to confirm, which is most of them", () => {
       // Null rather than a section reading "not recorded": that would answer a question nobody put.
-      expect(buildReferralDetail(REFERRAL).confirmation).toBe(null);
-      expect(buildReferralDetail(DECIDED).confirmation).toBe(null);
+      expect(buildReferralDetail(REFERRAL).confirmation).toBeNull();
+      expect(buildReferralDetail(DECIDED).confirmation).toBeNull();
     });
 
     it("should say when the applicant was asked, and that the answer is still outstanding", () => {
@@ -431,7 +532,7 @@ describe("referrals/referrals-view", () => {
       // renders is already display text, not the wire's members.
       expect(view.rows[0]).toMatchObject({
         id: "ref-1",
-        state: "Awaiting a judge",
+        state: "Waiting to be sent",
         reasons: ["Applicant is a minor", "Other"],
         urgency: "Urgent",
         canWithdraw: true,
@@ -468,7 +569,7 @@ describe("referrals/referrals-view", () => {
     });
 
     it.each([
-      { state: "Open" as const, message: "withJudiciary" },
+      { state: "Open" as const, message: "waitingForAssignment" },
       { state: "Claimed" as const, message: "withJudiciary" },
       // The message the old `anyOpen` could not tell apart, and the whole reason this replaced it: a tab that
       // told a caseworker to withdraw the referral they were being asked to action.

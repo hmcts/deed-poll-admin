@@ -20,6 +20,7 @@ import { sessionUser } from "./session.js";
  * `/login` and `/oauth2/callback` are the flow itself, so requiring auth for them would be a loop.
  * `/health` is probed by Kubernetes, which has no session. The footer pages are statutory content
  * (accessibility statement, privacy policy, cookies) that must be readable before login.
+ * `/session-timed-out` and `/signed-out` are where a session that has just ended lands.
  *
  * `/` is here even though neither home behind it is public: it resolves which persona's home a
  * signed-in user gets and sends an anonymous one to `/login?returnTo=%2F` itself, which is the same
@@ -37,6 +38,7 @@ const PUBLIC_PATHS = new Set([
   "/oauth2/callback",
   "/logout",
   "/session-timed-out",
+  "/signed-out",
   "/session/keep-alive",
   "/session/status",
   "/accessibility-statement",

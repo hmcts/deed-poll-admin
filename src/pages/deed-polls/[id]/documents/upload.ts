@@ -53,7 +53,10 @@ const en = {
   // What a refusal from api that names no field says. api's own wording is developer-facing — and when
   // the body is not its JSON at all the message is the literal "deed-poll-api answered 413" — so it is
   // logged rather than rendered. A 413 reaches here whenever api's size limit is below this app's.
-  uploadRefused: "The file could not be uploaded. Check the file is not too large and try again."
+  uploadRefused: "The file could not be uploaded. Check the file is not too large and try again.",
+  // What an unknown document type says. api's 404 text, or the adapter's "deed-poll-api answered 404", is logged
+  // rather than rendered, for the same reason as `uploadRefused` (review finding R13).
+  unknownDocumentType: "Select a document type from the list"
 };
 
 // English content in the cy shape — see the note in ../../index.ts.
@@ -106,7 +109,7 @@ const handler = async (req: Request, res: Response) => {
     // way, carrying its field names — which are this form's field names, so an error against
     // `documentTypeId` still lands on the control the caseworker used. An unknown document type
     // arrives as NotFoundError: a 404 would be wrong here, because they picked from a list this page
-    // rendered, so it belongs against the field they chose from.
+    // rendered, so it belongs against the field they chose from, in this page's words.
     //
     // A refusal naming NO field is api's alone — every local rejection attributes itself — so its
     // developer-facing wording is logged and this page's own copy is rendered.
@@ -116,7 +119,8 @@ const handler = async (req: Request, res: Response) => {
       return rerender(req, res, first?.field ?? "file", first?.message ?? en.uploadRefused);
     }
     if (error instanceof NotFoundError) {
-      return rerender(req, res, "documentTypeId", error.message);
+      console.error(`document upload refused an unknown document type: ${forLog(error.message)}`);
+      return rerender(req, res, "documentTypeId", en.unknownDocumentType);
     }
     throw error;
   }

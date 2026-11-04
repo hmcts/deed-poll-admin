@@ -1,7 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 import base from "./playwright.config.js";
 
-// A fresh mock is required to verify the empty-to-populated journey without resetting a developer's data.
+// A fresh mock is required to verify the empty-to-populated journey without resetting a developer's data, and so
+// that the settings journey's save never lands on a shared mock.
 // Redis on 6316 and the local IDAM simulator on 5556 must already be running (see README).
 export default defineConfig({
   ...base,
@@ -10,7 +11,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   use: { ...base.use, baseURL: "http://localhost:3316" },
-  projects: [{ name: "gazette", testMatch: /gazette\.spec\.ts/, use: { ...devices["Desktop Chrome"] } }],
+  projects: [{ name: "gazette", testMatch: /(gazette|service-settings)\.spec\.ts/, use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
       command: "yarn mock:api --port 3216",

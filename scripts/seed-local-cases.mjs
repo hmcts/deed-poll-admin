@@ -23,7 +23,7 @@
  * for that.
  *
  * The referral phase is the exception and deliberately slower: `currentReferralState` is recomputed by the
- * mock from a case's referrals, so it is driven through the contract routes — raise, claim, direct, close —
+ * mock from a case's referrals, so it is driven through the contract routes — raise, send, direct, close —
  * rather than set on the seed body. A fixture that wrote the column directly would teach the dashboard a
  * number api's own state machine cannot produce, and the "returned — action needed" count is exactly the
  * thing that would then be wrong in one direction locally and another deployed.
@@ -46,7 +46,7 @@
 // because the count was right. Every case came out `state=Received, type=null, urgency=null` and four of
 // the status tabs were empty. Hence `must()` — a renamed member now fails loudly rather than seeding
 // a dataset that looks fine and tests nothing. Requires `libs/deed-poll` to have been built.
-import { DEEDPOLL_DELIVERY_MANAGER, DeedPollState, DeedPollType, Urgency } from "@hmcts/deed-poll";
+import { DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_TEAM_LEADER, DeedPollState, DeedPollType, Urgency } from "@hmcts/deed-poll";
 
 /** Fail on an option-set member that does not exist, rather than sending `undefined` and seeding a default. */
 function must(set, name, member) {
@@ -70,6 +70,10 @@ const READY_CASES = 26;
 const GAZETTE_BATCHES = 26;
 const DELIVERY_MANAGER_HEADERS = {
   authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: "seed.delivery-manager", roles: [DEEDPOLL_DELIVERY_MANAGER] })).toString("base64url")}.signature`
+};
+/** The Team leader who sends referrals from the queue (api F1's `ALLOCATE_REFERRALS`). */
+const TEAM_LEADER_HEADERS = {
+  authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: "seed.team-leader", name: "Seed Team Leader", roles: [DEEDPOLL_TEAM_LEADER] })).toString("base64url")}.signature`
 };
 
 /**
@@ -151,16 +155,26 @@ const GROUPS = [
  * yet closed. The other three rows exist to make the count a count rather than a case total: `Open` and
  * `Claimed` are not yet the caseworker's to action, and a `Closed` one is back to null, so a fixture of
  * nothing but `Decided` would pass a query that ignored the value entirely.
+ *
+ * Since api F1 every referral is raised into the queue and the ones past `Open` are sent from it by the Team leader.
+ * The `Open` ones are the queue: two urgent, raised days apart so its order (urgent first, then the oldest raised)
+ * shows. The rest are sent in the last two past morning windows, `sentOn` working days back, which keeps the current
+ * window's count at nought and Master Judge's two under two day headings on My referrals.
  */
 const REFERRAL_PLAN = [
-  { label: "Returned - action needed (Decided)", count: 4, upTo: "Decided" },
-  { label: "With a judge (Claimed)", count: 2, upTo: "Claimed" },
-  { label: "Awaiting a judge (Open)", count: 2, upTo: "Open" },
-  { label: "Actioned and closed (null again)", count: 1, upTo: "Closed" }
+  { label: "Returned - action needed (Decided)", count: 4, upTo: "Decided", sentOn: 2 },
+  { label: "With Master Judge (Claimed)", count: 1, upTo: "Claimed", sentOn: 2 },
+  { label: "With Master Judge (Claimed)", count: 1, upTo: "Claimed", sentOn: 1 },
+  { label: "Waiting to be sent (Open, urgent)", count: 2, upTo: "Open", urgent: true, raisedDaysAgo: 2 },
+  { label: "Waiting to be sent (Open)", count: 3, upTo: "Open", raisedDaysAgo: 4 },
+  { label: "Actioned and closed (null again)", count: 1, upTo: "Closed", sentOn: 2 }
 ];
 
-/** How many of the seeded cases the plan above expects to find `Decided` when it reads the count back. */
+/** How many of the seeded cases the plan above expects to find in each referral state when it reads the counts back. */
 const EXPECTED_RETURNED_FOR_ACTION = REFERRAL_PLAN.find((phase) => phase.upTo === "Decided").count;
+const countOf = (state) => REFERRAL_PLAN.filter((phase) => phase.upTo === state).reduce((sum, phase) => sum + phase.count, 0);
+const EXPECTED_WAITING_FOR_ASSIGNMENT = countOf("Open");
+const EXPECTED_WITH_A_MASTER = countOf("Claimed");
 
 /**
  * How long each waiting applicant has been waiting, in whole days before now.
@@ -177,8 +191,26 @@ const EXPECTED_RETURNED_FOR_ACTION = REFERRAL_PLAN.find((phase) => phase.upTo ==
  */
 const CONFIRMATION_WAIT_DAYS = [14, 3];
 
-/** The judge a claim and a direction are attributed to. The mock reads a subject out of the token, no roles. */
-const SEED_JUDGE = "seed.judge@example.com";
+/**
+ * The Masters list a Delivery Manager would keep: one unavailable, and one holding the local judge persona's email
+ * (`scripts/seed-idam-users.mjs`), so that judge links to it on their first judicial request and finds the two
+ * `Claimed` referrals assigned to it on My referrals. The directed ones are Master Sullivan's, whom this script links
+ * to a seed subject so it can direct them: linking the persona's entry to a seed subject would lock the real persona
+ * out of it.
+ */
+const MASTERS = [
+  { name: "Master Judge", email: "judge@example.com" },
+  { name: "Master Sullivan", email: "master.sullivan@example.com" },
+  { name: "Master Wren", email: "master.wren@example.com", available: false }
+];
+
+/** Master Sullivan's seed identity, which directs the seeded referrals: the judicial role and the entry's email. */
+const SEED_JUDGE = {
+  authorization: `Bearer x.${Buffer.from(
+    JSON.stringify({ sub: "seed.sullivan", name: "Master Sullivan", email: "master.sullivan@example.com", roles: ["caseworker-deedpoll-judicial"] }),
+    "utf8"
+  ).toString("base64url")}.signature`
+};
 
 /** A date in January-to-June 2026, one per case, as the wire's local-date-time string. */
 function dayInMonth(month, n) {
@@ -245,6 +277,24 @@ for (const group of GROUPS) {
 
 console.log("");
 
+// Through the contract's own create, as the Delivery Manager, so the list holds what api's rules allow. `--keep`
+// skips an address already listed, because a second create of it is api's 409.
+const listedEmails = new Set(
+  (await step("GET", "/caseworker/masters", undefined, DELIVERY_MANAGER_HEADERS, "read the Masters list")).masters.map((m) => m.email)
+);
+for (const master of MASTERS) {
+  if (listedEmails.has(master.email)) continue;
+  await step("POST", "/caseworker/masters", master, DELIVERY_MANAGER_HEADERS, `add ${master.name}`);
+}
+const masters = (await step("GET", "/caseworker/masters", undefined, DELIVERY_MANAGER_HEADERS, "read the Masters list back")).masters;
+console.log(`Masters: ${masters.length}, of which ${masters.filter((m) => !m.available).length} unavailable.`);
+// The seed identity's first judicial request links it to Master Sullivan, as api's `MasterLinking` would.
+await step("GET", "/judicial/referrals/mine", undefined, SEED_JUDGE, "link Master Sullivan's seed identity");
+const masterId = (name) => masters.find((m) => m.name === name)?.id;
+const holidays = new Set(
+  (await step("GET", "/caseworker/process-settings/bank-holidays", undefined, DELIVERY_MANAGER_HEADERS, "read the bank holidays")).map((h) => h.date)
+);
+
 let referred = 0;
 /** The referrals the plan drove as far as `Decided`, which are the ones the confirmation phase asks about. */
 const decided = [];
@@ -257,7 +307,7 @@ for (const phase of REFERRAL_PLAN) {
       process.exit(1);
     }
 
-    const referralId = await refer(caseId, phase.upTo, `${phase.label} #${n}`);
+    const referralId = await refer(caseId, phase, `${phase.label} #${n}`);
     if (phase.upTo === "Decided") decided.push(referralId);
     referred++;
   }
@@ -284,29 +334,65 @@ for (const [at, days] of CONFIRMATION_WAIT_DAYS.entries()) {
   );
 }
 
+// Back to real time, so the pages the developer opens next are in the present.
+await step("POST", "/__mock/clock", { offsetMinutes: 0 }, {}, "return the mock's clock to real time");
+
 console.log(`${"Awaiting the applicant's reply".padEnd(36)} ${String(CONFIRMATION_WAIT_DAYS.length).padStart(2)} case(s)`);
 
 /**
- * Raise a referral on `caseId`, transition it as far as `upTo` through the routes api publishes, and answer
- * the referral's id.
+ * Raise a referral on `caseId`, transition it as far as `phase.upTo` through the routes api publishes, and answer
+ * the referral's id: raised into the queue, sent from it by the Team leader in a past morning window, directed by
+ * Master Sullivan and closed by the office.
  *
  * Each step is checked, because a refusal part-way leaves the case in whatever state it reached and the
  * only symptom is a count that is quietly short.
  */
-async function refer(caseId, upTo, what) {
-  const referral = await step("POST", `/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor"] }, {}, `raise ${what}`);
+async function refer(caseId, phase, what) {
+  const { upTo } = phase;
+  // The referral clock, which dates the raise and the send: an `Open` one days ago, a sent one inside its window.
+  const at = upTo === "Open" ? new Date(Date.now() - phase.raisedDaysAgo * 86_400_000) : pastMorning(phase.sentOn);
+  await step("POST", "/__mock/clock", { offsetMinutes: Math.round((at.getTime() - Date.now()) / 60_000) }, {}, `set the clock for ${what}`);
+  const referral = await step(
+    "POST",
+    `/caseworker/cases/${caseId}/referrals`,
+    { reasons: ["Minor", "MinorTransgender"], ...(phase.urgent ? { urgency: "Urgent", urgencyReason: "Hearing next week" } : {}) },
+    {},
+    `raise ${what}`
+  );
   if (upTo === "Open") return referral.id;
 
-  const judge = { authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: SEED_JUDGE }), "utf8").toString("base64url")}.signature` };
-  await step("POST", `/judicial/referrals/${referral.id}/claim`, undefined, judge, `claim ${what}`);
+  const master = masterId(upTo === "Claimed" ? "Master Judge" : "Master Sullivan");
+  await step("POST", "/caseworker/referral-queue/sends", { allocations: [{ referralId: referral.id, masterId: master }] }, TEAM_LEADER_HEADERS, `send ${what}`);
   if (upTo === "Claimed") return referral.id;
 
-  await step("POST", `/judicial/referrals/${referral.id}/direction`, { decision: "Approved", publishToGazette: true }, judge, `direct ${what}`);
+  await step(
+    "POST",
+    `/judicial/referrals/${referral.id}/direction`,
+    { decision: "Approved", changesToStandardPublication: false },
+    SEED_JUDGE,
+    `direct ${what}`
+  );
   if (upTo === "Decided") return referral.id;
 
   await step("POST", `/caseworker/cases/${caseId}/referrals/${referral.id}/closure`, undefined, {}, `close ${what}`);
 
   return referral.id;
+}
+
+/**
+ * 08:00 UTC on the `back`-th working day before today, inside the default morning window (07:00-10:30 London) in
+ * GMT and BST alike, skipping weekends and the mock's bank holidays. A day or two back, so nothing is near the
+ * seven-day processing window that would send it back to the queue.
+ */
+function pastMorning(back) {
+  const day = new Date();
+  day.setUTCHours(8, 0, 0, 0);
+  for (let found = 0; found < back; ) {
+    day.setUTCDate(day.getUTCDate() - 1);
+    const weekday = day.getUTCDay();
+    if (weekday !== 0 && weekday !== 6 && !holidays.has(day.toISOString().slice(0, 10))) found++;
+  }
+  return day;
 }
 
 async function step(method, path, body, headers, what) {
@@ -342,6 +428,8 @@ for (let n = 1; n <= GAZETTE_BATCHES; n++) {
   );
 }
 
+// Read again after the referral phase, because linking Master Sullivan's seed identity changed the list.
+const mastersAfter = (await step("GET", "/caseworker/masters", undefined, DELIVERY_MANAGER_HEADERS, "read the Masters list after linking")).masters;
 const ready = await step("GET", "/caseworker/cases?filter=readyForPublication&size=100", undefined, DELIVERY_MANAGER_HEADERS, "read Gazette-ready cases");
 const history = await step("GET", "/caseworker/gazette-notices", undefined, DELIVERY_MANAGER_HEADERS, "read Gazette history");
 const historyTail = await step("GET", "/caseworker/gazette-notices?page=2", undefined, DELIVERY_MANAGER_HEADERS, "read Gazette history page 2");
@@ -361,6 +449,17 @@ const { total, totalPages } = await list.json();
 // answers zero. Both look like a working seed from here unless the number is asserted.
 const worklist = await fetch(`${BASE}/caseworker/cases?where=currentReferralState:is:Decided&size=1`);
 const returnedForAction = worklist.ok ? (await worklist.json()).total : undefined;
+// The waiting-to-be-sent count's `where`, and the sent ones beside it, read back for the same reason.
+const unassigned = await fetch(`${BASE}/caseworker/cases?where=currentReferralState:is:Open&size=1`);
+const waitingForAssignment = unassigned.ok ? (await unassigned.json()).total : undefined;
+const assigned = await fetch(`${BASE}/caseworker/cases?where=currentReferralState:is:Claimed&size=1`);
+const withAMaster = assigned.ok ? (await assigned.json()).total : undefined;
+
+// The queue itself, as the Team leader reads it: every `Open` referral, urgent first, and nothing sent in the window
+// open now, because the seed sends only in past ones.
+const queue = await step("GET", "/caseworker/referral-queue?size=100", undefined, TEAM_LEADER_HEADERS, "read the referral queue");
+const sentQueue = await step("GET", "/caseworker/referral-queue?state=Claimed&size=100", undefined, TEAM_LEADER_HEADERS, "read the sent referrals");
+const urgentFirst = REFERRAL_PLAN.filter((phase) => phase.upTo === "Open" && phase.urgent).reduce((sum, phase) => sum + phase.count, 0);
 
 // The second worklist, read back through the **published filter key** rather than a `where`: that is how the
 // banner, the tab and the count all address it, and the case column behind it is recomputed by the mock rather
@@ -370,7 +469,12 @@ const awaiting = await fetch(`${BASE}/caseworker/cases?filter=awaitingConfirmati
 const awaitingConfirmation = awaiting.ok ? (await awaiting.json()).total : undefined;
 
 console.log(`\nSeeded ${seeded}. The list reports total=${total} across ${totalPages} page(s).`);
-console.log(`Referred ${referred}, of which ${returnedForAction} are returned and need action.`);
+console.log(
+  `Referred ${referred}: ${returnedForAction} returned and need action, ${withAMaster} with Master Judge, ${waitingForAssignment} waiting to be sent.`
+);
+console.log(
+  `Referral queue: ${queue.total} waiting to be sent, ${sentQueue.total} with a Master; ${queue.window.sent} of ${queue.window.cap} sent this window.`
+);
 console.log(`Awaiting the applicant's confirmation: ${awaitingConfirmation}, waiting ${CONFIRMATION_WAIT_DAYS.join(" and ")} day(s).`);
 
 // Every mismatch **exits non-zero**, like every other check in this script: a seed whose numbers are wrong is
@@ -394,12 +498,30 @@ const mismatches = [
     preview.referenceNumbers[99] === "KBDP2026-B26-100")
     ? null
     : "Gazette history did not return the sorted, truncated frozen preview.",
+  KEEP ||
+  (mastersAfter.length === MASTERS.length &&
+    MASTERS.every((seed) =>
+      mastersAfter.some((m) => m.email === seed.email && m.available === (seed.available ?? true) && m.linked === (seed.name === "Master Sullivan"))
+    ))
+    ? null
+    : "the Masters list differs from the seed.",
   worklist.ok ? null : `the filtered read-back was refused with ${worklist.status} — has \`currentReferralState\` stopped being queryable?`,
   awaiting.ok ? null : `the awaiting-confirmation read-back was refused with ${awaiting.status} — is \`awaitingConfirmation\` still a published filter key?`,
   KEEP || total === seeded ? null : `seeded ${seeded} but the list reports ${total}.`,
   KEEP || returnedForAction === EXPECTED_RETURNED_FOR_ACTION
     ? null
     : `expected ${EXPECTED_RETURNED_FOR_ACTION} Decided case(s) but the filter reports ${returnedForAction}.`,
+  KEEP || waitingForAssignment === EXPECTED_WAITING_FOR_ASSIGNMENT
+    ? null
+    : `expected ${EXPECTED_WAITING_FOR_ASSIGNMENT} case(s) waiting to be sent but the filter reports ${waitingForAssignment}.`,
+  KEEP || withAMaster === EXPECTED_WITH_A_MASTER ? null : `expected ${EXPECTED_WITH_A_MASTER} case(s) with a Master but the filter reports ${withAMaster}.`,
+  KEEP ||
+  (queue.total === EXPECTED_WAITING_FOR_ASSIGNMENT &&
+    queue.referrals.every((row, at) => (row.urgency === "Urgent") === at < urgentFirst) &&
+    queue.window.sent === 0)
+    ? null
+    : `expected ${EXPECTED_WAITING_FOR_ASSIGNMENT} queued referral(s), ${urgentFirst} urgent first, and none sent in the current window.`,
+  KEEP || sentQueue.total === EXPECTED_WITH_A_MASTER ? null : `expected ${EXPECTED_WITH_A_MASTER} sent referral(s) but the queue lists ${sentQueue.total}.`,
   KEEP || awaitingConfirmation === CONFIRMATION_WAIT_DAYS.length
     ? null
     : `expected ${CONFIRMATION_WAIT_DAYS.length} case(s) awaiting confirmation but the filter reports ${awaitingConfirmation}.`

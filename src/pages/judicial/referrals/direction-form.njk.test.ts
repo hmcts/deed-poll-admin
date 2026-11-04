@@ -15,6 +15,7 @@ import type { JudicialReferralDetail } from "@hmcts/deed-poll-api-client";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { addPathFilters } from "../../../path-filters.js";
 import { GET, POST } from "./[referralId]/direction.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -33,6 +34,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 const detail = (): JudicialReferralDetail =>
   ({
@@ -47,7 +49,7 @@ const detail = (): JudicialReferralDetail =>
     claimedAt: new Date("2026-09-04T09:00:00Z"),
     decision: null,
     directionsText: null,
-    publishToGazette: null,
+    changesToStandardPublication: null,
     decisionDate: null,
     decidedBy: null,
     application: {
@@ -95,13 +97,30 @@ describe("direction form template", () => {
 
     expect(html).toContain('name="decision"');
     expect(html).toContain('name="directionsText"');
-    expect(html).toContain('name="publishToGazette"');
+    expect(html).toContain('name="changesToStandardPublication"');
   });
 
-  it("should caption the form with the application's reference, so the judge sees what they are directing", async () => {
+  it.each([
+    {
+      behaviour: "should caption the form with the application's reference, so the judge sees what they are directing",
+      content: "KBDP2026-00001"
+    },
+    {
+      behaviour: "should label the text as the Masters asked, Directions/Reasons",
+      content: "Directions/Reasons"
+    },
+    {
+      behaviour: "should say when the directions or reasons are needed, rather than leaving a Master to be refused",
+      content: "If there are changes to the standard publication, say whether to publish nothing or what to publish."
+    },
+    {
+      behaviour: "should offer cancel as a link back to the referral, so it acts on nothing",
+      content: '<a class="govuk-link" href="/judicial/referrals/ref-1">Cancel</a>'
+    }
+  ])("$behaviour", async ({ content }) => {
     const html = await renderEmpty();
 
-    expect(html).toContain("KBDP2026-00001");
+    expect(html).toContain(content);
   });
 
   // Decision 6, and the reason the handler compares to string literals: an unanswered form must post nothing for
@@ -112,53 +131,58 @@ describe("direction form template", () => {
     expect(html).not.toContain("checked");
   });
 
-  it("should label the decisions in the case's own vocabulary", async () => {
+  it.each([
+    {
+      behaviour: "should label the decisions in the case's own vocabulary",
+      content: 'value="Approved"',
+      detail: 'value="Rejected"'
+    },
+    // api's bound, and a character count rather than a `maxlength`: a browser that stops accepting characters
+    // silently gives no reason for having done so.
+    {
+      behaviour: "should count the directions down from api's 4,000-character limit",
+      content: "govuk-character-count",
+      detail: "4000"
+    },
+    {
+      behaviour: "should post to itself, so nothing is recorded by reaching this page",
+      content: 'action="/judicial/referrals/ref-1/direction"',
+      detail: 'method="post"'
+    }
+  ])("$behaviour", async ({ content, detail }) => {
     const html = await renderEmpty();
 
-    expect(html).toContain('value="Approved"');
-    expect(html).toContain('value="Rejected"');
+    expect(html).toContain(content);
+    expect(html).toContain(detail);
   });
 
-  // The Gazette answer is the judge's, and it is asked as its own question rather than inferred from anything
-  // the court said when it referred the case.
+  // The Gazette answer is the Master's, and it is asked as its own question rather than inferred from anything
+  // the court said when it referred the case — in the Masters' own words (Master Sullivan's feedback, 2026-10-27).
   it("should ask the Gazette question as a yes/no of its own", async () => {
     const html = await renderEmpty();
 
-    expect(html).toContain("Should this deed poll be published in the Gazette?");
+    expect(html).toContain("Are there any changes to the standard publications in the Gazette?");
     expect(html).toContain('value="true"');
     expect(html).toContain('value="false"');
   });
 
-  it("should state that the directions are optional, because api does not require them", async () => {
+  it("should ask the decision, then the Gazette question, then the directions or reasons", async () => {
     const html = await renderEmpty();
 
-    expect(html).toContain("Directions (optional)");
-  });
-
-  // api's bound, and a character count rather than a `maxlength`: a browser that stops accepting characters
-  // silently gives no reason for having done so.
-  it("should count the directions down from api's 4,000-character limit", async () => {
-    const html = await renderEmpty();
-
-    expect(html).toContain("govuk-character-count");
-    expect(html).toContain("4000");
-  });
-
-  it("should post to itself, so nothing is recorded by reaching this page", async () => {
-    const html = await renderEmpty();
-
-    expect(html).toContain('action="/judicial/referrals/ref-1/direction"');
-    expect(html).toContain('method="post"');
-  });
-
-  it("should offer cancel as a link back to the referral, so it acts on nothing", async () => {
-    const html = await renderEmpty();
-
-    expect(html).toContain('<a class="govuk-link" href="/judicial/referrals/ref-1">Cancel</a>');
+    const decision = html.indexOf('name="decision"');
+    const gazette = html.indexOf('name="changesToStandardPublication"');
+    const directions = html.indexOf('name="directionsText"');
+    expect(decision).toBeGreaterThan(-1);
+    expect(decision).toBeLessThan(gazette);
+    expect(gazette).toBeLessThan(directions);
   });
 
   it("should bring back what was typed and chosen when a submission is rejected", async () => {
-    const html = await renderSubmitted({ decision: "Rejected", directionsText: "Refuse: the evidence is incomplete.", publishToGazette: undefined });
+    const html = await renderSubmitted({
+      decision: "Rejected",
+      directionsText: "Refuse: the evidence is incomplete.",
+      changesToStandardPublication: undefined
+    });
 
     expect(html).toContain("Refuse: the evidence is incomplete.");
     expect(html).toContain('value="Rejected" checked');
@@ -170,7 +194,7 @@ describe("direction form template", () => {
     expect(html).toContain("There is a problem");
     expect(html).toContain('href="#decision"');
     expect(html).toContain("Select whether the application is approved or rejected");
-    expect(html).toContain("Select whether this direction is published in the Gazette");
+    expect(html).toContain("Select whether there are any changes to the standard publications in the Gazette");
   });
 
   describe("when changing a direction", () => {
@@ -180,7 +204,7 @@ describe("direction form template", () => {
         state: "Decided",
         decision: "Rejected",
         directionsText: "Insufficient evidence.",
-        publishToGazette: false
+        changesToStandardPublication: true
       } as never);
       const res = pageResponse();
       await GET(pageRequest({ params: { referralId: "ref-1" }, query: { change: "1" }, judicial: true, accessToken: "judge-token" }), res);
@@ -189,7 +213,7 @@ describe("direction form template", () => {
 
       expect(html).toMatch(/<h1[^>]*>Change your direction<\/h1>/);
       expect(html).toMatch(/value="Rejected" checked/);
-      expect(html).toMatch(/value="false" checked/);
+      expect(html).toMatch(/value="true" checked/);
       expect(html).toContain("Insufficient evidence.");
       expect(html).toContain('action="/judicial/referrals/ref-1/direction?change=1"');
     });

@@ -95,7 +95,7 @@ export const PERSONAS: readonly Persona[] = [
   { id: "caseworker", name: "Caseworker", fixtureUsername: "caseworker@example.com", roleNames: [DEEDPOLL_CASEWORKER] },
   { id: "team-leader", name: "Team leader", fixtureUsername: "team-leader@example.com", roleNames: [DEEDPOLL_TEAM_LEADER] },
   { id: "delivery-manager", name: "Delivery Manager", fixtureUsername: "delivery-manager@example.com", roleNames: [DEEDPOLL_DELIVERY_MANAGER] },
-  { id: "judge", name: "Judge", fixtureUsername: "judge@example.com", roleNames: [DEEDPOLL_JUDICIAL] }
+  { id: "judge", name: "Master", fixtureUsername: "judge@example.com", roleNames: [DEEDPOLL_JUDICIAL] }
 ];
 
 /**

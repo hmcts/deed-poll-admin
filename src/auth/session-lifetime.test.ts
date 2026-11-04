@@ -34,6 +34,7 @@ interface Options {
   signedIn?: boolean;
   authenticatedAt?: number;
   lastSeenAt?: number;
+  fetchMode?: string;
 }
 
 /** A signed-in session, active ten seconds ago and signed in an hour ago, unless told otherwise. */
@@ -42,7 +43,8 @@ function request({
   path = "/deed-polls/case-1",
   signedIn = true,
   authenticatedAt = NOW_SECONDS - 3600,
-  lastSeenAt = NOW_SECONDS - 10
+  lastSeenAt = NOW_SECONDS - 10,
+  fetchMode
 }: Options = {}): RequestDouble {
   const deedPoll = signedIn
     ? {
@@ -54,7 +56,8 @@ function request({
         lastSeenAt
       }
     : {};
-  const req = { method, baseUrl: "", path, originalUrl: path, sessionID: SESSION_ID, session: sessionDouble(deedPoll) } as unknown as RequestDouble;
+  const get = (name: string) => (name.toLowerCase() === "sec-fetch-mode" ? fetchMode : undefined);
+  const req = { method, baseUrl: "", path, originalUrl: path, sessionID: SESSION_ID, session: sessionDouble(deedPoll), get } as unknown as RequestDouble;
   // A timeout regenerates the session, and with it the id, so an event emitted afterwards would carry the new one.
   const regenerate = req.session.regenerate.getMockImplementation();
   req.session.regenerate.mockImplementation((done?: (error?: Error) => void) => {
@@ -214,6 +217,35 @@ describe("sessionLifetime", () => {
       expect(res.render).toHaveBeenCalledWith("session-timed-out/index", expect.objectContaining({ signInHref: END_SESSION }));
     });
 
+    it("should end a navigating GET at IDAM, as a browser sending no Sec-Fetch-Mode does", async () => {
+      const req = request({ lastSeenAt: NOW_SECONDS - 1800, fetchMode: "navigate" });
+
+      const { res } = await run(req);
+
+      expect(res.redirect).toHaveBeenCalledWith(END_SESSION);
+      expect(req.session.regenerate).toHaveBeenCalled();
+    });
+
+    // The viewer's preview fetch never follows a redirect, so ending the session there would leave IDAM's standing
+    // and the viewer's "Sign in again" would sign whoever is at the PC straight back in.
+    it.each(["cors", "same-origin", "no-cors"])(
+      "should refuse an idle %s GET with 401 and leave the session for the next navigation to end",
+      async (fetchMode) => {
+        const req = request({ path: "/deed-polls/case-1/documents/d-1/preview", lastSeenAt: NOW_SECONDS - 1800, fetchMode });
+
+        const { res, next } = await run(req);
+
+        expect(res.status).toHaveBeenCalledWith(401);
+        expect(res.setHeader).toHaveBeenCalledWith("Cache-Control", "no-store");
+        expect(res.redirect).not.toHaveBeenCalled();
+        expect(next).not.toHaveBeenCalled();
+        expect(req.session.regenerate).not.toHaveBeenCalled();
+        expect(req.session.deedPoll.lastSeenAt).toBe(NOW_SECONDS - 1800);
+        expect(endSessionUrl).not.toHaveBeenCalled();
+        expect(trackEvent).not.toHaveBeenCalled();
+      }
+    );
+
     it("should end a session past the absolute limit, however recently it was active", async () => {
       const req = request({ authenticatedAt: NOW_SECONDS - 36_000, lastSeenAt: NOW_SECONDS - 5 });
 
@@ -239,6 +271,69 @@ describe("sessionLifetime", () => {
       expect(console.warn).toHaveBeenCalledTimes(1);
       expect(console.warn).toHaveBeenCalledWith("session ended: idle");
     });
+  });
+
+  // R04: the end-session address needs discovery, so it is asked only after the session has been ended here.
+  describe("while IDAM discovery is failing", () => {
+    beforeEach(() => {
+      vi.mocked(endSessionUrl).mockRejectedValue(new Error("IDAM discovery failed recently; a new attempt is held off until the cooldown ends"));
+    });
+
+    it("should still end an idle GET on this request and send it to the timed-out page", async () => {
+      const req = request({ path: "/deed-polls/case-1?tab=notes", lastSeenAt: NOW_SECONDS - 1800 });
+
+      const { res, next } = await run(req);
+
+      expect(req.session.regenerate).toHaveBeenCalledTimes(1);
+      expect(req.session.deedPoll.user).toBeUndefined();
+      expect(req.session.deedPoll.timedOutReturnTo).toBe("/deed-polls/case-1?tab=notes");
+      expect(res.redirect).toHaveBeenCalledWith("/session-timed-out");
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it("should still end an idle POST with 401, offering the plain sign-in link", async () => {
+      const req = request({ method: "POST", path: "/deed-polls/case-1/notes", lastSeenAt: NOW_SECONDS - 1800 });
+
+      const { res } = await run(req);
+
+      expect(req.session.regenerate).toHaveBeenCalledTimes(1);
+      expect(req.session.deedPoll.user).toBeUndefined();
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.render).toHaveBeenCalledWith("session-timed-out/index", expect.objectContaining({ unsaved: true, signInHref: "/login" }));
+    });
+
+    it("should emit the ending event once, carrying the old session's sid", async () => {
+      await run(request({ lastSeenAt: NOW_SECONDS - 1800 }));
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([
+        ["auth.session.ended", expect.objectContaining({ reason: "idle", sid: createHash("sha256").update(SESSION_ID).digest("hex").slice(0, 16) })]
+      ]);
+    });
+
+    it("should log a fixed line, with no token or error prose in it", async () => {
+      await run(request({ lastSeenAt: NOW_SECONDS - 1800 }));
+
+      const logged = JSON.stringify(vi.mocked(console.warn).mock.calls);
+      expect(logged).toContain("IDAM end-session address unavailable");
+      expect(logged).not.toMatch(/an-id-token|a-secret-access-token|cooldown|a-timed-session-id/);
+    });
+  });
+
+  it.each(["GET", "POST"])("should end the session here before asking IDAM where to send the browser on a %s", async (method) => {
+    const req = request({ method, lastSeenAt: NOW_SECONDS - 1800 });
+    const order: string[] = [];
+    req.session.regenerate.mockImplementation((done?: (error?: Error) => void) => {
+      order.push("regenerate");
+      done?.();
+    });
+    vi.mocked(endSessionUrl).mockImplementation(async () => {
+      order.push("endSessionUrl");
+      return END_SESSION;
+    });
+
+    await run(req);
+
+    expect(order).toEqual(["regenerate", "endSessionUrl"]);
   });
 
   describe("its security events", () => {

@@ -1,4 +1,5 @@
 import {
+  assignReferral as apiAssignReferral,
   closeReferral as apiCloseReferral,
   createReferral as apiCreateReferral,
   recordConfirmation as apiRecordConfirmation,
@@ -10,7 +11,7 @@ import {
 } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
-import { closeReferral, createReferral, findReferral, findReferrals, recordConfirmation, withdrawReferral } from "./service.js";
+import { assignReferral, closeReferral, createReferral, findReferral, findReferrals, recordConfirmation, withdrawReferral } from "./service.js";
 
 // The adapter is mocked and nothing else. What is worth pinning at this seam is that each function reaches
 // the right operation, that the caller's token travels and no author does, and that api's two 409s arrive as
@@ -21,6 +22,7 @@ vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
   getReferral: vi.fn(),
   createReferral: vi.fn(),
   withdrawReferral: vi.fn(),
+  assignReferral: vi.fn(),
   closeReferral: vi.fn(),
   recordConfirmation: vi.fn(),
   getCase: vi.fn(),
@@ -159,6 +161,30 @@ describe("referrals/service", () => {
     });
   });
 
+  describe("assignReferral", () => {
+    it("should put the chosen Master on the assignment and return the assigned referral", async () => {
+      const assigned = { ...REFERRAL, state: "Claimed", assignedMaster: { id: "master-1", name: "Master Wren" } };
+      vi.mocked(apiAssignReferral).mockResolvedValue(ok(assigned) as never);
+
+      const result = await assignReferral("case-1", "ref-1", "master-1", CALLER);
+
+      expect(result).toEqual(assigned);
+      expect(apiAssignReferral).toHaveBeenCalledWith("case-1", "ref-1", "master-1", expect.objectContaining({ accessToken: "caseworker-token" }));
+    });
+
+    it("should keep api's masterId rejection on the ConflictError when the Master is at the cap", async () => {
+      vi.mocked(apiAssignReferral).mockResolvedValue({
+        ok: false,
+        error: { kind: "conflict", status: 409, message: "full", fieldErrors: [{ field: "masterId", message: "Master Wren is full" }] }
+      } as never);
+
+      const refusal = await assignReferral("case-1", "ref-1", "master-1", CALLER).catch((error: unknown) => error);
+
+      expect(refusal).toBeInstanceOf(ConflictError);
+      expect((refusal as ConflictError).errors).toEqual([{ field: "masterId", message: "Master Wren is full" }]);
+    });
+  });
+
   describe("withdrawReferral", () => {
     it("should post to the withdrawal sub-resource with no body and return the withdrawn referral", async () => {
       const withdrawn = { ...REFERRAL, state: "Withdrawn" };
@@ -202,7 +228,7 @@ describe("referrals/service", () => {
       state: "Closed",
       decision: "Approved",
       directionsText: "Enrol the deed.",
-      publishToGazette: true,
+      changesToStandardPublication: false,
       decidedBy: "A Judge",
       modifiedBy: "A Caseworker"
     };
@@ -226,7 +252,7 @@ describe("referrals/service", () => {
 
       const closed = await closeReferral("case-1", "ref-1", CALLER);
 
-      expect(closed).toMatchObject({ decision: "Approved", directionsText: "Enrol the deed.", publishToGazette: true, decidedBy: "A Judge" });
+      expect(closed).toMatchObject({ decision: "Approved", directionsText: "Enrol the deed.", changesToStandardPublication: false, decidedBy: "A Judge" });
     });
 
     it("should throw ConflictError when the referral is not Decided, which is api's rule to enforce", async () => {

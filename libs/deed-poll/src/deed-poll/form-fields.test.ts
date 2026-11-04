@@ -7,8 +7,13 @@
  * and picking the wrong one fails silently in production — a retired field back on the edit form, or a migrated
  * value that renders as a raw date and drops out of the query chooser. Hence the assertions here.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { CASE_FIELD_TABS, EDITABLE_FIELDS, FIELD_BY_NAME, FORM_TABS, LEGACY_REFERRAL_TAB } from "./form-fields.js";
+import { CASE_FIELD_TABS, EDITABLE_FIELDS, FIELD_BY_NAME, FORM_TABS, LEGACY_REFERRAL_TAB, TEXTAREA_MAX_LENGTH } from "./form-fields.js";
+
+const OPENAPI = JSON.parse(readFileSync(new URL("../../../deed-poll-api-client/openapi.json", import.meta.url), "utf8")) as {
+  components: { schemas: { UpdateCaseRequest: { properties: Record<string, { type: string | string[]; maxLength?: number }> } } };
+};
 
 const LEGACY_FIELD_NAMES = LEGACY_REFERRAL_TAB.sections.flatMap((section) => section.fields).map((field) => field.name);
 
@@ -38,6 +43,11 @@ describe("deed-poll/form-fields", () => {
     });
   });
 
+  it("should retain the hidden online reference in the catalogue without offering it for editing", () => {
+    expect(FIELD_BY_NAME.onlineApplicationReference.name).toBe("onlineApplicationReference");
+    expect(EDITABLE_FIELDS.map((field) => field.name)).not.toContain("onlineApplicationReference");
+  });
+
   describe("EDITABLE_FIELDS", () => {
     it("should exclude the retired referral fields, so no write reaches them through the generic case form", () => {
       // `buildUpdatePatch` writes what its tab's fields list holds; a field on no editable tab cannot be
@@ -52,6 +62,51 @@ describe("deed-poll/form-fields", () => {
 
       expect(editable).not.toContain("referencenumber");
       expect(editable).toContain("newSurname");
+    });
+  });
+
+  describe("editable number fields", () => {
+    it("should be the three numeric fields api accepts on an update, each with the contract's integer or decimal format", () => {
+      // `numberFormat` decides whether a fraction is refused, so it must be api's answer, not a guess: an integer
+      // field marked decimal would send `7.5` for api to refuse, and a decimal one marked integer would refuse a
+      // legitimate amount. Absent means decimal, which is why a new integer field has to fail here.
+      const properties = OPENAPI.components.schemas.UpdateCaseRequest.properties;
+      const contractFormat = (name: string) => {
+        const types = [properties[name]?.type].flat();
+        return types.includes("integer") ? "integer" : types.includes("number") ? "decimal" : undefined;
+      };
+
+      const numbers = EDITABLE_FIELDS.filter((field) => field.kind === "number");
+
+      expect(numbers.map((field) => field.name)).toEqual(["ageOfMinor", "ageOfMinorMonths", "refundAmount"]);
+      for (const field of numbers) expect(field.numberFormat ?? "decimal", field.name).toBe(contractFormat(field.name));
+    });
+  });
+
+  describe("editable boolean fields", () => {
+    it("should mark exactly the booleans api publishes as nullable, so only those render a third, unanswered state", () => {
+      // A nullable boolean renders as Yes / No radios, because a lone checkbox cannot say "not answered": its
+      // absence reads as `false`, and every save turned a stored `null` into "No" (review finding R07). A
+      // non-nullable one marked nullable would offer an answer api cannot store; the reverse reopens R07.
+      const properties = OPENAPI.components.schemas.UpdateCaseRequest.properties;
+      const booleans = EDITABLE_FIELDS.filter((field) => field.kind === "boolean");
+
+      expect(booleans.map((field) => field.name)).toEqual(["inPerson", "retainPermanently"]);
+      for (const field of booleans) {
+        expect(field.nullable === true, field.name).toBe([properties[field.name]?.type].flat().includes("null"));
+      }
+    });
+  });
+
+  describe("textarea fields", () => {
+    it("should cap every textarea at the maxLength api publishes for it, so the form and api refuse the same text", () => {
+      // api holds the same 2,000 since review finding R15 (deed-poll-api#124), counting a line break once as this
+      // app does. A cap that moved at one end only would refuse here what api accepts, or send what api refuses.
+      const textareas = CASE_FIELD_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields)).filter((field) => field.kind === "textarea");
+
+      expect(textareas.map((field) => field.name).sort()).toEqual(["masterDirections", "referralNotes", "returnReason"]);
+      for (const field of textareas)
+        expect(OPENAPI.components.schemas.UpdateCaseRequest.properties[field.name].maxLength, field.name).toBe(TEXTAREA_MAX_LENGTH);
     });
   });
 

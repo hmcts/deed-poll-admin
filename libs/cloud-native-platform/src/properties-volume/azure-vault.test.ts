@@ -384,4 +384,117 @@ describe("addFromAzureVault", () => {
       "Azure Key Vault: Failed to retrieve secret secret1: test-vault: Already contains vault name"
     );
   });
+
+  describe("concurrent vault reads", () => {
+    beforeEach(() => {
+      mockReadFileSync.mockReturnValue("helm-chart-content");
+      mockYamlLoad.mockReturnValue({
+        keyVaults: {
+          "vault-one": { secrets: [{ name: "first-secret", alias: "shared" }] },
+          "vault-two": { secrets: [{ name: "second-secret", alias: "shared" }] }
+        }
+      });
+      mockClient.getSecret.mockReset();
+    });
+
+    it("starts both vault reads before either finishes and updates config only after both succeed", async () => {
+      const first = Promise.withResolvers<{ value: string }>();
+      const second = Promise.withResolvers<{ value: string }>();
+      mockClient.getSecret.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+      const original = config;
+      const loading = addFromAzureVault(config, { pathToHelmChart: "/path/to/chart.yaml" });
+      const started = mockClient.getSecret.mock.calls.map(([name]) => name);
+
+      second.resolve({ value: "second-value" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const whileFirstPending = { ...config };
+      first.resolve({ value: "first-value" });
+      await loading;
+
+      expect(started).toEqual(["first-secret", "second-secret"]);
+      expect(whileFirstPending).toEqual({ existing: "value" });
+      expect(config).toBe(original);
+      expect(config).toEqual({ existing: "value", shared: "second-value" });
+    });
+
+    it("keeps declaration-order alias precedence and unrelated nested config when vaults finish in reverse order", async () => {
+      config = { existing: "value", nested: { keep: "nested-value" }, shared: "old-value" };
+      const first = Promise.withResolvers<{ value: string }>();
+      const second = Promise.withResolvers<{ value: string }>();
+      mockClient.getSecret.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+      const loading = addFromAzureVault(config, { pathToHelmChart: "/path/to/chart.yaml" });
+
+      second.resolve({ value: "second-value" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      first.resolve({ value: "first-value" });
+      await loading;
+
+      expect(config).toEqual({ existing: "value", nested: { keep: "nested-value" }, shared: "second-value" });
+    });
+
+    it("keeps declaration-order alias precedence for secrets within one vault", async () => {
+      mockYamlLoad.mockReturnValue({
+        keyVaults: {
+          first: {
+            secrets: [
+              { name: "first-secret", alias: "shared" },
+              { name: "second-secret", alias: "shared" }
+            ]
+          }
+        }
+      });
+      const first = Promise.withResolvers<{ value: string }>();
+      const second = Promise.withResolvers<{ value: string }>();
+      mockClient.getSecret.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+      const loading = addFromAzureVault(config, { pathToHelmChart: "/path/to/chart.yaml" });
+
+      second.resolve({ value: "second-value" });
+      first.resolve({ value: "first-value" });
+      await loading;
+
+      expect(config).toEqual({ existing: "value", shared: "second-value" });
+    });
+
+    it("leaves config unchanged when an earlier vault succeeds but a later vault fails", async () => {
+      mockClient.getSecret.mockResolvedValueOnce({ value: "first-value" }).mockRejectedValueOnce(new Error("second failed"));
+
+      await expect(addFromAzureVault(config, { pathToHelmChart: "/path/to/chart.yaml" })).rejects.toThrow(
+        "Azure Key Vault: Vault 'vault-two': Failed to retrieve secret second-secret: second failed"
+      );
+
+      expect(config).toEqual({ existing: "value" });
+    });
+
+    it("does not let an in-flight vault mutate config after another vault has failed", async () => {
+      const second = Promise.withResolvers<{ value: string }>();
+      mockClient.getSecret.mockRejectedValueOnce(new Error("first failed")).mockReturnValueOnce(second.promise);
+
+      await expect(addFromAzureVault(config, { pathToHelmChart: "/path/to/chart.yaml" })).rejects.toThrow(
+        "Azure Key Vault: Vault 'vault-one': Failed to retrieve secret first-secret: first failed"
+      );
+      const afterRejection = { ...config };
+      second.resolve({ value: "late-value" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(mockClient.getSecret).toHaveBeenCalledWith("second-secret");
+      expect(afterRejection).toEqual({ existing: "value" });
+      expect(config).toEqual({ existing: "value" });
+    });
+
+    it("reports the first completed failure even when its vault was declared later", async () => {
+      const first = Promise.withResolvers<{ value: string }>();
+      const second = Promise.withResolvers<{ value: string }>();
+      mockClient.getSecret.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+      // The serial baseline never starts the second read after the first fails.
+      void second.promise.catch(() => undefined);
+      const failure = addFromAzureVault(config, { pathToHelmChart: "/path/to/chart.yaml" }).catch((error: unknown) => error);
+
+      second.reject(new Error("fast failure"));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      first.reject(new Error("slow failure"));
+
+      expect(await failure).toEqual(new Error("Azure Key Vault: Vault 'vault-two': Failed to retrieve secret second-secret: fast failure"));
+      expect(config).toEqual({ existing: "value" });
+    });
+  });
 });

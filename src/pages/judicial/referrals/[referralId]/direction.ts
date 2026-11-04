@@ -33,11 +33,10 @@
  * journey arrives in the same mode, and its 409 has its own sentence on the referral: there is no direction from
  * this judge to change, which is a state and names no one. Any other value of the flag is a new direction.
  *
- * **The two refusals divide by visibility, exactly as claiming does.** api checks visibility before the hold,
- * so a referral taken out from under this judge — withdrawn, closed, or claimed by someone else — is a **404**
+ * **The two refusals divide by visibility.** api checks visibility before the hold,
+ * so a referral taken out from under this judge — withdrawn, closed, reassigned or returned to the office — is a **404**
  * and is rendered as decision 10's "no longer available", never as "somebody else has it". The **409** is the
- * narrower case of a referral they can still see but do not hold (it went back to the pool, or they have already
- * directed it), and that one names the state rather than a person. Reading the 409 as the only lapse would
+ * narrower case of a referral they can still see but do not hold (they have already directed it), and that one names the state rather than a person. Reading the 409 as the only lapse would
  * render the commonest lapse there is as a fault.
  */
 import {
@@ -61,7 +60,7 @@ import { callerFromRequest } from "../../../../auth/current-user.js";
 import { forLog } from "../../../../for-log.js";
 import { referralPath } from "../../../../judicial-referral-path.js";
 
-const POOL_PATH = "/judicial/referrals";
+const MINE_PATH = "/judicial/referrals/mine";
 
 /**
  * The submit that commits. Only this literal records anything — the other two steps render.
@@ -78,8 +77,9 @@ const CHANGE = "change";
 const CHANGE_FLAG = "1";
 
 // The order the controls appear in, so the error summary reads down the page rather than in whatever order the
-// issues arrived. `directionsText` sits between the two required questions because that is where it is asked.
-const FIELD_ORDER = ["decision", "directionsText", "publishToGazette"];
+// issues arrived: the decision, the Gazette question, then the directions or reasons (Master Sullivan's feedback,
+// Steve, 2026-10-27), because a Yes to the Gazette question is what makes the text required.
+const FIELD_ORDER = ["decision", "changesToStandardPublication", "directionsText"];
 
 const en = {
   title: "Record a direction",
@@ -87,14 +87,15 @@ const en = {
   decisionLegend: "What is your direction on this application?",
   // Says what the two words commit to. "Approved"/"Rejected" are api's members and the case's own vocabulary,
   // so they are not re-worded here — the hint is where the meaning goes.
-  decisionHint: "This is recorded against the application as the judicial decision.",
-  directionsLabel: "Directions (optional)",
-  // api's `directionsText` is not required, so the label says so rather than leaving a judge to discover it by
-  // being refused. The Gazette question is asked separately below, and the hint says so: a comment about
-  // publication typed here would not answer it.
-  directionsHint: "Include any comment you want recorded with the direction. The Gazette question below is answered separately.",
-  gazetteLegend: "Should this deed poll be published in the Gazette?",
-  gazetteHint: "This is your direction. It is not taken from the reasons the court gave for the referral.",
+  decisionHint: "This is recorded against the application as the Master’s decision.",
+  // The Masters' own label. Not "(optional)": it is required when there are changes to the standard publication,
+  // and the hint says when, rather than leaving a Master to discover it by being refused.
+  directionsLabel: "Directions/Reasons",
+  directionsHint: "If there are changes to the standard publication, say whether to publish nothing or what to publish.",
+  // The Masters' wording. Yes means do not publish, or publish only as the directions say.
+  gazetteLegend: "Are there any changes to the standard publications in the Gazette?",
+  gazetteHint:
+    "For example, do not publish, or publish the last name only. This is your direction. It is not taken from the reasons the court gave for the referral.",
   yes: "Yes",
   no: "No",
   continueLabel: "Continue",
@@ -108,8 +109,8 @@ const en = {
   checkTitle: "Check your direction",
   checkHeading: "Check your direction",
   decisionLabel: "Decision",
-  directionsSummaryLabel: "Directions",
-  gazetteLabel: "Published in the Gazette",
+  directionsSummaryLabel: "Directions/Reasons",
+  gazetteLabel: "Changes to the standard publications in the Gazette",
   noneGiven: "None given",
   // Decision 6's attestation, as a declaration above the submit. Working text — a judicial-facing wording and
   // Welsh pass can revise it.
@@ -144,10 +145,9 @@ const changeCy = { ...changeEn };
 const unavailableEn = {
   title: "This referral is no longer available",
   heading: "This referral is no longer available",
-  body: "This referral is no longer in the shared list. Choose another referral from the list.",
-  // The pool, and named as the shared navigation names it — a refused read published no state to derive My
-  // referrals from, and it is a list this referral has left as well.
-  backToPool: "Back to referrals for a direction"
+  body: "Your referrals are listed on My referrals.",
+  // My referrals, the Master's only list since there is no pool: a refused read published no state to go by.
+  backToMine: "Back to My referrals"
 };
 
 const unavailableCy = { ...unavailableEn };
@@ -194,7 +194,7 @@ export const POST = async (req: Request, res: Response) => {
       answers: {
         decision: MASTER_DECISION_LABEL[parsed.data.decision],
         directionsText: parsed.data.directionsText ?? "",
-        publishToGazette: parsed.data.publishToGazette
+        changesToStandardPublication: parsed.data.changesToStandardPublication
       },
       values: values(body),
       directionHref: directionHref(referral.id, isChange),
@@ -217,7 +217,7 @@ async function commitDirection(req: Request, res: Response, direction: Direction
     const commit = isChange ? changeDirection : recordDirection;
     await commit(req.params.referralId, direction, callerFromRequest(req));
   } catch (error) {
-    // Visible but not in this judge's hands — it went back to the pool, or they have already directed it; for a
+    // Visible but not in this judge's hands — they have already directed it; for a
     // change, there is no direction of theirs to replace. Their answers are gone with it, which is unavoidable:
     // the referral's state is what the page they land on shows.
     if (error instanceof ConflictError) {
@@ -310,7 +310,7 @@ function currentValues(detail: Awaited<ReturnType<typeof getReferral>>): Record<
   return {
     decision: detail.decision ?? undefined,
     directionsText: detail.directionsText ?? "",
-    publishToGazette: typeof detail.publishToGazette === "boolean" ? String(detail.publishToGazette) : undefined
+    changesToStandardPublication: typeof detail.changesToStandardPublication === "boolean" ? String(detail.changesToStandardPublication) : undefined
   };
 }
 
@@ -339,9 +339,9 @@ function apiRefused(req: Request, res: Response, error: InvalidInputError) {
 /**
  * The submitted body as the schema's shape.
  *
- * `publishToGazette` is compared to the two literals rather than coerced, the `declarant` treatment in
+ * `changesToStandardPublication` is compared to the two literals rather than coerced, the `declarant` treatment in
  * `../../../deed-polls/[id]/witnesses/new.ts`: the radio's "no" posts the string `"false"`, which is truthy, so
- * `Boolean(body.publishToGazette)` would silently publish every deed poll it was asked about. Anything else —
+ * `Boolean(body.changesToStandardPublication)` would silently withhold every deed poll it was asked about. Anything else —
  * including no selection at all — stays `undefined`, so the schema rejects it and the judge is asked the
  * question rather than having it answered for them.
  */
@@ -349,7 +349,7 @@ function submitted(body: Record<string, unknown>): Record<string, unknown> {
   return {
     decision: body.decision,
     directionsText: body.directionsText,
-    publishToGazette: booleanFrom(body.publishToGazette)
+    changesToStandardPublication: booleanFrom(body.changesToStandardPublication)
   };
 }
 
@@ -364,14 +364,14 @@ function booleanFrom(value: unknown): boolean | undefined {
  * The body as the controls want it back — the three raw values, so the radios re-check and the textarea still
  * holds what was typed.
  *
- * Deliberately not `submitted(body)`, whose `publishToGazette` is a boolean: the radios compare against the
+ * Deliberately not `submitted(body)`, whose `changesToStandardPublication` is a boolean: the radios compare against the
  * strings they post, and `false` is not `"false"`.
  */
 function values(body: Record<string, unknown>): Record<string, unknown> {
   return {
     decision: body.decision,
     directionsText: body.directionsText,
-    publishToGazette: body.publishToGazette
+    changesToStandardPublication: body.changesToStandardPublication
   };
 }
 
@@ -414,8 +414,8 @@ function render(res: Response, referral: HeldReferral, submittedValues: Record<s
     // template, so unlike every other string on this page they do not reach the template as an `en`/`cy` pair
     // for it to pick from — and these two label the one answer that cannot be taken back.
     gazetteItems: [
-      { value: "true", text: text.yes, checked: submittedValues.publishToGazette === "true" },
-      { value: "false", text: text.no, checked: submittedValues.publishToGazette === "false" }
+      { value: "true", text: text.yes, checked: submittedValues.changesToStandardPublication === "true" },
+      { value: "false", text: text.no, checked: submittedValues.changesToStandardPublication === "false" }
     ],
     values: submittedValues,
     errors,
@@ -441,11 +441,12 @@ function summaryList(errors: Record<string, string>, formError?: string): { text
 
 /** Decision 10's page, and the same template the referral view renders for an invisible referral. */
 function unavailable(res: Response) {
-  res.status(404).render("judicial/referrals/unavailable", { poolPath: POOL_PATH, en: unavailableEn, cy: unavailableCy });
+  res.status(404).render("judicial/referrals/unavailable", { myReferralsPath: MINE_PATH, en: unavailableEn, cy: unavailableCy });
 }
 
 function directionHref(referralId: string, isChange: boolean): string {
-  return `${referralPath(referralId)}/direction${isChange ? `?change=${CHANGE_FLAG}` : ""}`;
+  const query = isChange ? `?change=${CHANGE_FLAG}` : "";
+  return `${referralPath(referralId)}/direction${query}`;
 }
 
 /** A referral this judge may direct on this journey, and the values its form starts with. */

@@ -18,23 +18,31 @@ import {
   countAwaitingConfirmation,
   countGazetteReadyCases,
   countReturnedForAction,
+  countWaitingForAssignment,
   findDeedPolls,
   findSavedQueries,
-  InvalidInputError
+  InvalidInputError,
+  queryBuilderMetadata
 } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
+import { addPathFilters } from "../../path-filters.js";
 import { GET } from "./index.js";
 
-vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
-  countAwaitingConfirmation: vi.fn(),
-  countGazetteReadyCases: vi.fn(),
-  countReturnedForAction: vi.fn(),
-  findDeedPolls: vi.fn(),
-  findSavedQueries: vi.fn()
-}));
+vi.mock("@hmcts/deed-poll", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@hmcts/deed-poll")>();
+  return {
+    ...original,
+    queryBuilderMetadata: vi.fn(original.queryBuilderMetadata),
+    countAwaitingConfirmation: vi.fn(),
+    countGazetteReadyCases: vi.fn(),
+    countReturnedForAction: vi.fn(),
+    countWaitingForAssignment: vi.fn(),
+    findDeedPolls: vi.fn(),
+    findSavedQueries: vi.fn()
+  };
+});
 
 // The three roots `configureGovuk` mounts, minus the assets it also wires up: govuk-frontend's macros,
 // the starter's layouts, and this app's pages.
@@ -48,6 +56,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 /** One row, since the table — and so its sortable headers — renders only for a result set with rows in it. */
 const record = {
@@ -85,6 +94,7 @@ describe("deed-polls list template", () => {
     vi.mocked(findDeedPolls).mockResolvedValue({ filter: "all", cases: [], page: 1, size: 25, total: 0, totalPages: 0 } as never);
     vi.mocked(findSavedQueries).mockResolvedValue([] as never);
     vi.mocked(countReturnedForAction).mockResolvedValue(0);
+    vi.mocked(countWaitingForAssignment).mockResolvedValue(0);
     vi.mocked(countAwaitingConfirmation).mockResolvedValue(0);
     vi.mocked(countGazetteReadyCases).mockResolvedValue(0);
   });
@@ -101,6 +111,28 @@ describe("deed-polls list template", () => {
     expect(markup).toContain('href="/deed-polls/gazette"');
     expect(markup).toContain(`Applications ready for the London Gazette: ${count}`);
     expect(markup).not.toContain("Try opening the ready list");
+  });
+
+  it("should link a Delivery Manager to the service settings page", async () => {
+    const markup = await render({}, true);
+    expect(markup).toContain('<a class="govuk-link" href="/deed-polls/settings">Service settings</a>');
+  });
+
+  it("should link a holder of ALLOCATE_REFERRALS to the referral queue", async () => {
+    const markup = await render({}, true);
+    expect(markup).toContain('<a class="govuk-link" href="/deed-polls/referrals">Referrals</a>');
+  });
+
+  it("should not link a caseworker to the referral queue", async () => {
+    const markup = await render();
+    expect(markup).not.toContain('href="/deed-polls/referrals"');
+    expect(markup).not.toContain(">Referrals</a>");
+  });
+
+  it("should not link anyone else to the service settings page", async () => {
+    const markup = await render();
+    expect(markup).not.toContain("/deed-polls/settings");
+    expect(markup).not.toContain("Service settings");
   });
 
   it("should distinguish unavailable from zero while keeping the Gazette link", async () => {
@@ -276,7 +308,7 @@ describe("deed-polls list template", () => {
   it("shows every field the chooser offers, and not the ones api computes", async () => {
     const markup = await render();
 
-    expect(markup).toContain('<option value="state">State</option>');
+    expect(markup).toContain('<option value="state">Status</option>');
     expect(markup).not.toContain('value="daysReceivedToEnroled"');
   });
 
@@ -320,6 +352,25 @@ describe("deed-polls list template", () => {
       expect(metadata.labels.announceValue).toContain("{n}");
       // Once, so the page is not carrying the same table per row.
       expect([...markup.matchAll(/id="query-builder-metadata"/g)]).toHaveLength(1);
+    });
+
+    it("keeps script-closing metadata text inside its JSON data block and preserves it when parsed", async () => {
+      const original = await vi.importActual<typeof import("@hmcts/deed-poll")>("@hmcts/deed-poll");
+      const hostile = '</script><script id="injected-metadata">alert(1)</script><';
+      vi.mocked(queryBuilderMetadata).mockImplementationOnce((labels) => ({
+        ...original.queryBuilderMetadata(labels),
+        labels: { ...labels, chooseValue: hostile }
+      }));
+
+      const markup = await render();
+      const opening = '<script type="application/json" id="query-builder-metadata">';
+      const start = markup.indexOf(opening) + opening.length;
+      const json = markup.slice(start, markup.indexOf("</script>", start));
+
+      expect(json).not.toContain("<");
+      expect(json).toContain(String.raw`\u003c/script>`);
+      expect(markup).not.toContain('<script id="injected-metadata">');
+      expect(metadataFrom(markup).labels.chooseValue).toBe(hostile);
     });
 
     it("gives each row the names the script needs, rather than leaving it to compose them", async () => {
@@ -392,6 +443,37 @@ describe("deed-polls list template", () => {
       expect(markup).not.toContain("needing action");
       // And no warning either: a zero is an answer, so there is nothing to apologise for.
       expect(markup).not.toContain("govuk-warning-text");
+    });
+
+    it("states the waiting-for-assignment count in the same banner, with its own link", async () => {
+      vi.mocked(countWaitingForAssignment).mockResolvedValue(2);
+      vi.mocked(countReturnedForAction).mockResolvedValue(1);
+
+      const markup = await render();
+
+      expect(markup.match(/data-module="govuk-notification-banner"/g) ?? []).toHaveLength(1);
+      expect(markup).toContain("2 referrals are waiting to be sent to a Master.");
+      expect(markup).toContain('href="/deed-polls?where=currentReferralState%3Ais%3AOpen">View referrals waiting to be sent</a>');
+    });
+
+    it("links a Delivery Manager's waiting count to the referral queue", async () => {
+      vi.mocked(countWaitingForAssignment).mockResolvedValue(2);
+
+      const markup = await render({}, true);
+
+      expect(markup).toContain("2 referrals are waiting to be sent to a Master.");
+      expect(markup).toContain('href="/deed-polls/referrals">Check and send referrals</a>');
+      expect(markup).not.toContain("View referrals waiting to be sent");
+    });
+
+    it("warns, without a banner, when the waiting-for-assignment count could not be read", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(countWaitingForAssignment).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      const markup = await render();
+      logged.mockRestore();
+
+      expect(markup).toContain("The number of referrals waiting to be sent to a Master could not be loaded");
+      expect(markup).not.toContain("View referrals waiting to be sent");
     });
 
     describe("when the count could not be read", () => {
@@ -751,7 +833,7 @@ describe("deed-polls list template", () => {
     it("marks the current tab with aria-current=page rather than a strong, since you-are-here is not importance", async () => {
       const nav = filterNav(await render({ filter: "enroled" }));
 
-      expect(nav).toContain('<span class="app-filter-nav__current" aria-current="page">Enroled</span>');
+      expect(nav).toContain('<span class="app-filter-nav__current" aria-current="page">Enrolled</span>');
       expect(nav).not.toContain("<strong");
       expect(nav).not.toContain('aria-current="true"');
       // One current entry, so the other five are still links to somewhere.

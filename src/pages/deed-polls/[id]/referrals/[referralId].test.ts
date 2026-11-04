@@ -24,7 +24,7 @@ const DIRECTED = {
   claimedAt: new Date("2026-05-14T09:00:00Z"),
   decision: "Approved",
   directionsText: "Serve the notice on the second respondent.",
-  publishToGazette: true,
+  changesToStandardPublication: false,
   decisionDate: new Date("2026-05-15T10:30:00Z"),
   decidedBy: "A Judge"
 };
@@ -41,7 +41,7 @@ const REFERRAL = {
   claimedAt: null,
   decision: null,
   directionsText: null,
-  publishToGazette: null,
+  changesToStandardPublication: null,
   decisionDate: null,
   decidedBy: null,
   createdBy: "A Caseworker",
@@ -92,7 +92,7 @@ describe("referral view page", () => {
 
     expect(res.render.mock.calls[0][0]).toBe("deed-polls/referral-detail");
     expect(res.render.mock.calls[0][1].case.displayReference).toBe("KBDP2026-00001");
-    expect(res.render.mock.calls[0][1].referral.state).toBe("Awaiting a judge");
+    expect(res.render.mock.calls[0][1].referral.state).toBe("Waiting to be sent");
   });
 
   it("should show the reasons as labels rather than api's enum members", async () => {
@@ -182,11 +182,11 @@ describe("referral view page", () => {
     expect(res.render.mock.calls[0][1].referral.direction).toEqual({
       decision: "Approved",
       directionsText: "Serve the notice on the second respondent.",
-      publishToGazette: true,
+      changesToStandardPublication: false,
       decidedBy: "A Judge",
       decidedOn: "15 May 2026 at 11:30am"
     });
-    expect(res.render.mock.calls[0][1].gazetteAnswer).toBe("Yes");
+    expect(res.render.mock.calls[0][1].gazetteAnswer).toBe("No");
   });
 
   it("should keep the direction readable after closure, since api preserves the judicial fields", async () => {
@@ -205,7 +205,7 @@ describe("referral view page", () => {
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].directionChanged).toBe("The judge changed this direction on 19 October 2026 at 10:30am.");
+    expect(res.render.mock.calls[0][1].directionChanged).toBe("The Master changed this direction on 19 October 2026 at 10:30am.");
   });
 
   it("should say nothing about a change on a direction that stands as first given", async () => {
@@ -237,13 +237,13 @@ describe("referral view page", () => {
   });
 
   it.each([
-    { publishToGazette: true, answer: "Yes" },
-    { publishToGazette: false, answer: "No" },
-    // The third state said rather than collapsed: "No" would assert a direction against publication that the
-    // judge never gave.
-    { publishToGazette: null, answer: "Not recorded" }
-  ])("should read a publishToGazette of $publishToGazette as $answer", async ({ publishToGazette, answer }) => {
-    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED, publishToGazette } as never);
+    { changesToStandardPublication: false, answer: "No" },
+    { changesToStandardPublication: true, answer: "Yes" },
+    // The third state said rather than collapsed: "No" would assert a standard publication that the Master never
+    // directed.
+    { changesToStandardPublication: null, answer: "Not recorded" }
+  ])("should read a changesToStandardPublication of $changesToStandardPublication as $answer", async ({ changesToStandardPublication, answer }) => {
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED, changesToStandardPublication } as never);
     const res = response();
 
     await GET(request(), res);
@@ -356,6 +356,36 @@ describe("referral view page", () => {
     vi.mocked(findReferral).mockRejectedValue(new NotFoundError("Referral ref-1 not found"));
 
     await expect(GET(request(), response())).rejects.toThrow(NotFoundError);
+  });
+
+  describe("assignment", () => {
+    const ASSIGNED = {
+      ...REFERRAL,
+      state: "Claimed",
+      claimedBy: "Master Wren",
+      assignedMaster: { id: "master-1", name: "Master Wren" },
+      assignedAt: new Date("2026-10-20T09:00:00Z"),
+      directionDueBy: new Date("2026-10-27T09:00:00Z")
+    };
+
+    it.each([{ ...REFERRAL }, ASSIGNED])("should offer no assign link and read no assign flags on a $state referral (plan Fa1)", async (referral) => {
+      vi.mocked(findReferral).mockResolvedValue(referral as never);
+      const res = response();
+
+      await GET(request({ assigned: "1", assign: "conflict" }), res);
+
+      const model = res.render.mock.calls[0][1];
+      for (const key of ["assignLink", "assignHref", "assigned", "assignRefused"]) expect(model).not.toHaveProperty(key);
+    });
+
+    it("should still show who a Claimed referral is with and when its direction is due", async () => {
+      vi.mocked(findReferral).mockResolvedValue(ASSIGNED as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].referral.assignment).toMatchObject({ masterName: "Master Wren", directionDueBy: "27-10-26" });
+    });
   });
 
   describe("the applicant's confirmation", () => {

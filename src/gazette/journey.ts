@@ -61,7 +61,8 @@ export async function gazetteRequestKey(req: Request, journey: GazetteJourney): 
 }
 
 export function selectedGazetteCases(journey: GazetteJourney, input: unknown): string[] | null {
-  const ids = input === undefined ? [] : typeof input === "string" ? [input] : input;
+  if (input === undefined) return [];
+  const ids = typeof input === "string" ? [input] : input;
   if (!Array.isArray(ids) || ids.length > 100 || new Set(ids).size !== ids.length) return null;
   return ids.every((id) => typeof id === "string" && journey.reviews.some((r) => r.id === id)) ? ids : null;
 }

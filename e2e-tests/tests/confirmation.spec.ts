@@ -32,7 +32,7 @@
  * **The wait is arranged through `POST /__mock/referrals/{id}/confirmation-request`, and that is a fact about the
  * mock rather than a shortcut.** The write that sets `confirmationRequestedAt` at api's end is notify-3's *Request
  * confirmation to proceed* email, and the mock has no template for it, so there is no contract route out here that
- * can start a wait. Everything else is driven: the referral is raised, claimed and refused through the contract,
+ * can start a wait. Everything else is driven: the referral is raised, assigned and refused through the contract,
  * because a judge's refusal is what leads the office to ask the applicant at all.
  *
  * The caseworker signs in as `team-leader@example.com` for the first three, because nothing here is gated on a role —
@@ -49,15 +49,13 @@ import {
   TEAM_LEADER_EMAIL,
   TEAM_LEADER_STORAGE_STATE
 } from "./idam-session.js";
+import { newMaster, sendToMaster } from "./masters.js";
 
 /** The mock api, which `playwright.config.ts` starts on 3200 beside the app on 3000. */
 const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
 
 /** The worklist, as the banner's link and the tab both address it — api's published filter key. */
 const WORKLIST_URL = "/deed-polls?filter=awaitingConfirmation";
-
-/** The judge who refused the non-publication request, which is what leads the office to ask the applicant. */
-const SEED_JUDGE = "e2e.confirmationjudge@example.com";
 
 /** The colleague who answers first in the race, as a subject rather than a session — see `bearer`. */
 const OTHER_CASEWORKER = "e2e.colleague@example.com";
@@ -96,7 +94,7 @@ test("caseworker follows the awaiting-confirmation count to the longest wait and
 
   // The count is a fact about the service rather than about the tab on screen, so another tab does not narrow it —
   // `Enroled` holds none of these cases.
-  await page.getByRole("link", { name: "Enroled" }).click();
+  await page.getByRole("link", { name: "Enrolled" }).click();
   await expect(banner).toContainText("waiting for the applicant to confirm they want to proceed");
   await expectAwaitingCountMatchesApi(page, request);
   // And the Waiting column belongs to one tab (decision 4): the value is on every row api publishes, and the
@@ -154,9 +152,10 @@ test("caseworker follows the awaiting-confirmation count to the longest wait and
   const notice = awaitingNotice(page);
   await expect(notice).toContainText("The applicant was asked on");
   await expect(notice).toContainText("has not replied yet");
-  await expect(caseHeaderRow(page, "State")).toContainText("Returned");
+  await expect(caseHeaderRow(page, "Status")).toContainText("Returned");
   // Read off the page rather than computed here: it is api's date formatted by the app, and a second formatting in
   // this file would be a third opinion about how one timestamp reads.
+  // biome-ignore lint/performance/useDomNodeTextContent: Playwright Locator reads rendered text; textContent includes hidden text and preserves source whitespace.
   const askedOnCase = ((await notice.innerText()).match(/asked on (.+?) whether/) ?? ["", ""])[1];
   expect(askedOnCase).not.toBe("");
   await expectNoAccessibilityViolations(page);
@@ -255,7 +254,7 @@ test("caseworker follows the awaiting-confirmation count to the longest wait and
   // derive it are untouched.
   await page.goto(`/deed-polls/${oldest.id}`);
   await expect(awaitingNotice(page)).toHaveCount(0);
-  await expect(caseHeaderRow(page, "State")).toContainText("Returned");
+  await expect(caseHeaderRow(page, "Status")).toContainText("Returned");
 
   // The form refuses to present an action that no longer applies — a back button, a bookmark or a second tab —
   // and redirects to the referral, which shows the answer that explains why.
@@ -388,7 +387,7 @@ test.describe("without the admin role", () => {
  * Cases waiting for an answer, one per number of days given.
  *
  * **Seeded, then driven, then asked.** The case is seeded because a create is not what is being tested; the
- * referral is raised, claimed and refused through the contract, because a Master's refusal is what leads the
+ * referral is raised, assigned and refused through the contract, because a Master's refusal is what leads the
  * office to ask the applicant at all and a seeded `Decided` referral would be a state api's own machine never
  * produced; and only the ask itself goes through the mock's control route, because the write that starts a wait is
  * notify-3's email and this mock has no template for it.
@@ -443,17 +442,21 @@ async function seedWaitingCases(
  * `daysAwaitingConfirmation` is a difference of UTC calendar days, `0` on the day the email went and never 1.
  */
 async function askApplicant(request: APIRequestContext, caseId: string, daysAgo: number): Promise<string> {
-  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor"] } });
+  // Raised into the queue and sent to a Master of its own, as the Referrals screen would (plan Fa1).
+  const master = await newMaster(request, "Confirmation");
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, {
+    data: { reasons: ["Minor", "MinorCourtOrder"] }
+  });
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;
+  await sendToMaster(request, referralId, master.id);
 
-  const judge = bearer(SEED_JUDGE);
-  const claimed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/claim`, { headers: judge });
-  expect(claimed.status(), await claimed.text()).toBe(200);
+  // The Master's linked judge, because api shows an assigned referral to nobody else.
+  const judge = bearer(master.judge);
 
   const directed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/direction`, {
     headers: judge,
-    data: { decision: "Rejected", publishToGazette: false, directionsText: JUDGES_REASON }
+    data: { decision: "Rejected", changesToStandardPublication: true, directionsText: JUDGES_REASON }
   });
   expect(directed.status(), await directed.text()).toBe(200);
 
@@ -517,12 +520,21 @@ function caseHeaderLink(page: Page): Locator {
  * elsewhere on the same page.
  */
 function summaryRow(page: Page, key: string): Locator {
-  return page.locator(".govuk-summary-list__row", { hasText: key });
+  // An anchored match on the key cell: `hasText` alone is a case-insensitive substring, so "Status" would also
+  // answer to "Marital status" and to the application's own Status row.
+  const keyCell = page.locator(".govuk-summary-list__key").filter({ hasText: exactText(key) });
+
+  return page.locator(".govuk-summary-list__row").filter({ has: keyCell });
+}
+
+/** The whole of a cell's text, so a key never matches another key that merely contains it. */
+function exactText(text: string): RegExp {
+  return new RegExp(`^\\s*${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
 }
 
 /** The case header's own summary list, which is a separate list from any tab's. */
 function caseHeaderRow(page: Page, key: string): Locator {
-  return page.locator(".govuk-summary-list__row", { hasText: key }).first();
+  return summaryRow(page, key).first();
 }
 
 /** A column of the list table, by its heading — which is how "this tab has a Waiting column" is asked. */

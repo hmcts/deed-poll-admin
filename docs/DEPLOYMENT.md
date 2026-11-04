@@ -194,7 +194,15 @@ budget is 30 previews per 10 minutes per subject, in both apps.
    request, and choose **Copy as cURL (bash)**. Save it to a file outside the repository. **It contains your
    session cookie**: don't commit or share it, and delete it afterwards.
 3. **Run the check:** `scripts/rate-limit-observe-check.sh <that file>`.
-   - It refuses anything but a preview POST to AAT's admin.
+   - It refuses anything but a preview POST to AAT's admin. `scripts/rate-limit-observe-check-parse.py` parses the
+     copied command into an argument list and accepts only what a browser writes: one destination URL, other URLs
+     only in a `Referer` or `Origin` header, no `Host` or forwarding header, no line break or other control
+     character in a header or cookie, a form body, no method but `POST`, no
+     config, output or upload option, no file read with `@`, and no unquoted shell syntax. The script then runs exactly that list, with `--disable` first so `~/.curlrc`
+     cannot change it, and never `eval`s the file (review finding R16; plan
+     `docs/plans/completed/20261022-r11-r16-path-segments-and-observe-guard.md`). A refusal names no value from the
+     file. `--check-only` parses and stops, sending nothing.
+   - It needs `python3` on the `PATH`. Without it the script stops with exit 3 before sending anything.
    - It waits for a fresh 10-minute window if the current one is nearly over.
    - It sends 35 previews a second apart and prints a count of each response status.
    - Expect all `200`. A `429` means something is enforcing.
@@ -239,6 +247,15 @@ per environment, through two conditions that must both hold.
 `client_credentials` grant types — and until it lands every persona refuses with a reason naming that PR
 rather than reaching the 500 page. See [`PIPELINES.md`](PIPELINES.md).
 
+### The XUI staff administration link
+
+The service settings page links to XUI's staff administration through `XUI_STAFF_ADMIN_URL`
+(`externalLinks.xuiStaffAdmin`). It is a link, never a permission: XUI checks `staff-admin` itself.
+
+| Variable | Where it is set | Notes |
+|---|---|---|
+| `XUI_STAFF_ADMIN_URL` | `charts/deed-poll-admin/values.yaml`: `https://manage-case.platform.hmcts.net/staff` when `global.environment` is `prod`, otherwise `https://manage-case.{env}.platform.hmcts.net/staff`. `values.preview.template.yaml` pins AAT's. `config/default.json` holds AAT's for local runs | A non-production environment must never name production XUI. `src/deployment-chart.test.ts` renders every environment through `helm template` to prove it, but **those render tests skip without `helm`**, and nobody has confirmed the Jenkins agents have it |
+
 ## deed-poll-api
 
 **This app serves no case page without api**, and api is a separate deployable in
@@ -250,9 +267,53 @@ database to connect to: that is api's, along with the schema and the Flyway migr
 | Item | State |
 |---|---|
 | **api deployed to the target environment** | **Outstanding.** api's own `docs/plans/jenkins-pipeline-cutover.md` is what makes this true; until it lands, a deployed pod's readiness probe reports DOWN and Kubernetes keeps it out of the Service. That is the intended behaviour — a pod that cannot reach api cannot serve a single case page |
+| **Process settings** (`GET`/`PUT /caseworker/process-settings`, api PR #135 `539da63`, and `MANAGE_PROCESS_CONFIG` in `/me`) | Must be serving on **every** api replica before this app's settings page is deployed. Until then a `/me` answer without `MANAGE_PROCESS_CONFIG` means the whole `/deed-polls/settings` area answers 403 on the 404 view, and that includes the London Gazette recipient editor and the old `/deed-polls/gazette/settings` address, which redirects into it; if the capability arrives but the settings endpoints do not, the page's reads fail and its sections show their unavailable sentences. Nobody edits process settings while old api pods remain. After the deploy, an existing Delivery Manager session gets the "Service settings" link within one token lifetime, or at once on signing in again |
+| **Masters, bank holidays and the extended process settings** (`/caseworker/masters`, `/caseworker/process-settings/bank-holidays` and the seven-field `PUT /caseworker/process-settings`, api D1 `504ce4b` on `feat/d-referral-assignment`, unmerged) | Must be serving on **every** api replica before this version. On an older api the Masters and bank holiday sections show their unavailable sentences, and a referral-process save is refused: every save sends seven fields, and the processing window's minimum is now 1,440 minutes |
+| **Referral assignment** (`PUT /caseworker/cases/{id}/referrals/{referralId}/assignment` and the Masters list; api D2 `41b238d` on `feat/d-referral-assignment`, unmerged) | Superseded by the referral queue below, which builds on it: this version offers Masters no pool and no claim, so against an api older than D2 an `Open` referral has no way to reach a judge |
+| **Referral queue** (`GET /caseworker/referral-queue`, `POST /caseworker/referral-queue/sends`, the assignment `PUT` restricted to `ALLOCATE_REFERRALS` and `Claimed`, no `masterId` on `POST …/referrals`, `windowCap` in the process settings, and `ALLOCATE_REFERRALS` in `/me`; api F1 `cc1deef` on `feat/f-referral-queue`, unmerged) | Must be serving on **every** api replica before this version, with no expand-then-contract step. Against D2 the Referrals screen's reads fail, every raised referral stays `Open` with nothing in this app able to send it, and a referral-process save is refused because it sends `windowCap`. Until `/me` carries `ALLOCATE_REFERRALS` the whole `/deed-polls/referrals` area answers 403 on the 404 view and the case list shows no Referrals link; an existing Team leader or Delivery Manager session gets it within one token lifetime, or at once on signing in again |
 | `DEED_POLL_API_URL` | Set in `charts/deed-poll-admin/values.yaml` to `http://deed-poll-api-{env}.service.core-compute-{env}.internal` — the CNP internal host of api's `charts/deed-poll-api`, cluster-internal and cleartext, not an ingress. Preview overrides it to AAT's, because api's preview deploys are per-PR hosts with no stable name |
-| `DEED_POLL_API_TIMEOUT_MS` | Optional. An unset or unparseable value falls back to the adapter's own default rather than becoming `NaN`. The readiness probe does **not** use it: `HEALTH_PROBE_TIMEOUT_MS` is fixed at 2s, because a probe must answer on its own terms |
+| `DEED_POLL_API_TIMEOUT_MS` | Optional, and when set it overrides every call's timeout except the Gazette submit, its status-check replay and the document preview, which it can only shorten. Unset, each call keeps its own: 10 s for JSON calls, 60 s for uploads (`UPLOAD_TIMEOUT_MS`), 27 s for a document preview (`PREVIEW_TIMEOUT_MS`, above api's 25 s conversion budget and inside the gateways' 30 s), and for the Gazette submit what is left of a 25 s budget from the request's arrival, capped at 20 s (`GAZETTE_SUBMIT_TIMEOUT_MS`, findings R03 and R03b). A value below 20 s turns a slow but successful Gazette send back into an unknown outcome; a value above 20 s does not lengthen it. An unparseable value falls back to those per-call defaults rather than becoming `NaN`. The readiness probe does **not** use it: `HEALTH_PROBE_TIMEOUT_MS` is fixed at 2s, because a probe must answer on its own terms |
 | **An S2S credential** | **Nothing to add, and adding one would be wrong.** api authenticates a *forwarded IDAM access token* and nothing else — see its `SecurityConfiguration`, an OAuth2 resource server with no `ServiceAuthorization` filter, and `openapi.json`, whose only security scheme is `bearerAuth`. The caseworker's own token, held in this app's session, is the whole credential. If api ever adds S2S, the answer is a token provider minting one per call against `service-auth-provider-api`, plus an S2S microservice name registered for **this app**; it is not a static secret in the vault. `deed-poll-web/docs/external-dependencies.md` tracks the same requirement for the other frontend |
+
+### Document previews
+
+The document viewer (see the README) renders the PDF that api's
+`GET /caseworker/cases/{id}/documents/{documentId}/preview` and
+`GET /judicial/referrals/{referralId}/documents/{documentId}/preview` return. **Both are outstanding:** they are api
+PR #129 (`19bb0c2`, unmerged when this app's viewer was built), and the adapter's spec copy is taken from that PR.
+Deploy that api change before this one, or every preview fails and only **Download original** works.
+
+- **DOCX needs api's Docmosis Tornado converter**, provisioned through the infrastructure repositories with its
+  credentials held by api. This app holds no converter credential and needs no new secret. Until the converter is
+  there, api answers a DOCX preview with 503 `PREVIEW_UNAVAILABLE`, and the viewer shows its fixed
+  preview-unavailable sentence with the original still downloadable. PDF, JPEG, PNG and TIFF previews can be
+  released before it (decision 3 of the plan).
+- **Timeout.** A preview waits up to 27 s (`PREVIEW_TIMEOUT_MS` in the api client), just above api's 25 s budget and
+  inside both Application Gateways' 30 s `request_timeout`. `DEED_POLL_API_TIMEOUT_MS` can only shorten it.
+- **Assets.** The PDF.js worker, fonts, cmaps and image decoders are built into `dist/assets/` and served from the
+  pod. Nothing is fetched from a CDN, and the CSP needs no new host, no `unsafe-eval` and no `wasm-unsafe-eval`.
+  The worker is PDF.js's unminified (patched) legacy build, about 514 KB gzipped, because the minified one is unpatched.
+- **AAT acceptance is still to do and cannot come from the mock:** synthetic documents of every type, including a
+  multi-page TIFF and a court-generated DOCX, checked for pagination and fonts, original downloads checked for
+  equality, staff and judicial refusals checked, and converter outage checked. See the plan's Post-Completion.
+
+### Gazette send timeout follow-up
+
+**Outstanding, for others.** api sends a Gazette batch inside the submit request and waits up to 60 s on Notify,
+but both Application Gateways on the path default `request_timeout` to 30 s and neither entry overrides it: the
+backend gateway (deed-poll-api's entry in `azure-platform-terraform`'s `backend_lb_config.yaml`) and the frontend
+gateway in front of this app (`terraform-module-applicationgateway`'s default). This app therefore gives the submit
+at most 20 s, and only what is left of a 25 s budget counted from the request's arrival, so that it answers the
+browser inside 30 s whatever the review re-check and a token refresh spent first. That bounds the send only: the
+re-check's case reads and the refresh keep their own timeouts, so if they alone outlast 30 s (a very slow api) the
+caseworker still gets the gateway's error page, with nothing sent. `DEED_POLL_API_TIMEOUT_MS` can only
+shorten the send's wait. Under a 5 s floor nothing is sent: the page says so and keeps the same request key, so sending or
+checking again is the same keyed request. A send that times out shows as an unknown outcome; Check request status
+recovers it and nothing is sent twice. The fix is a platform change
+raising `request_timeout` on both gateways for deed-poll, or api sending asynchronously. Once both are raised, raise
+`GAZETTE_SUBMIT_TIMEOUT_MS` in the api client and `SEND_BUDGET_MS` in `src/gazette/send-deadline.ts` to sit well
+inside the new frontend limit. See `docs/plans/completed/20261021-r03-gazette-submit-timeout.md` and
+`docs/plans/completed/20261021-r03b-gazette-send-deadline.md`.
 
 ### API URL validation and transport follow-up
 
@@ -291,6 +352,13 @@ The cookie expiry and any client-side warning are conveniences; neither decides 
 - **A timeout ends the session here and at IDAM**, as logout does. A GET returns, after IDAM end-session, to
   `/session-timed-out` (or `/` until the address is registered), and "Sign in again" resumes the original page. A
   timed-out POST gets a 401 page saying the changes were not saved; nothing is replayed.
+- **During an IDAM discovery outage a timeout or logout ends the session here only** (R04). The 5 s discovery
+  cooldown included, a timed-out GET goes straight to `/session-timed-out`, a timed-out POST's 401 page links to
+  `/login`, and logout still clears the cache and redirects to `/signed-out`, a public page whose "Sign in again" is
+  only a link. Never `/`, which would start IDAM sign-in at once. The same page is used when IDAM advertises no
+  end-session endpoint. The IDAM session is not ended, so once IDAM recovers "Sign in again" may sign the person at the
+  PC straight back in. Each such ending logs `IDAM end-session
+  address unavailable; the session was ended locally only`.
 - **Activity** is any signed-in request to a non-public page, recorded at most once a minute. Public pages, health
   probes and assets do not count.
 - **Redis TTL** is derived from the session: a signed-in key lives until 15 minutes after its absolute deadline, any
@@ -301,7 +369,7 @@ The cookie expiry and any client-side warning are conveniences; neither decides 
 
 ### Session writes and rollout
 
-Since the E01 fix (`docs/plans/20261020-e01-session-revocation.md`) the session store is `GuardedSessionStore`, which
+Since the E01 fix (`docs/plans/completed/20261020-e01-session-revocation.md`) the session store is `GuardedSessionStore`, which
 refuses any write that could recreate a logged-out or expired session or overwrite a newer one, and coordinates token
 refreshes across pods with a lease. The contract is in `CLAUDE.md` under "Session writes". What it means for a deploy:
 
@@ -324,7 +392,7 @@ refreshes across pods with a lease. The contract is in `CLAUDE.md` under "Sessio
   asking IDAM again, and the next refresh with a rotated-away token signs the user out. None of this logs a session id,
   subject or token.
 - **What it does not do.** It guarantees this app's stored session. It does not revoke the IDAM tokens a session held;
-  that remains IDAM's end-session on logout and api's token validation.
+  that remains IDAM's end-session on logout, when IDAM is reachable, and api's token validation.
 
 ## Security events
 

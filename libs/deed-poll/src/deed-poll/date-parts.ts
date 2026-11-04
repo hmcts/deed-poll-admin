@@ -34,14 +34,14 @@ export function composeDateParts(day: string, month: string, year: string): stri
 }
 
 /**
- * A stored value → parts, for pre-filling an edit form. An unset or unparseable value yields
+ * A stored Date or string → parts, for pre-filling an edit form. An unsupported or unparseable value yields
  * empty strings rather than throwing, because a half-populated record is normal here: a case is
  * logged incrementally and most of its dates are null for most of its life.
  */
 export function splitDateParts(value: unknown): DateParts {
-  if (!value) return { ...EMPTY };
+  if (!(value instanceof Date) && typeof value !== "string") return { ...EMPTY };
 
-  const date = value instanceof Date ? value : new Date(String(value));
+  const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return { ...EMPTY };
 
   return {

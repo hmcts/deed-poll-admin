@@ -26,7 +26,7 @@ const decided = (overrides: Partial<JudicialReferralDetail> = {}): JudicialRefer
     claimedAt: new Date("2026-09-04T09:00:00Z"),
     decision: "Approved",
     directionsText: "Grant the application.",
-    publishToGazette: true,
+    changesToStandardPublication: false,
     decisionDate: new Date("2026-09-05T16:05:00Z"),
     decidedBy: "a-judge",
     application: { displayReference: "KBDP2026-00001", type: "Adult", witnesses: [], documents: [] },
@@ -59,7 +59,7 @@ describe("withdrawing a judicial direction", () => {
         referralHref: "/judicial/referrals/ref-1"
       });
       expect(res.render.mock.calls[0][1].en.body).toBe(
-        "You'll need to give a new direction. Until you do, this referral stays claimed by you. If it isn't directed, it may return to the shared list like any other claim."
+        "You'll need to give a new direction. Until you do, this referral stays with you. If it isn't directed in time, it goes back to the office to be assigned again."
       );
       expect(res.render.mock.calls[0][1].en.withdraw).toBe("Withdraw direction");
     });

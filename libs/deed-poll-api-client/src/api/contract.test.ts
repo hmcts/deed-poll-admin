@@ -13,8 +13,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
+import { BANK_HOLIDAY_LIMITS, DOCUMENT_PREVIEW_LIMITS, MASTER_LIMITS, PROCESS_SETTINGS_LIMITS, REFERRAL_SEND_LIMITS, WINDOW_TIME_PATTERN } from "./client.js";
 import deferredContract from "./deferred-contract.json";
-import { CAPABILITY, GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, WIRE_SCHEMAS } from "./wire.js";
+import { CAPABILITY, DOCUMENT_PREVIEW_ERROR_CODE, GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, WIRE_SCHEMAS } from "./wire.js";
 
 const SPEC_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../openapi.json");
 const spec = JSON.parse(readFileSync(SPEC_PATH, "utf8")) as OpenApiSpec;
@@ -44,6 +45,14 @@ const IMPLEMENTED_OPERATIONS = [
   "GET /caseworker/gazette-notices/{batchId}/cases",
   "GET /caseworker/gazette-settings",
   "PUT /caseworker/gazette-settings",
+  "GET /caseworker/process-settings",
+  "PUT /caseworker/process-settings",
+  "GET /caseworker/process-settings/bank-holidays",
+  "POST /caseworker/process-settings/bank-holidays",
+  "DELETE /caseworker/process-settings/bank-holidays/{date}",
+  "GET /caseworker/masters",
+  "POST /caseworker/masters",
+  "PATCH /caseworker/masters/{id}",
   "POST /caseworker/cases",
   "GET /caseworker/cases/field-rules",
   "GET /caseworker/cases/{id}",
@@ -63,12 +72,16 @@ const IMPLEMENTED_OPERATIONS = [
   "POST /caseworker/cases/{id}/emails/{template}/preview",
   "POST /caseworker/cases/{id}/documents",
   "GET /caseworker/cases/{id}/documents/{documentId}/file",
+  "GET /caseworker/cases/{id}/documents/{documentId}/preview",
   "GET /caseworker/cases/{id}/referrals",
   "POST /caseworker/cases/{id}/referrals",
   "GET /caseworker/cases/{id}/referrals/{referralId}",
   "POST /caseworker/cases/{id}/referrals/{referralId}/withdrawal",
   "POST /caseworker/cases/{id}/referrals/{referralId}/closure",
   "POST /caseworker/cases/{id}/referrals/{referralId}/confirmation",
+  "PUT /caseworker/cases/{id}/referrals/{referralId}/assignment",
+  "GET /caseworker/referral-queue",
+  "POST /caseworker/referral-queue/sends",
   "GET /caseworker/document-types",
   "GET /caseworker/saved-queries",
   "POST /caseworker/saved-queries",
@@ -87,6 +100,7 @@ const IMPLEMENTED_OPERATIONS = [
   "PUT /judicial/referrals/{referralId}/direction",
   "POST /judicial/referrals/{referralId}/direction/withdraw",
   "GET /judicial/referrals/{referralId}/documents/{documentId}/file",
+  "GET /judicial/referrals/{referralId}/documents/{documentId}/preview",
   "GET /me"
 ];
 
@@ -134,6 +148,192 @@ describe("openapi.json and the wire schemas", () => {
     expect(header).toMatchObject({ in: "header", required: true, schema: { type: "string" } });
     for (const field of ["idempotencyKey", "submittedById", "selectionFingerprint", "notificationId", "documentId"]) {
       expect(Object.keys(spec.components.schemas.GazetteStatusResponse.properties ?? {})).not.toContain(field);
+    }
+  });
+
+  it("should agree with the spec on every process setting's bounds and the closed process settings write", () => {
+    const request = spec.components.schemas.UpdateProcessSettingsRequest;
+    expect(request.properties?.referralClaimExpiryMinutes).toMatchObject({
+      type: "integer",
+      minimum: PROCESS_SETTINGS_LIMITS.minProcessingMinutes,
+      maximum: PROCESS_SETTINGS_LIMITS.maxProcessingMinutes
+    });
+    expect(request.properties?.reminderIntervalHours).toMatchObject({
+      type: "integer",
+      minimum: PROCESS_SETTINGS_LIMITS.minReminderHours,
+      maximum: PROCESS_SETTINGS_LIMITS.maxReminderHours
+    });
+    expect(request.properties?.windowCap).toMatchObject({
+      type: "integer",
+      minimum: PROCESS_SETTINGS_LIMITS.minWindowCap,
+      maximum: PROCESS_SETTINGS_LIMITS.maxWindowCap
+    });
+    for (const name of ["morningWindowStart", "morningWindowEnd", "afternoonWindowStart", "afternoonWindowEnd"]) {
+      expect(request.properties?.[name]?.pattern, name).toBe(WINDOW_TIME_PATTERN);
+      expect(spec.components.schemas.ProcessSettingsResponse.properties?.[name]?.pattern, name).toBe(WINDOW_TIME_PATTERN);
+    }
+    expect(request.properties?.revision).toMatchObject({ type: "integer", minimum: 0 });
+    // Only these two for one release: an absent setting keeps api's stored value.
+    expect(request.required?.toSorted()).toEqual(["referralClaimExpiryMinutes", "revision"]);
+    expect(request.additionalProperties).toBe(false);
+    const write = WIRE_SCHEMAS.UpdateProcessSettingsRequest;
+    const full = {
+      referralClaimExpiryMinutes: 10080,
+      reminderIntervalHours: 48,
+      windowCap: 10,
+      morningWindowStart: "07:00",
+      morningWindowEnd: "10:30",
+      afternoonWindowStart: "14:00",
+      afternoonWindowEnd: "14:30",
+      revision: 0
+    };
+    expect(write.safeParse(full).success).toBe(true);
+    expect(write.safeParse({ referralClaimExpiryMinutes: 1440, revision: 0 }).success).toBe(true);
+    expect(write.safeParse({ referralClaimExpiryMinutes: 43200, revision: 3 }).success).toBe(true);
+    expect(write.safeParse({ ...full, reminderIntervalHours: 1, windowCap: 100, morningWindowStart: "00:00", afternoonWindowEnd: "23:45" }).success).toBe(true);
+    for (const change of [
+      { referralClaimExpiryMinutes: 1439 },
+      { referralClaimExpiryMinutes: 43201 },
+      { referralClaimExpiryMinutes: 1440.5 },
+      { referralClaimExpiryMinutes: "1440" },
+      { referralClaimExpiryMinutes: null },
+      { reminderIntervalHours: 0 },
+      { reminderIntervalHours: 169 },
+      { reminderIntervalHours: null },
+      { windowCap: 0 },
+      { windowCap: 101 },
+      { morningWindowStart: "07:10" },
+      { morningWindowStart: "7:00" },
+      { afternoonWindowEnd: "24:00" },
+      { afternoonWindowStart: null },
+      { revision: -1 },
+      { updatedBy: "forged" }
+    ]) {
+      expect(write.safeParse({ ...full, ...change }).success, JSON.stringify(change)).toBe(false);
+    }
+    expect(write.safeParse({ referralClaimExpiryMinutes: 1440 }).success).toBe(false);
+    for (const operation of [spec.paths["/caseworker/process-settings"].get, spec.paths["/caseworker/process-settings"].put]) {
+      expect(operation.responses).toMatchObject({ "200": { content: { "*/*": { schema: { $ref: "#/components/schemas/ProcessSettingsResponse" } } } } });
+    }
+  });
+
+  it("should agree with the spec on the Masters list's writes", () => {
+    const create = spec.components.schemas.CreateMasterRequest;
+    const update = spec.components.schemas.UpdateMasterRequest;
+    for (const body of [create, update]) {
+      expect(body.additionalProperties).toBe(false);
+      expect(body.properties?.name).toMatchObject({ minLength: 1, maxLength: MASTER_LIMITS.maxNameLength });
+      expect(body.properties?.email).toMatchObject({ maxLength: MASTER_LIMITS.maxEmailLength });
+    }
+    expect(create.required?.toSorted()).toEqual(["email", "name"]);
+    expect(update.required).toEqual(["revision"]);
+    expect(update.minProperties).toBe(2);
+    expect(update.properties?.revision).toMatchObject({ type: "integer", minimum: 0 });
+    // The linked IDAM account is api's alone: no response or write may carry it.
+    for (const name of ["MasterResponse", "CreateMasterRequest", "UpdateMasterRequest"]) {
+      for (const field of ["subject", "idamId", "userId", "linkedSubject"]) {
+        expect(Object.keys(spec.components.schemas[name].properties ?? {}), name).not.toContain(field);
+      }
+    }
+    expect(WIRE_SCHEMAS.CreateMasterRequest.safeParse({ name: "Master Sullivan", email: "sullivan@example.test" }).success).toBe(true);
+    expect(WIRE_SCHEMAS.CreateMasterRequest.safeParse({ name: "  ", email: "sullivan@example.test" }).success).toBe(false);
+    expect(WIRE_SCHEMAS.CreateMasterRequest.safeParse({ name: "x".repeat(201), email: "sullivan@example.test" }).success).toBe(false);
+    expect(WIRE_SCHEMAS.CreateMasterRequest.safeParse({ name: "M", email: "x".repeat(321) }).success).toBe(false);
+    expect(WIRE_SCHEMAS.CreateMasterRequest.safeParse({ name: "M", email: "m@example.test", linked: true }).success).toBe(false);
+    expect(WIRE_SCHEMAS.UpdateMasterRequest.safeParse({ available: false, revision: 0 }).success).toBe(true);
+    expect(WIRE_SCHEMAS.UpdateMasterRequest.safeParse({ revision: 0 }).success).toBe(false);
+    expect(WIRE_SCHEMAS.UpdateMasterRequest.safeParse({ available: false }).success).toBe(false);
+    expect(spec.paths["/caseworker/masters"].post.responses?.["201"]).toBeDefined();
+  });
+
+  it("should agree with the spec on the bank holidays' write and removal", () => {
+    const create = spec.components.schemas.CreateBankHolidayRequest;
+    expect(create.additionalProperties).toBe(false);
+    expect(create.required?.toSorted()).toEqual(["date", "name"]);
+    expect(create.properties?.date).toMatchObject({ type: "string", format: "date" });
+    expect(create.properties?.name).toMatchObject({ minLength: 1, maxLength: BANK_HOLIDAY_LIMITS.maxNameLength });
+    expect(spec.components.schemas.BankHolidayResponse.properties?.date).toMatchObject({ type: "string", format: "date" });
+    expect(WIRE_SCHEMAS.CreateBankHolidayRequest.safeParse({ date: "2026-12-25", name: "Christmas Day" }).success).toBe(true);
+    for (const body of [
+      { date: "25-12-2026", name: "Christmas Day" },
+      { date: "2026-02-30", name: "Not a day" },
+      { date: "2026-12-25", name: " " },
+      { date: "2026-12-25", name: "x".repeat(201) },
+      { date: "2026-12-25" }
+    ]) {
+      expect(WIRE_SCHEMAS.CreateBankHolidayRequest.safeParse(body).success, JSON.stringify(body)).toBe(false);
+    }
+    expect(spec.paths["/caseworker/process-settings/bank-holidays"].post.responses?.["201"]).toBeDefined();
+    expect(spec.paths["/caseworker/process-settings/bank-holidays/{date}"].delete.responses?.["204"]).toBeDefined();
+  });
+
+  it("should publish api F1's queue: no masterId on the raise, the queue read, the batch send and reassignment", () => {
+    expect(Object.keys(spec.components.schemas.CreateReferralRequest.properties ?? {})).not.toContain("masterId");
+    expect(spec.components.schemas.CreateReferralRequest.required).toEqual(["reasons"]);
+    expect(spec.components.schemas.AssignReferralRequest.required).toEqual(["masterId"]);
+    expect(spec.components.schemas.AssignReferralRequest.additionalProperties).toBe(true);
+    const assign = spec.paths["/caseworker/cases/{id}/referrals/{referralId}/assignment"].put;
+    expect(Object.keys(assign.responses ?? {}).sort()).toEqual(["200", "400", "403", "409"]);
+    expect(assign.responses?.["409"]?.description).toContain("Send this referral from the queue");
+    const queue = spec.paths["/caseworker/referral-queue"].get;
+    expect(queue.parameters?.map((parameter) => parameter.name).sort()).toEqual(["page", "size", "state"]);
+    expect(queue.description).toContain("ALLOCATE_REFERRALS");
+    expect(queue.responses?.["200"]).toMatchObject({ content: { "*/*": { schema: { $ref: "#/components/schemas/ReferralQueueResponse" } } } });
+    const send = spec.paths["/caseworker/referral-queue/sends"].post;
+    expect(Object.keys(send.responses ?? {}).sort()).toEqual(["200", "400", "403", "409"]);
+    expect(send.responses?.["200"]).toMatchObject({ content: { "*/*": { schema: { $ref: "#/components/schemas/ReferralSendResponse" } } } });
+    const body = spec.components.schemas.SendReferralsRequest;
+    expect(body.required).toEqual(["allocations"]);
+    expect(body.additionalProperties).toBe(true);
+    expect(body.properties?.allocations).toMatchObject({ minItems: 1, maxItems: REFERRAL_SEND_LIMITS.maxAllocations });
+    expect(body.properties?.allocations?.items?.required?.toSorted()).toEqual(["masterId", "referralId"]);
+    expect(spec.paths["/caseworker/masters"].get.responses?.["200"]).toMatchObject({
+      content: { "*/*": { schema: { $ref: "#/components/schemas/MasterListResponse" } } }
+    });
+    const id = "00000000-0000-4000-8000-000000000001";
+    const masterId = "00000000-0000-4000-8000-000000000002";
+    expect(WIRE_SCHEMAS.SendReferralsRequest.safeParse({ allocations: [{ referralId: id, masterId }] }).success).toBe(true);
+    for (const refused of [
+      { allocations: [] },
+      { allocations: [{ referralId: id }] },
+      { allocations: [{ referralId: "nope", masterId }] },
+      {
+        allocations: [
+          { referralId: id, masterId },
+          { referralId: id, masterId }
+        ]
+      },
+      { allocations: Array.from({ length: 101 }, (_, i) => ({ referralId: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, masterId })) }
+    ]) {
+      expect(WIRE_SCHEMAS.SendReferralsRequest.safeParse(refused).success).toBe(false);
+    }
+    expect(WIRE_SCHEMAS.AssignReferralRequest.safeParse({}).success).toBe(false);
+  });
+
+  it("should publish the window cap across all Masters and drop the Masters list's window, cap and count", () => {
+    expect(spec.components.schemas.ProcessSettingsResponse.properties?.windowCap?.description).toContain("across all Masters");
+    expect(Object.keys(spec.components.schemas.ProcessSettingsResponse.properties ?? {})).not.toContain("masterWindowCap");
+    expect(Object.keys(spec.components.schemas.MasterListResponse.properties ?? {})).toEqual(["masters"]);
+    expect(Object.keys(spec.components.schemas.MasterListEntryResponse.properties ?? {})).not.toContain("assignedInWindow");
+  });
+
+  it("should mark the former pool and the claim deprecated, kept for api's one release", () => {
+    expect(spec.paths["/judicial/referrals"].get.deprecated).toBe(true);
+    expect(spec.paths["/judicial/referrals/{referralId}/claim"].post.deprecated).toBe(true);
+  });
+
+  it("should publish no Master's subject or email on a referral, only the entry's id and name", () => {
+    expect(Object.keys(spec.components.schemas.AssignedMasterResponse.properties ?? {}).sort()).toEqual(["id", "name"]);
+    for (const name of ["ReferralResponse", "ReferralQueueItem", "MasterInWindow", "JudicialReferralSummary", "JudicialReferralDetail"]) {
+      for (const field of ["assignedMasterId", "assignedMasterEmail", "claimedById", "email", "subject"]) {
+        expect(Object.keys(spec.components.schemas[name].properties ?? {}), name).not.toContain(field);
+      }
+    }
+  });
+
+  it("should no longer declare api's retired publishToGazette alias on any referral schema", () => {
+    for (const name of ["ReferralResponse", "JudicialReferralDetail", "JudicialDirectionRequest"]) {
+      expect(Object.keys(spec.components.schemas[name].properties ?? {}), name).not.toContain("publishToGazette");
     }
   });
 
@@ -197,6 +397,65 @@ describe("openapi.json and the wire schemas", () => {
     });
   });
 
+  /**
+   * The two preview operations (api PR #129): what the adapter relies on and what the viewer will. Read from both
+   * operations, because a refresh that changed one and not the other would make the judicial viewer different.
+   */
+  describe("the document previews", () => {
+    const previews = [
+      spec.paths["/caseworker/cases/{id}/documents/{documentId}/preview"]?.get,
+      spec.paths["/judicial/referrals/{referralId}/documents/{documentId}/preview"]?.get
+    ];
+
+    it("should publish both, as complete PDFs with the download's containment headers and no ranges", () => {
+      for (const operation of previews) {
+        const ok = operation?.responses?.["200"] as { content?: Record<string, unknown>; headers?: Record<string, unknown> } | undefined;
+        expect(Object.keys(ok?.content ?? {})).toEqual(["application/pdf"]);
+        expect(Object.keys(ok?.headers ?? {}).sort()).toEqual([
+          "Accept-Ranges",
+          "Cache-Control",
+          "Content-Disposition",
+          "Content-Length",
+          "Content-Security-Policy",
+          "X-Content-Type-Options"
+        ]);
+        expect(operation?.["x-document-preview-limits"]?.rangeRequests).toBe("unsupported");
+      }
+    });
+
+    it("should publish each refusal code on exactly the status the adapter accepts it from", () => {
+      const codesByStatus = (operation: OpenApiOperation | undefined) =>
+        Object.fromEntries(
+          ["422", "429", "503"].map((status) => {
+            const response = operation?.responses?.[status] as { description?: string; content?: Record<string, { schema?: { $ref?: string } }> };
+            expect(response.content?.["application/json"]?.schema?.$ref).toBe("#/components/schemas/DocumentPreviewError");
+            return [status, DOCUMENT_PREVIEW_ERROR_CODE.filter((code) => response.description?.includes(code))];
+          })
+        );
+
+      for (const operation of previews) {
+        expect(codesByStatus(operation)).toEqual({
+          "422": ["PREVIEW_INVALID_DOCUMENT", "PREVIEW_LIMIT_EXCEEDED"],
+          "429": ["PREVIEW_BUSY"],
+          "503": ["PREVIEW_UNAVAILABLE"]
+        });
+        expect(Object.keys((operation?.responses?.["429"] as { headers?: object } | undefined)?.headers ?? {})).toContain("Retry-After");
+      }
+      expect(spec.components.schemas.DocumentPreviewError.properties?.code?.enum).toEqual([...DOCUMENT_PREVIEW_ERROR_CODE]);
+    });
+
+    it("should agree with the published limits the adapter and the viewer enforce", () => {
+      for (const operation of previews) {
+        const limits = operation?.["x-document-preview-limits"];
+        expect(limits?.maxOutputBytes).toBe(DOCUMENT_PREVIEW_LIMITS.maxOutputBytes);
+        expect(limits?.maxPages).toBe(DOCUMENT_PREVIEW_LIMITS.maxPages);
+        // The adapter's 27 s wait is chosen against these two: above api's budget, below the gateways' 30 s.
+        expect(limits?.requestBudgetSeconds).toBe(25);
+        expect(limits?.maxPagesEnforcedByViewerFor).toEqual(["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]);
+      }
+    });
+  });
+
   it("should describe exactly the registered and explicitly deferred operations", () => {
     const inSpec = Object.entries(spec.paths)
       .flatMap(([route, methods]) => Object.keys(methods).map((method) => `${method.toUpperCase()} ${route}`))
@@ -221,11 +480,13 @@ describe("openapi.json and the wire schemas", () => {
 
   it("should publish api's 429 on exactly the six rate-limited operations", () => {
     // api#113's limits. Admin classifies a 429 as `rate-limited`; a refresh that drops one, or adds one elsewhere,
-    // changes which actions can show the too-many-requests page.
+    // changes which actions can show the too-many-requests page. The two previews' 429 is `PREVIEW_BUSY`, a pod
+    // with no permit free rather than the caller's limit, and is pinned with them above.
     const limited = Object.entries(spec.paths)
       .flatMap(([route, methods]) =>
         Object.entries(methods)
           .filter(([, operation]) => (operation as { responses?: Record<string, unknown> }).responses?.["429"] !== undefined)
+          .filter(([, operation]) => (operation as OpenApiOperation)["x-document-preview-limits"] === undefined)
           .map(([method]) => `${method.toUpperCase()} ${route}`)
       )
       .sort();
@@ -303,6 +564,10 @@ describe("openapi.json and the wire schemas", () => {
     // author happened to write, which is the drift this list exists to stop.
     const requests = [
       "UpdateGazetteSettingsRequest",
+      "UpdateProcessSettingsRequest",
+      "CreateMasterRequest",
+      "UpdateMasterRequest",
+      "CreateBankHolidayRequest",
       "PreviewGazetteRequest",
       "SubmitGazetteRequest",
       "CreateCaseRequest",
@@ -314,6 +579,8 @@ describe("openapi.json and the wire schemas", () => {
       "CreateSavedQueryRequest",
       "UpdateSavedQueryRequest",
       "CreateReferralRequest",
+      "AssignReferralRequest",
+      "SendReferralsRequest",
       "RecordConfirmationRequest",
       "JudicialDirectionRequest",
       "PreviewEmailRequest",
@@ -495,7 +762,7 @@ describe("openapi.json and the wire schemas", () => {
     const judicial = Object.entries(spec.components.schemas).filter(([name]) => name.startsWith("Judicial"));
 
     // Counted, so a judicial schema api adds is swept by the loop below rather than silently missed by it.
-    expect(judicial.length).toBe(9);
+    expect(judicial).toHaveLength(7);
     for (const [name, schema] of judicial) {
       for (const property of Object.keys(schema.properties ?? {})) {
         expect(property, `${name}.${property}`).not.toMatch(/^(claimedById|decidedById|ownerId|subject|userId)$/);
@@ -503,16 +770,19 @@ describe("openapi.json and the wire schemas", () => {
     }
   });
 
-  it("should publish the judicial application view with no payment, refund, fee or case id", () => {
-    // api#118's decision: a judge sees the whole application except the money. The set comparison above would
-    // pass a field api added at both ends, so the exclusion is asserted by name against the document.
+  it("should publish the judicial application view with no payment, refund, fee, case id, contact or witness", () => {
+    // Narrowed in api on 2026-10-27 (Master Sullivan's feedback): a Master sees the names, type, nationality, a
+    // minor's parents and the documents. The set comparison above would pass a field api added at both ends, so the
+    // exclusions are asserted by name against the document.
     const view = Object.keys(spec.components.schemas.JudicialApplicationView.properties ?? {});
 
     for (const property of view) {
-      expect(property).not.toMatch(/^(id|caseId|referencenumber)$|fee|payment|refund|onlineApplicationReference/i);
+      expect(property).not.toMatch(
+        /^(id|caseId|referencenumber|witnesses|privacy|state)$|fee|payment|refund|onlineApplicationReference|applicant|representative/i
+      );
     }
     expect(spec.components.schemas.JudicialApplicationView.properties?.documents?.items?.$ref).toBe("#/components/schemas/JudicialDocument");
-    expect(spec.components.schemas.JudicialApplicationView.properties?.witnesses?.items?.$ref).toBe("#/components/schemas/JudicialWitness");
+    expect(spec.components.schemas.JudicialReferralDetail.properties).not.toHaveProperty("caseNotes");
   });
 
   it("should give the personal list the pool's envelope and the pool's row", () => {
@@ -566,6 +836,16 @@ interface OpenApiSpec {
  */
 interface OpenApiOperation {
   description?: string;
+  /** api D2's former pool and claim, kept for one release. */
+  deprecated?: boolean;
+  /** Only on the two document previews. */
+  "x-document-preview-limits"?: {
+    maxOutputBytes?: number;
+    maxPages?: number;
+    requestBudgetSeconds?: number;
+    rangeRequests?: string;
+    maxPagesEnforcedByViewerFor?: string[];
+  };
   responses?: Record<string, unknown>;
   /** Present only where an operation overrides the global requirement, as `GET /` does with `[]`. */
   security?: Record<string, string[]>[];
@@ -579,6 +859,7 @@ interface OpenApiSchema {
    * `RecordConfirmationRequest`, where one is ignored, and absent everywhere else.
    */
   additionalProperties?: boolean | Record<string, unknown>;
+  minProperties?: number;
   properties?: Record<
     string,
     { enum?: (string | null)[]; pattern?: string; maxLength?: number; minLength?: number; items?: { $ref?: string; enum?: string[] } }

@@ -63,5 +63,8 @@
     "clientSecret": "IDAM_CLIENT_SECRET",
     "redirectUri": "IDAM_REDIRECT_URI",
     "scope": "IDAM_SCOPE"
+  },
+  "externalLinks": {
+    "xuiStaffAdmin": "XUI_STAFF_ADMIN_URL"
   }
 }

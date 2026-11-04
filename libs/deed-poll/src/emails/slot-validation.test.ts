@@ -15,10 +15,8 @@ describe("emails/slot-validation", () => {
       expect(result).toEqual({ ok: true, slots: { judges_reason: "The evidence is insufficient", additional_notes: "Call us" } });
     });
 
-    it("should omit an optional slot left empty rather than sending it as an empty string", () => {
-      // api pre-populates an omitted slot; an empty string is a caseworker's answer to it, which is a different
-      // thing to say.
-      const result = validateEmailSlots(SLOTS, { judges_reason: "A reason", additional_notes: "   " });
+    it.each([null, undefined, "", "   "])("should omit an optional slot submitted as %j", (value) => {
+      const result = validateEmailSlots(SLOTS, { judges_reason: "A reason", additional_notes: value });
 
       expect(result).toEqual({ ok: true, slots: { judges_reason: "A reason" } });
     });
@@ -31,8 +29,8 @@ describe("emails/slot-validation", () => {
       expect(result.ok === false && result.errors.map((error) => error.field)).toEqual(["judges_reason", "additional_notes"]);
     });
 
-    it("should refuse a required slot that holds only whitespace, because a quotation of nothing still reads as one", () => {
-      const result = validateEmailSlots(SLOTS, { judges_reason: "    " });
+    it.each([null, undefined, "", "    "])("should refuse a required slot submitted as %j", (value) => {
+      const result = validateEmailSlots(SLOTS, { judges_reason: value });
 
       expect(result).toEqual({
         ok: false,
@@ -64,9 +62,9 @@ describe("emails/slot-validation", () => {
       expect(result).toEqual({ ok: true, slots: { judges_reason: "fits" } });
     });
 
-    it("should report a slot submitted as something other than text rather than crashing on it", () => {
+    it.each([["one", "two"], {}, false, 0].map((value) => ({ value })))("should report a non-text slot $value rather than crashing on it", ({ value }) => {
       // A duplicated control posts an array; a tampered post can send anything. Mirrors api's own "must be text".
-      const result = validateEmailSlots(SLOTS, { judges_reason: ["one", "two"] });
+      const result = validateEmailSlots(SLOTS, { judges_reason: value });
 
       expect(result.ok === false && result.errors).toEqual([
         { field: "judges_reason", message: "The Master's reason for refusing the application must be text" }
@@ -81,10 +79,16 @@ describe("emails/slot-validation", () => {
       expect(result).toEqual({ ok: true, slots: { judges_reason: "A reason" } });
     });
 
-    it("should skip a slot api published with no name, because there is no control to address an error to", () => {
-      const result = validateEmailSlots([{ name: null, required: true, maxLength: 100 }, JUDGES_REASON], { judges_reason: "A reason" });
+    it.each([null, undefined, ""])("should skip a slot api published with name %j, because there is no control to address an error to", (name) => {
+      const result = validateEmailSlots([{ name, required: true, maxLength: 100 }, JUDGES_REASON], { judges_reason: "A reason" });
 
       expect(result).toEqual({ ok: true, slots: { judges_reason: "A reason" } });
+    });
+
+    it.each(["0", "false", " "])("should retain the nonempty slot name %j exactly as api published it", (name) => {
+      const result = validateEmailSlots([{ name, required: true, maxLength: 4 }], { [name]: " fits " });
+
+      expect(result).toEqual({ ok: true, slots: { [name]: "fits" } });
     });
 
     it("should validate a slot this repo has never seen from api's metadata alone", () => {

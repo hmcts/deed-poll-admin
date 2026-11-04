@@ -1,10 +1,10 @@
-import { FORM_TABS, findDeedPoll, InvalidInputError, NotFoundError, updateDeedPoll } from "@hmcts/deed-poll";
+import { enumOptions, type FieldDef, FORM_TABS, findDeedPoll, InvalidInputError, NotFoundError, updateDeedPoll } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../express-doubles.js";
 import { GET, POST } from "./[tab].js";
 
-// Only persistence is replaced. buildEditView, buildUpdatePatch and collectDateErrors are the
+// Only persistence is replaced. buildEditView, buildUpdatePatch and collectFormErrors are the
 // domain's and tested there, so this runs the page against the real ones — which matters here more
 // than anywhere, because the destructive case is a real patch built from a real field list.
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -15,6 +15,7 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
 
 const APPLICATION = FORM_TABS[0].id;
 const SUBGRID = FORM_TABS.find((t) => t.subgrid)?.id ?? "notes";
+const EMPTY_REFUND_DATE = { "dateOfRefund-day": "", "dateOfRefund-month": "", "dateOfRefund-year": "" };
 
 const found = {
   id: "case-1",
@@ -41,10 +42,23 @@ function bodyFor(tabId: string): Record<string, string> {
   const tab = FORM_TABS.find((t) => t.id === tabId);
   const body: Record<string, string> = {};
   for (const field of tab?.sections.flatMap((s) => s.fields) ?? []) {
-    if (field.readOnly || field.kind === "date") continue;
-    body[field.name] = field.kind === "number" ? "1" : "value";
+    if (field.readOnly) continue;
+    // A rendered date always submits its three parts, empty or not.
+    if (field.kind === "date") {
+      for (const part of ["day", "month", "year"]) body[`${field.name}-${part}`] = "";
+      continue;
+    }
+    body[field.name] = valueFor(field);
   }
   return body;
+}
+
+/** What the rendered control sends: anything else is refused before any write (review finding R08). */
+function valueFor(field: FieldDef): string {
+  if (field.kind === "number") return "1";
+  if (field.kind === "boolean") return "true";
+  if ((field.kind === "multiselect" || field.kind === "enum") && field.enumSet) return enumOptions(field.enumSet)[0].value;
+  return "value";
 }
 
 describe("case edit tab page", () => {
@@ -53,6 +67,21 @@ describe("case edit tab page", () => {
     process.env.NODE_ENV = "test";
     vi.mocked(findDeedPoll).mockResolvedValue(found as never);
     vi.mocked(updateDeedPoll).mockResolvedValue(found as never);
+  });
+
+  it.each(["Adult", "Minor"])("should hide the online reference on a %s form and leave its stored value untouched on save", async (type) => {
+    vi.mocked(findDeedPoll).mockResolvedValue({ ...found, type, onlineApplicationReference: "ONLINE-123" } as never);
+    const res = response();
+
+    await GET(request(APPLICATION), res);
+
+    const fields = res.render.mock.calls[0][1].sections.flatMap((section: { fields: { name: string }[] }) => section.fields);
+    expect(fields.map((field: { name: string }) => field.name)).not.toContain("onlineApplicationReference");
+
+    await POST(request(APPLICATION, { ...bodyFor(APPLICATION), type, onlineApplicationReference: "Replacement" }), response());
+
+    expect(updateDeedPoll).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).not.toHaveProperty("onlineApplicationReference");
   });
 
   describe("GET", () => {
@@ -153,9 +182,9 @@ describe("case edit tab page", () => {
     });
 
     it("404s an unrecognised tab rather than falling back, which would blank the Application tab", async () => {
-      // tabFor falls back to the first tab, which has 46 editable fields, and buildUpdatePatch
-      // writes every field it is given — blanking absent ones. Falling back on a write would null
-      // all 46 from a body that never mentioned them. This is the guard against that.
+      // tabFor falls back to the first tab, which has 46 editable fields, and buildUpdatePatch reads
+      // an absent checkbox as unticked. Falling back on a write would untick every Application box
+      // and declaration from a body that never mentioned them. This is the guard against that.
       await expect(POST(request("nonsense", {}), response())).rejects.toThrow(NotFoundError);
 
       expect(updateDeedPoll).not.toHaveBeenCalled();
@@ -163,7 +192,7 @@ describe("case edit tab page", () => {
 
     it("refuses a post to the retired referral tab rather than writing its body onto the Application tab", async () => {
       // The other half of the retirement. GET redirects, but a form posted from a page loaded before the
-      // retirement must not be accepted: falling back would blank 46 Application fields, and nothing accepts
+      // retirement must not be accepted: falling back would untick every Application box, and nothing accepts
       // the retired fields any more — they are out of `FORM_TABS`, so out of `EDITABLE_FIELDS`.
       await expect(POST(request("referral", { masterName: "Master Smith" }), response())).rejects.toThrow(NotFoundError);
 
@@ -260,6 +289,93 @@ describe("case edit tab page", () => {
       await POST(request(SUBGRID, {}), response());
 
       expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).toEqual({});
+    });
+  });
+
+  describe("numeric input (review finding E04)", () => {
+    it.each([
+      ["refund", "refundAmount", "12x", "Refund amount must be a number"],
+      ["refund", "refundAmount", "£25.00", "Refund amount must be a number"],
+      ["refund", "refundAmount", "1e999", "Refund amount must be a number"],
+      [APPLICATION, "ageOfMinor", "7.5", "Age of minor years must be a whole number"],
+      [APPLICATION, "ageOfMinorMonths", "NaN", "Age of minor months must be a whole number"]
+    ])("should re-render %s with a field error and write nothing when %s is %s", async (tabId, name, typed, message) => {
+      const res = response();
+
+      await POST(request(tabId, { ...bodyFor(tabId), [name]: typed }), res);
+
+      expect(updateDeedPoll).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      const model = res.render.mock.calls[0][1];
+      expect(model.errors).toEqual([{ field: name, message }]);
+      expect(model.errorSummary).toEqual([{ text: message, href: `#${name}` }]);
+      expect(renderedField(res, name).value).toBe(typed);
+    });
+
+    it("should show the raw invalid amount back rather than a formatted substitute", async () => {
+      const res = response();
+
+      await POST(request("refund", { refundAmount: "£25.00" }), res);
+
+      expect(renderedField(res, "refundAmount").value).toBe("£25.00");
+    });
+
+    it("should report date and numeric errors together in one re-render, writing nothing", async () => {
+      const res = response();
+
+      await POST(request("refund", { refundAmount: "12x", "dateOfRefund-day": "31", "dateOfRefund-month": "2", "dateOfRefund-year": "2026" }), res);
+
+      expect(updateDeedPoll).not.toHaveBeenCalled();
+      expect(res.render.mock.calls[0][1].errors).toEqual([
+        { field: "refundAmount", message: "Refund amount must be a number" },
+        { field: "dateOfRefund", message: "Date of refund must be a real date" }
+      ]);
+    });
+
+    it("should keep the other submitted values when a number is refused", async () => {
+      const res = response();
+
+      await POST(request(APPLICATION, { ...bodyFor(APPLICATION), newSurname: "Typed", ageOfMinor: "seven" }), res);
+
+      expect(renderedField(res, "newSurname").value).toBe("Typed");
+      expect(res.render.mock.calls[0][1].tab.id).toBe(APPLICATION);
+    });
+
+    it.each([
+      ["a deliberate blank, which clears", "", null],
+      ["zero", "0", 0],
+      ["a decimal amount", "25.50", 25.5],
+      ["a padded amount", " 10 ", 10]
+    ])("should write the refund amount once for %s", async (_label, typed, expected) => {
+      const res = response();
+
+      await POST(request("refund", { refundAmount: typed, refundReference: "Ref-1", ...EMPTY_REFUND_DATE }), res);
+
+      expect(updateDeedPoll).toHaveBeenCalledTimes(1);
+      expect(updateDeedPoll).toHaveBeenCalledWith(
+        "case-1",
+        { refundAmount: expected, refundReference: "Ref-1", dateOfRefund: null },
+        { accessToken: "caseworker-token" }
+      );
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1#refund");
+    });
+
+    it("should write valid integer ages, zero included, as numbers", async () => {
+      await POST(request(APPLICATION, { ...bodyFor(APPLICATION), ageOfMinor: "12", ageOfMinorMonths: "0" }), response());
+
+      expect(updateDeedPoll).toHaveBeenCalledTimes(1);
+      const patch = vi.mocked(updateDeedPoll).mock.calls[0][1];
+      expect(patch.ageOfMinor).toBe(12);
+      expect(patch.ageOfMinorMonths).toBe(0);
+    });
+
+    it("should omit a numeric field the body does not carry rather than clearing it", async () => {
+      const body = bodyFor(APPLICATION);
+      delete body.ageOfMinorMonths;
+
+      await POST(request(APPLICATION, body), response());
+
+      expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).not.toHaveProperty("ageOfMinorMonths");
     });
   });
 
@@ -426,6 +542,12 @@ describe("case edit tab page", () => {
     });
   });
 });
+
+function renderedField(res: { render: ReturnType<typeof vi.fn> }, name: string) {
+  return res.render.mock.calls[0][1].sections
+    .flatMap((s: { fields: { name: string; value: unknown }[] }) => s.fields)
+    .find((f: { name: string }) => f.name === name);
+}
 
 function privacyField(res: { render: ReturnType<typeof vi.fn> }) {
   return res.render.mock.calls[0][1].sections

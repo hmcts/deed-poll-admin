@@ -155,10 +155,49 @@ describe("add a witness page", () => {
       expect(res.render.mock.calls[0][1].errorList.map((row: { href: string }) => row.href)).toEqual(["#witnessName", "#witnessOccupation", "#declarant"]);
     });
 
-    it("should accept a blank field, because api does and a local rule would refuse a body it accepts", async () => {
-      await POST(request({ witnessName: "", witnessAddress: "", witnessOccupation: "", declarant: "false" }), response());
+    // Review finding R15: a blank witness was created and counted towards the enrolment-witness threshold.
+    it.each([
+      ["witnessName", "Enter the witness's name"],
+      ["witnessAddress", "Enter the witness's address"],
+      ["witnessOccupation", "Enter the witness's occupation"]
+    ])("should refuse a blank or whitespace-only %s with no api call and the input redrawn", async (field, message) => {
+      for (const blank of ["", "   "]) {
+        vi.mocked(createWitness).mockClear();
+        const res = response();
 
-      expect(createWitness).toHaveBeenCalledWith("case-1", { witnessName: "", witnessAddress: "", witnessOccupation: "", declarant: false }, CALLER);
+        await POST(request({ ...COMPLETE, [field]: blank }), res);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(createWitness).not.toHaveBeenCalled();
+        expect(res.render.mock.calls[0][1].values[field]).toBe(blank);
+        expect(res.render.mock.calls[0][1].errors[field]).toBe(message);
+        expect(res.render.mock.calls[0][1].errorList).toEqual([{ text: message, href: `#${field}` }]);
+      }
+    });
+
+    it("should refuse an absent field as blank rather than as too long", async () => {
+      const res = response();
+
+      await POST(request({ ...COMPLETE, witnessOccupation: undefined }), res);
+
+      expect(createWitness).not.toHaveBeenCalled();
+      expect(res.render.mock.calls[0][1].errors.witnessOccupation).toBe("Enter the witness's occupation");
+    });
+
+    it("should send padded values trimmed", async () => {
+      await POST(request({ ...COMPLETE, witnessName: "  Sam Doe  ", witnessAddress: " 1 High Street, Leeds\n", witnessOccupation: "\tTeacher " }), response());
+
+      expect(createWitness).toHaveBeenCalledWith(
+        "case-1",
+        { witnessName: "Sam Doe", witnessAddress: "1 High Street, Leeds", witnessOccupation: "Teacher", declarant: false },
+        CALLER
+      );
+    });
+
+    it("should measure the maximum after trimming, so padding a value that fits does not refuse it", async () => {
+      await POST(request({ ...COMPLETE, witnessName: `  ${"n".repeat(100)}  ` }), response());
+
+      expect(createWitness).toHaveBeenCalledWith("case-1", expect.objectContaining({ witnessName: "n".repeat(100) }), CALLER);
     });
 
     it("should keep the typed details on screen when api rejects them for a rule this form does not mirror", async () => {

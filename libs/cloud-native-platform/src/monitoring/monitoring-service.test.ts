@@ -9,7 +9,7 @@ vi.mock("applicationinsights", () => {
     trackException: vi.fn(),
     trackEvent: vi.fn(),
     trackMetric: vi.fn(),
-    flush: vi.fn(),
+    flush: vi.fn().mockResolvedValue(undefined),
     context: {
       tags: {},
       keys: {
@@ -273,7 +273,48 @@ describe("MonitoringService", () => {
 
       expect(promise).toBeInstanceOf(Promise);
       await expect(promise).resolves.toBeUndefined();
-      expect(appInsights.defaultClient.flush).toHaveBeenCalled();
+      expect(appInsights.defaultClient.flush).toHaveBeenCalledTimes(1);
+    });
+
+    it("should wait for the telemetry client to finish flushing", async () => {
+      const flush = Promise.withResolvers<void>();
+      vi.mocked(appInsights.defaultClient.flush).mockReturnValueOnce(flush.promise);
+      const completed = vi.fn();
+
+      const result = service.flush().then(completed);
+      await Promise.resolve();
+      const completedBeforeClient = completed.mock.calls.length;
+      flush.resolve();
+      await result;
+
+      expect(completedBeforeClient).toBe(0);
+      expect(completed).toHaveBeenCalledTimes(1);
+      expect(appInsights.defaultClient.flush).toHaveBeenCalledTimes(1);
+    });
+
+    it("should propagate the telemetry client's flush rejection", async () => {
+      const flush = Promise.withResolvers<void>();
+      vi.mocked(appInsights.defaultClient.flush).mockReturnValueOnce(flush.promise);
+      const error = new Error("Telemetry flush failed");
+      // Observe the SDK rejection too so the source-unchanged regression run cannot leak an unhandled rejection.
+      const clientRejection = expect(flush.promise).rejects.toBe(error);
+      const serviceRejection = expect(service.flush()).rejects.toBe(error);
+
+      flush.reject(error);
+
+      await Promise.all([clientRejection, serviceRejection]);
+      expect(appInsights.defaultClient.flush).toHaveBeenCalledTimes(1);
+    });
+
+    it("should resolve when SDK startup leaves no telemetry client", async () => {
+      const setupMock = vi.mocked(appInsights.setup)(connectionString);
+      const client = appInsights.defaultClient;
+      (appInsights as { defaultClient: unknown }).defaultClient = undefined;
+      vi.mocked(setupMock.start).mockImplementationOnce(() => setupMock);
+      const serviceWithoutClient = new MonitoringService(connectionString, "test-service", mockLogger);
+
+      await expect(serviceWithoutClient.flush()).resolves.toBeUndefined();
+      expect(client.flush).not.toHaveBeenCalled();
     });
   });
 

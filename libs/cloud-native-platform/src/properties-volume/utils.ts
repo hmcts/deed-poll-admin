@@ -20,41 +20,6 @@ export function deepMerge(target: Config, source: Config): Config {
 }
 
 /**
- * Get nested property from object using dot notation, replacing Lodash get
- */
-export function getProperty(obj: Config, path: string, defaultValue?: any): any {
-  const keys = path.split(".");
-  let current = obj;
-
-  for (const key of keys) {
-    if (current == null || typeof current !== "object") {
-      return defaultValue;
-    }
-    current = current[key];
-  }
-
-  return current !== undefined ? current : defaultValue;
-}
-
-/**
- * Set nested property in object using dot notation, replacing Lodash set
- */
-export function setProperty(obj: Config, path: string, value: any): void {
-  const keys = path.split(".");
-  let current = obj;
-
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i];
-    if (!(key in current) || !isObject(current[key])) {
-      current[key] = {};
-    }
-    current = current[key];
-  }
-
-  current[keys[keys.length - 1]] = value;
-}
-
-/**
  * Deep search for properties in nested object structure
  */
 export function deepSearch(obj: any, searchKey: string): any[] {

@@ -39,7 +39,7 @@ const LEGACY_REFERRAL_FIELDS: FieldDef[] = LEGACY_REFERRAL_TAB.sections.flatMap(
  * It is still **rendered** in a snapshot that exists — a migrated referral's Gazette answer is part of that
  * record — it just cannot bring one into being on its own.
  */
-const ALWAYS_POPULATED_FIELDS = ["publishToLondonGazette"];
+const ALWAYS_POPULATED_FIELDS = new Set(["publishToLondonGazette"]);
 
 /**
  * The populated legacy referral fields, or null when the case holds nothing anybody recorded about a referral.
@@ -49,7 +49,7 @@ const ALWAYS_POPULATED_FIELDS = ["publishToLondonGazette"];
  */
 export function buildLegacyReferralView(record: Record<string, unknown>): LegacyReferralView | null {
   const populated = LEGACY_REFERRAL_FIELDS.filter((field) => isPopulated(record[field.name]));
-  const recorded = populated.filter((field) => !ALWAYS_POPULATED_FIELDS.includes(field.name));
+  const recorded = populated.filter((field) => !ALWAYS_POPULATED_FIELDS.has(field.name));
 
   if (recorded.length === 0) return null;
 

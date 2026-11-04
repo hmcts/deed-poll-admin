@@ -1,4 +1,4 @@
-import { DeedPollType, MaritalStatus, PostCounter, ReferToMaster, Urgency } from "./enums/option-sets.js";
+import { DeedPollType, MaritalStatus, type PostCounter, ReferToMaster, Urgency } from "./enums/option-sets.js";
 
 /**
  * A single field's UI + validation rule for a given Type, as consumed by both
@@ -54,11 +54,11 @@ const MIGRATED_RELAXED_FIELDS = [
  */
 const MINOR_ONLY_FIELDS = ["minorDateOfBirth", "ageOfMinor", "ageOfMinorMonths", "parents"] as const;
 
-const MINOR_TYPES: DeedPollType[] = [DeedPollType.Minor, DeedPollType.MinorTransgender];
-const ADULT_TYPES: DeedPollType[] = [DeedPollType.Adult, DeedPollType.AdultTransgender];
+const MINOR_TYPES = new Set<DeedPollType>([DeedPollType.Minor, DeedPollType.MinorTransgender]);
+const ADULT_TYPES = new Set<DeedPollType>([DeedPollType.Adult, DeedPollType.AdultTransgender]);
 
-const isMinor = (t?: DeedPollType | null) => !!t && MINOR_TYPES.includes(t);
-const isAdult = (t?: DeedPollType | null) => !!t && ADULT_TYPES.includes(t);
+const isMinor = (t?: DeedPollType | null) => !!t && MINOR_TYPES.has(t);
+const isAdult = (t?: DeedPollType | null) => !!t && ADULT_TYPES.has(t);
 const isRelinquishment = (t?: DeedPollType | null) => t === DeedPollType.DeedOfRelinquishment;
 
 /** Shape of the record subset the validator inspects. */
@@ -266,10 +266,9 @@ export function applyCreateDefaults(input: ValidationInput): Partial<ValidationI
  * violations — empty when valid. The caller decides whether to hard-fail
  * (create/submit) or treat as advisory (incremental save).
  *
- * Combines the per-type required matrix (getFieldRules) with the three
- * conditional gates the source enforces field-by-field:
- *   - urgencyreason required when urgency = Urgent (2)
- *   - onlineApplicationReference required when postcounter = Online (2)
+ * Combines the per-type required matrix (getFieldRules) with the urgency-reason gate.
+ * The inherited online-reference requirement was retired following AAT staff feedback;
+ * existing references remain optional for correspondence.
  */
 export function validate(input: ValidationInput): ValidationError[] {
   const errors: ValidationError[] = [];
@@ -292,14 +291,6 @@ export function validate(input: ValidationInput): ValidationError[] {
     errors.push({
       field: "urgencyreason",
       message: "Urgency reason is required when urgency is Urgent"
-    });
-  }
-
-  // Conditional gate: online application reference.
-  if (input.postCounter === PostCounter.Online && isEmpty(input.onlineApplicationReference)) {
-    errors.push({
-      field: "onlineApplicationReference",
-      message: "Online application reference is required for online applications"
     });
   }
 

@@ -6,7 +6,7 @@
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
 
 {#
-  Raise-a-referral form. Two controls and two conditionally-revealed ones.
+  Raise-a-referral form. Three controls and two conditionally-revealed ones.
 
   The reasons are checkboxes because api takes several: a case can be with the judiciary for more than one
   thing at once, and forcing a single choice would make the caseworker pick which of two true reasons to
@@ -68,10 +68,27 @@
         }) }}
       {% endset %}
 
+      {#
+        A minor's details (Master Sullivan's feedback, 2026-10-27), revealed beneath "Applicant is a minor". Their own
+        id for the error summary to link to, but api's one `reasons` field, so they post beside the box they refine.
+      #}
+      {% set minorDetailsHtml %}
+        {{ govukCheckboxes({
+          idPrefix: "minorDetails",
+          name: "reasons",
+          fieldset: { legend: { text: minorDetailsLegend, classes: "govuk-fieldset__legend--s" } },
+          hint: { text: minorDetailsHint },
+          items: minorDetailItems,
+          errorMessage: { text: errors.minorDetails } if errors.minorDetails
+        }) }}
+      {% endset %}
+
       {% set reasonRows = [] %}
       {% for item in reasonItems %}
         {% if item.value == "Other" %}
           {% set reasonRows = (reasonRows.push({ value: item.value, text: item.text, checked: item.checked, conditional: { html: notesHtml } }), reasonRows) %}
+        {% elif item.value == "Minor" %}
+          {% set reasonRows = (reasonRows.push({ value: item.value, text: item.text, checked: item.checked, conditional: { html: minorDetailsHtml } }), reasonRows) %}
         {% else %}
           {% set reasonRows = (reasonRows.push({ value: item.value, text: item.text, checked: item.checked }), reasonRows) %}
         {% endif %}
@@ -118,7 +135,7 @@
 
       <div class="govuk-button-group">
         {{ govukButton({ text: submit }) }}
-        <a class="govuk-link" href="/deed-polls/{{ case.id }}#referrals">{{ cancel }}</a>
+        <a class="govuk-link" href="{{ case.id | casePath }}#referrals">{{ cancel }}</a>
       </div>
     </form>
   </div>

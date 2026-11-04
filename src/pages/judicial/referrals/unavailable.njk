@@ -1,12 +1,12 @@
 {% extends "layouts/app.njk" %}
 
 {#
-  What a judge gets for a referral api will not show them — withdrawn, closed, another judge's, or never there.
+  What a judge gets for a referral api will not show them — withdrawn, closed, assigned elsewhere, or never there.
 
   Its own page rather than the shared "Page not found" because those two say different things: a judge who
-  followed a link from a pool that has since moved on has not mistyped a URL, and the way out is the list rather
-  than the browser's back button. The body must stay true of all four causes at once — api answers them
-  identically on purpose (decision 10) — so it never says which one happened or who holds the referral.
+  followed a stale link has not mistyped a URL, and the way out is My referrals rather than the browser's back
+  button. The body must stay true of every cause at once — api answers them identically on purpose (decision 10) —
+  so it never says which one happened or who holds the referral.
 #}
 {% block content %}
 <div class="govuk-grid-row">
@@ -14,7 +14,7 @@
     <h1 class="govuk-heading-xl">{{ heading }}</h1>
     <p class="govuk-body">{{ body }}</p>
     <p class="govuk-body">
-      <a class="govuk-link" href="{{ poolPath }}">{{ backToPool }}</a>
+      <a class="govuk-link" href="{{ myReferralsPath }}">{{ backToMine }}</a>
     </p>
   </div>
 </div>

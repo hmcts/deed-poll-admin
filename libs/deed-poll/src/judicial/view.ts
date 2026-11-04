@@ -1,17 +1,17 @@
 /**
- * View models for the judicial screens: the shared pool's rows, and one referral as the judge who may see it
+ * View models for the judicial screens: a Master's own referrals, and one referral as the judge who may see it
  * reads it.
  *
  * Here rather than in the pages for the reason `../referrals/referrals-view.ts` gives — a template cannot
  * format a timestamp without a bespoke Nunjucks environment, and a view model can be tested directly — plus
- * one this area adds: **what a judge is shown must be decidable in one place.** The pool row and the referral
+ * one this area adds: **what a judge is shown must be decidable in one place.** The list row and the referral
  * view are two renderings of the same referral, and the field a judge must not see is the field that gets
  * added to one of them and not noticed on the other.
  *
  * **Nothing here enriches, filters or re-orders.** api sends the judge's own application projection
- * (`JudicialApplicationView`: the application's details, witnesses and attached documents, with no payment,
- * refund or fee data — the 2026-10-19 decisions that replaced the eight-field view) and a pool already ordered
- * urgent-first then longest-waiting. So this file formats exactly what arrived: no second call, no local sort,
+ * (`JudicialApplicationView`: the names, type, nationality, a minor's parents and the attached documents — narrowed
+ * in api on 2026-10-27 from the 2026-10-19 whole-application view) and a list already in api's
+ * `MINE_ORDER`. So this file formats exactly what arrived: no second call, no local sort,
  * no field the DTO does not carry. Private cases arrive in full because api decided they should; the disclosure
  * boundary is api's rather than this app's, and a client filter would be a second opinion about a question api's
  * own architecture test already answers.
@@ -24,72 +24,52 @@
  */
 import {
   type JudicialApplicationView,
-  type JudicialCaseNote,
   type JudicialDocument,
   type JudicialReferralDetail,
   type JudicialReferralSummary,
-  type JudicialWitness,
   MASTER_DECISION
 } from "@hmcts/deed-poll-api-client";
-import { formatTimestamp, NOT_RECORDED } from "../deed-poll/case-header.js";
+import { formatShortDate, formatTimestamp, NOT_RECORDED } from "../deed-poll/case-header.js";
 import { getFieldRules } from "../deed-poll/deed-poll-validation.js";
 import { formatValue, NOT_PROVIDED } from "../deed-poll/detail-view.js";
 import { MASTER_DECISION_LABEL } from "../deed-poll/enums/dynamics-values.js";
 import type { MasterDecision } from "../deed-poll/enums/option-sets.js";
 import { FIELD_BY_NAME, type FieldDef } from "../deed-poll/form-fields.js";
-import { buildLegacyReferralView, type LegacyReferralView } from "../referrals/legacy-referral-view.js";
-import { REFERRAL_STATE_TAG, REFERRAL_URGENCY_LABEL, referralReasonLabel } from "../referrals/referrals-view.js";
+import { REFERRAL_STATE_TAG, REFERRAL_URGENCY_LABEL, referralReasonLabels } from "../referrals/referrals-view.js";
 
 /**
- * The application's case fields, grouped under the caseworker detail page's section names and in its order.
+ * The application's case fields a Master sees, in the order the Masters asked for them (Master Sullivan's feedback,
+ * Steve, 2026-10-27): one "General" group, names first.
  *
  * **Typed on `JudicialApplicationView` and listed here, never derived from `FORM_TABS`**, so the judicial page
  * cannot grow a field because the caseworker one did: a name api's judicial view does not carry is a compile
- * error. Only the labels and the formatting come from the caseworker's metadata (`FIELD_BY_NAME`, `formatValue`),
- * so one value reads the same on both pages. The seven previous-system referral fields are not here: they are a
- * populated-only snapshot, as on the caseworker's Referrals panel — see `buildLegacyReferralView`.
+ * error. Only the formatting comes from the caseworker's metadata (`FIELD_BY_NAME`, `formatValue`), and the labels
+ * too except where the Masters asked for their own (`MASTER_LABELS`).
  */
 const APPLICATION_SECTIONS: { label: string; fields: ApplicationField[] }[] = [
   {
     label: "General",
     fields: [
-      "displayReference",
-      "dateOfApplication",
-      "inPerson",
-      "dateReceived",
+      "newForename",
+      "newMiddleName",
+      "newSurname",
+      "oldForename",
+      "oldMiddleName",
+      "oldSurname",
       "type",
-      "maritalStatus",
-      "minorDateOfBirth",
-      "ageOfMinor",
-      "ageOfMinorMonths",
-      "parents",
-      "privacy",
-      "state",
-      "urgency",
-      "urgencyreason",
-      "awaitingFurtherDocsInfo"
+      "nationality",
+      "nationalitySection",
+      "nationalitySectionOther",
+      "parents"
     ]
-  },
-  { label: "Names", fields: ["newForename", "newMiddleName", "newSurname", "oldForename", "oldMiddleName", "oldSurname"] },
-  {
-    label: "Applicant address and contact details",
-    fields: ["applicantBuildingNoName", "applicantTownCity", "applicantPostcode", "applicantEmail", "applicantTelephone"]
-  },
-  {
-    label: "Representative address and contact details",
-    fields: [
-      "representativeName",
-      "representativeCompany",
-      "representativeEmail",
-      "representativeTelephone",
-      "representativeBuildingNoName",
-      "representativeTownCity",
-      "representativePostcode"
-    ]
-  },
-  { label: "Nationality", fields: ["nationality", "nationalitySection", "nationalitySectionOther"] },
-  { label: "Declarations", fields: ["dateOfDeclaration"] }
+  }
 ];
+
+/**
+ * Labels the Masters asked for in their own words. `parents` is shown only on a minor's application (the caseworker
+ * field rules hide it on every other type, and api sends it only for a minor), so it says whose parents they are.
+ */
+const MASTER_LABELS: Partial<Record<ApplicationField, string>> = { parents: "Minor’s parents’ names" };
 
 /** A document's upload date is a date, as the caseworker's "Added" column is, and not a timestamp. */
 const UPLOADED_FIELD: FieldDef = { name: "uploadedOn", label: "Uploaded", kind: "date" };
@@ -111,102 +91,55 @@ export const DIRECTION_DECISION_CHOICES: { value: MasterDecision; text: string }
 }));
 
 /**
- * The pool's rows, in api's order.
+ * A Master's own referrals as the three sections of My referrals (Steve, 2026-10-28): the urgent ones still waiting
+ * for a direction, then the rest of the undirected ones by the day they were sent, then the directed ones the
+ * office has not yet actioned, by day too.
  *
- * **No state column, and that is not an omission.** api's pool is `Open` only, so a column of identical tags
- * would be furniture; the state is on the referral view, where a claimed or decided one can also be read.
+ * **Read off api's order, never re-sorted** (api's `MINE_ORDER`, by `assignedAt` since api F1). api already lists
+ * undirected before directed, urgent first among the undirected, then oldest sent first, so each section takes its
+ * rows in the order they arrived and a day's group is a run of consecutive rows with the same day. Sorting here would make the page disagree with its
+ * own pagination; if api's order ever broke a run, the day would simply appear twice.
  *
- * **No case fields, because the DTO carries none** — a pool row naming the applicant would make the queue a
- * list of applications a judge has not been asked to see, which is api's decision 2 and the reason there is no
- * case id in any judicial URL. What a judge chooses from is the urgency, the reasons and the wait.
+ * **Undirected means `Claimed`, the same key api orders on**, so a section boundary here is a boundary in api's list.
+ * Urgency splits only the undirected: a directed urgent referral is done, and sits with the other directed ones.
  *
- * `isUrgent` is for the tag's colour and never for the ordering: the queue is already in api's order, and a
- * page that sorted by this flag would be deciding urgency locally.
+ * **A page boundary inside a day repeats that day's heading on the next page**, without anything to arrange: each page
+ * is grouped from its own rows, so the next page's first run gets its heading too.
+ *
+ * The day is the day sent, `assignedAt` in `Europe/London` (plan Fa1 step 4: a referral can wait in the queue for days,
+ * so the day raised says nothing about when the Master received it), and it is `formatShortDate`'s, so the heading and
+ * the key cannot disagree. The summary carries no case reference (decision 3), so a row is its reasons, its dates
+ * and its link.
  */
-export function buildPoolRows(referrals: JudicialReferralSummary[]): PoolRow[] {
-  return referrals.map((referral) => ({
-    id: referral.id,
-    reasons: referral.reasons.map(referralReasonLabel),
-    urgency: referral.urgency ? REFERRAL_URGENCY_LABEL[referral.urgency] : NOT_PROVIDED,
-    isUrgent: referral.urgency === "Urgent",
-    // api's `createdOn`, formatted — not an age in days. The wait is what the pool is ordered by and a
-    // computed "3 days" cannot be re-read tomorrow.
-    waitingSince: formatTimestamp(referral.createdOn)
-  }));
+export function buildMyReferralSections(referrals: JudicialReferralSummary[]): MyReferralSections {
+  const rows = referrals.map((referral) => ({ referral, row: buildMyReferralRow(referral) }));
+  const undirected = rows.filter(({ referral }) => isUndirected(referral));
+
+  return {
+    urgent: undirected.filter(({ referral }) => referral.urgency === "Urgent").map(({ row }) => row),
+    awaiting: groupByDay(undirected.filter(({ referral }) => referral.urgency !== "Urgent").map(({ row }) => row)),
+    directed: groupByDay(rows.filter(({ referral }) => !isUndirected(referral)).map(({ row }) => row)),
+    isEmpty: referrals.length === 0
+  };
 }
 
 /**
- * What a judge reads where api publishes the state of a referral they hold.
+ * One referral and its application — one payload, one screen. No timeline since 2026-10-27: the Masters asked not to
+ * see the case notes, and api no longer sends them.
  *
- * **Their own two words and not the caseworker's** (`referrals-admin-6` decision 2). `REFERRAL_STATE_LABEL` answers
- * a caseworker's question — "With a judge", "Direction received" — which is the wrong side of the same fact: a
- * judge reading "Direction received" about their own claim would be told what the office is waiting for rather than
- * what they still owe. So `Claimed` is the work outstanding and `Decided` the work done, in that order.
- *
- * **Only two states can appear**, because api's membership rule for this list is exactly those two, which is why
- * this map is keyed on them rather than on `ReferralState`. A row in any other state is api contradicting its own
- * filter, and `myReferralStatus` answers the placeholder rather than inventing a word for it.
- */
-export const MY_REFERRAL_STATE_LABEL: Record<"Claimed" | "Decided", string> = {
-  Claimed: "Direction needed",
-  Decided: "Direction recorded"
-};
-
-/**
- * The rows of a judge's own list, in api's order.
- *
- * **Formatting and nothing else** (decision 2): no filter, no regroup, no sort. api decides membership from the
- * token's subject and orders the page — unfinished work first, then urgent, then longest-waiting — and it is the
- * same predicate as its visibility rule, so every row here is one whose detail read answers 200. A local opinion
- * about either would be a second answer to a settled question, and a local sort would make the page disagree with
- * its own pagination.
- *
- * **The same narrow summary the pool's rows are built from, and deliberately no more** (decision 3). The DTO is
- * `JudicialReferralSummary`, so there is no applicant name, no case reference and no direction text to show and
- * nothing to fetch them with: enriching a row would mean a call per row, which is both the disclosure boundary and
- * an N+1 over a worklist. The link is keyed on the referral id alone, which is the only key a judicial URL takes.
- *
- * **A status column, where `buildPoolRows` has none.** The pool is `Open` only, so a column of identical tags there
- * would be furniture; here the two states are the whole point of the list — what a judge still owes, and what they
- * have answered and the office has not yet actioned.
- */
-export function buildMyReferralRows(referrals: JudicialReferralSummary[]): MyReferralRow[] {
-  return referrals.map((referral) => ({
-    id: referral.id,
-    status: myReferralStatus(referral.state),
-    statusTagClasses: referral.state ? REFERRAL_STATE_TAG[referral.state] : "govuk-tag--grey",
-    reasons: referral.reasons.map(referralReasonLabel),
-    urgency: referral.urgency ? REFERRAL_URGENCY_LABEL[referral.urgency] : NOT_PROVIDED,
-    isUrgent: referral.urgency === "Urgent",
-    // The date the CASEWORKER raised it, which is what a judge is answering against — and formatted rather than
-    // counted, for `buildPoolRows`'s reason: an age in days cannot be sorted or re-read tomorrow.
-    raisedOn: formatTimestamp(referral.createdOn)
-  }));
-}
-
-/**
- * One referral, its application and its timeline — one payload, one screen.
- *
- * **`claimable`, `directable` and `changeable` govern which control is offered and nothing else.** api re-checks
- * each and answers 409, so these are the cases a judge can see are pointless before the click; every other outcome
- * is api's word. `directable` is `Claimed` without asking *who* claimed it, because api's visibility admits a
- * claimed referral only to its holder — `claimedBy` can name this caller or nobody, so a comparison here would
- * re-derive a fact the 404 has already established. `changeable` is `Decided` for the same reason: api shows a
+ * **`directable` and `changeable` govern which control is offered and nothing else.** api re-checks each and
+ * answers 409, so these are the cases a judge can see are pointless before the click; every other outcome is api's
+ * word. There is no claim since api D2: a referral reaches a Master by assignment. `directable` is `Claimed` without
+ * asking *whose*, because api's visibility admits an assigned referral only to its Master, so a comparison here
+ * would re-derive a fact the 404 has already established. `changeable` is `Decided` for the same reason: api shows a
  * decided referral only to the judge who directed it, and hides it from everyone once the office closes it.
  *
- * **An unknown state offers neither control**, which is the opposite of `buildReferralDetail`'s choice for
- * withdraw and deliberately so: there, withholding a control a caseworker is entitled to is the worse failure;
- * here, a claim button on a referral in an unknown state invites a judge to take work the pool may have moved
- * on from.
+ * **An unknown state offers neither control.**
  *
- * `direction` is present when api has recorded one, which is how a judge re-reads their own decided referral —
- * the one thing on this screen that is neither the application nor the pool.
+ * `direction` is present when api has recorded one, which is how a judge re-reads their own decided referral.
  *
- * **`isOnMyList` is which list the referral is on, and therefore the way back to it** (`referrals-admin-6`
- * decision 5). It is the state api has just published rather than a `returnTo` the URL carried: a query parameter
- * would be an open redirect to validate and would be wrong in the ordinary case anyway, since claiming moves the
- * referral between the two lists while the judge is standing on the page they arrived from. It shares its
- * predicate with `myReferralStatus`, so the list that admits a state and the link back to it cannot disagree.
+ * **`directionDueBy` only while a direction is owed**, as on My referrals: once directed, the date measures nothing.
+ * `assignedOn` is api's `assignedAt`, falling back to `claimedAt` for a referral claimed before assignment existed.
  */
 export function buildJudicialReferral(detail: JudicialReferralDetail): JudicialReferralView {
   return {
@@ -215,35 +148,30 @@ export function buildJudicialReferral(detail: JudicialReferralDetail): JudicialR
     // referral view. Absent means api published none, which is a claim about the read rather than the data.
     state: detail.state ?? NOT_RECORDED,
     stateTagClasses: detail.state ? REFERRAL_STATE_TAG[detail.state] : "govuk-tag--grey",
-    reasons: detail.reasons.map(referralReasonLabel),
+    reasons: referralReasonLabels(detail.reasons),
     notes: orPlaceholder(detail.notes),
     urgency: detail.urgency ? REFERRAL_URGENCY_LABEL[detail.urgency] : NOT_PROVIDED,
     isUrgent: detail.urgency === "Urgent",
     urgencyReason: orPlaceholder(detail.urgencyReason),
-    waitingSince: formatTimestamp(detail.createdOn),
-    claimedOn: detail.claimedAt === null || detail.claimedAt === undefined ? null : formatTimestamp(detail.claimedAt),
-    claimable: detail.state === "Open",
+    assignedOn: optionalTimestamp(detail.assignedAt ?? detail.claimedAt),
+    directionDueBy: detail.state === "Claimed" && detail.directionDueBy ? formatShortDate(detail.directionDueBy) : null,
     directable: detail.state === "Claimed",
     changeable: detail.state === "Decided",
-    isOnMyList: isMyListState(detail.state),
     application: buildApplicationView(detail.application),
-    caseNotes: (detail.caseNotes ?? []).map(buildNoteRow),
     direction: buildDirectionView(detail)
   };
 }
 
 /**
- * The application as a judge reads it: its case fields in the caseworker page's groups, its witnesses, its
- * documents and the previous system's referral record.
+ * The application as a Master reads it: the General fields in `APPLICATION_SECTIONS`' order, and its documents.
  *
- * **What a judge may see is api's decision, not a filter here.** `JudicialApplicationView` carries no payment,
- * refund or fee field and no case id (api#118, confirmed 2026-10-19), so there is nothing to withhold and nothing
- * withheld — a private case renders in full. Every field is listed in `APPLICATION_SECTIONS`, which is the one
- * edit a field api adds to the view needs.
+ * **What a Master may see is api's decision, not a filter here.** `JudicialApplicationView` carries only those
+ * fields (narrowed in api on 2026-10-27), so there is nothing to withhold and nothing withheld.
  *
  * Rows the application's type does not use are dropped by the same `getFieldRules` matrix the caseworker forms
- * apply, so an adult's application has no minor rows; an empty value keeps its row as "Not provided", which is
- * the caseworker detail card's rule too.
+ * apply, which is what keeps "Minor's parents' names" off an adult's application, and the old names and nationality
+ * off a relinquishment; an empty value keeps its row as "Not provided", which is the caseworker detail card's rule
+ * too.
  *
  * `null` when api sent no application at all. A referral is always about one, so this is a shape the type
  * permits rather than a state anyone expects — and the page says so instead of rendering a column of
@@ -257,25 +185,16 @@ function buildApplicationView(application: JudicialApplicationView | null | unde
     label: section.label,
     rows: section.fields
       .filter((name) => rules[name]?.visible !== false)
-      .map((name) => ({ key: FIELD_BY_NAME[name].label, value: formatValue(FIELD_BY_NAME[name], application[name]) }))
+      .map((name) => ({
+        key: MASTER_LABELS[name] ?? FIELD_BY_NAME[name].label,
+        value: formatValue(FIELD_BY_NAME[name], application[name])
+      }))
   }));
 
   return {
     reference: orPlaceholder(application.displayReference, NOT_RECORDED),
     sections,
-    witnesses: application.witnesses.map(buildWitnessRow),
-    documents: application.documents.map(buildDocumentRow),
-    previousReferral: buildLegacyReferralView(application)
-  };
-}
-
-/** One witness, read-only. api's judicial witness has no id, so there is nothing to link to. */
-function buildWitnessRow(witness: JudicialWitness): JudicialWitnessRow {
-  return {
-    name: orPlaceholder(witness.witnessName),
-    address: orPlaceholder(witness.witnessAddress),
-    occupation: orPlaceholder(witness.witnessOccupation),
-    declarant: witness.declarant
+    documents: application.documents.map(buildDocumentRow)
   };
 }
 
@@ -305,30 +224,12 @@ function formatSize(sizeBytes: number | null | undefined): string {
 }
 
 /**
- * One note from the application's timeline, read-only.
- *
- * Narrower than the caseworker's note row and without its short code, because no judicial route takes a note
- * id: there is nothing to link to, and a judge authors no note directly — api's judicial writes are exactly
- * claim and direct. **They do reach this timeline, though**: since api's lifecycle notes a claim and a
- * direction each append a note credited to the judge who made it (`ReferralNotes`), so a judge's own name
- * appears on rows here — read-only like every other row, and with no control to amend one.
- * An unattributed note still renders; the author placeholder says which of the two is missing.
- */
-function buildNoteRow(note: JudicialCaseNote): JudicialNoteRow {
-  return {
-    note: note.note,
-    createdBy: orPlaceholder(note.createdBy, NOT_RECORDED),
-    createdOn: formatTimestamp(note.createdOn)
-  };
-}
-
-/**
  * The direction api has recorded, or `null` for a referral that has none yet.
  *
  * Keyed on `decision` being present rather than on `state === "Decided"`, so what is shown is what api sent:
  * the two agree, and when they disagree the field is the more specific answer.
  *
- * `publishToGazette` stays a boolean rather than becoming "Yes"/"No" here. Every other value on these models is
+ * `changesToStandardPublication` stays a boolean rather than becoming "Yes"/"No" here. Every other value on these models is
  * a display string, and this one is the exception because a page's own `en`/`cy` owns those two words — a
  * library that hard-coded "Yes" would be the one English string Welsh could not reach.
  */
@@ -338,33 +239,41 @@ function buildDirectionView(detail: JudicialReferralDetail): DirectionView | nul
   return {
     decision: MASTER_DECISION_LABEL[detail.decision],
     directionsText: orPlaceholder(detail.directionsText),
-    publishToGazette: detail.publishToGazette ?? null,
+    changesToStandardPublication: detail.changesToStandardPublication ?? null,
     decidedOn: formatTimestamp(detail.decisionDate)
   };
 }
 
 /**
- * The judge's word for a state on their own list, or the placeholder for one this list cannot mean.
- *
- * `Open`, `Withdrawn` and `Closed` reach here only if api has contradicted its own membership rule, and the
- * placeholder is the honest answer to that: a judicial wording for `Open` would be a label for a row that must not
- * exist, and showing api's raw member would put the wire's vocabulary on a judge's screen. Absent is the same
- * answer for the same reason `buildJudicialReferral` gives it — a claim about the read rather than about the data.
+ * One row of My referrals. The due date only while a direction is owed: once directed, the date has nothing left to
+ * measure, and printing it would read as a deadline still running.
  */
-function myReferralStatus(state: JudicialReferralSummary["state"]): string {
-  return isMyListState(state) ? MY_REFERRAL_STATE_LABEL[state] : NOT_RECORDED;
+function buildMyReferralRow(referral: JudicialReferralSummary): MyReferralRow {
+  return {
+    id: referral.id,
+    reasons: referralReasonLabels(referral.reasons),
+    // api orders by `coalesce(assignedAt, claimedAt, createdOn)`; the summary carries no `claimedAt`, so a referral
+    // claimed before assignment existed falls back to the day it was raised.
+    sentOn: formatShortDate(referral.assignedAt ?? referral.createdOn),
+    directionDueBy: isUndirected(referral) ? formatShortDate(referral.directionDueBy) : null
+  };
 }
 
-/**
- * Whether a referral in this state is on the judge's own list — `Claimed` or `Decided`, api's membership rule for
- * `GET /judicial/referrals/mine`.
- *
- * One predicate for the status wording and for `isOnMyList`, so which states the list admits and which states link
- * back to it are the same answer. Two copies of it is how a judge ends up sent to a list their referral is not on,
- * which is the failure `referrals-admin-6` exists to fix.
- */
-function isMyListState(state: JudicialReferralSummary["state"]): state is "Claimed" | "Decided" {
-  return state === "Claimed" || state === "Decided";
+/** Whether the referral still waits for this Master's direction — `Claimed`, api's own first ordering key. */
+function isUndirected(referral: JudicialReferralSummary): boolean {
+  return referral.state === "Claimed";
+}
+
+/** Consecutive rows sent on the same day, as one group each, in the order they came. */
+function groupByDay(rows: MyReferralRow[]): MyReferralDay[] {
+  const starts = rows.flatMap((row, index) => (index === 0 || rows[index - 1].sentOn !== row.sentOn ? [index] : []));
+
+  return starts.map((start, index) => ({ day: rows[start].sentOn, rows: rows.slice(start, starts[index + 1]) }));
+}
+
+/** A timestamp api may not have sent, formatted, or `null`. */
+function optionalTimestamp(raw: Date | string | null | undefined): string | null {
+  return raw === null || raw === undefined ? null : formatTimestamp(raw);
 }
 
 /**
@@ -381,36 +290,37 @@ function orPlaceholder(raw: string | null | undefined, placeholder: string = NOT
   return value.length > 0 ? value : placeholder;
 }
 
-/** One row of the shared pool, every cell already a display string. */
-export interface PoolRow {
-  /** The referral's id — the only key any judicial URL takes. */
-  id: string;
-  reasons: string[];
-  urgency: string;
-  /** For the tag's colour. The word is printed too, so urgency is never carried by colour alone. */
-  isUrgent: boolean;
-  /** The referral's `createdOn`, formatted. api's second sort key, shown as the wait it is. */
-  waitingSince: string;
+/** My referrals' three sections, each in api's order. An empty one is not drawn. */
+export interface MyReferralSections {
+  /** Urgent and still waiting for a direction. */
+  urgent: MyReferralRow[];
+  /** The other undirected referrals, one group per day sent. */
+  awaiting: MyReferralDay[];
+  /** Directed, waiting for the office to action the direction, one group per day sent. */
+  directed: MyReferralDay[];
+  /** api sent no rows on this page. */
+  isEmpty: boolean;
+}
+
+/** The referrals of one day, under that day's heading. */
+export interface MyReferralDay {
+  /** `dd-mm-yy`, the day sent in `Europe/London`. */
+  day: string;
+  rows: MyReferralRow[];
 }
 
 /**
- * One row of a judge's own list, every cell already a display string.
- *
- * The pool's row plus a status and minus nothing: both are built from `JudicialReferralSummary`, so neither can
- * carry an applicant name, a case reference or a direction — see `buildMyReferralRows`.
+ * One row of My referrals, every cell already a display string. Built from `JudicialReferralSummary`, so it cannot
+ * carry an applicant name, a case reference or a direction.
  */
 export interface MyReferralRow {
   /** The referral's id — the only key any judicial URL takes, and the whole of the link. */
   id: string;
-  /** "Direction needed" or "Direction recorded" — the judge's own words for the two states. */
-  status: string;
-  /** For the tag's colour. The status is printed too, so the state is never carried by colour alone. */
-  statusTagClasses: string;
   reasons: string[];
-  urgency: string;
-  isUrgent: boolean;
-  /** The referral's `createdOn`, formatted — when the office asked, not when this judge claimed it. */
-  raisedOn: string;
+  /** `dd-mm-yy`, when the referral was sent to this Master. */
+  sentOn: string;
+  /** `dd-mm-yy` while a direction is owed, `null` once one is recorded. */
+  directionDueBy: string | null;
 }
 
 /** The application, formatted. Built from `JudicialApplicationView` alone — see `buildApplicationView`. */
@@ -418,24 +328,13 @@ export interface ApplicationView {
   /** For the page's caption, and the direction pages'. */
   reference: string;
   sections: ApplicationSection[];
-  witnesses: JudicialWitnessRow[];
   documents: JudicialDocumentRow[];
-  /** The previous system's referral record, or `null` when it holds nothing. */
-  previousReferral: LegacyReferralView | null;
 }
 
 /** One group of case fields, under the caseworker detail page's section name. */
 export interface ApplicationSection {
   label: string;
   rows: { key: string; value: string }[];
-}
-
-/** One witness. `declarant` stays a boolean so the page's own `en`/`cy` owns "Yes" and "No". */
-export interface JudicialWitnessRow {
-  name: string;
-  address: string;
-  occupation: string;
-  declarant: boolean;
 }
 
 /** One document. `id` is for the download link the page builds. */
@@ -447,53 +346,38 @@ export interface JudicialDocumentRow {
   size: string;
 }
 
-/** One note from the application's timeline, as a judge reads it: no id, no amend link. */
-export interface JudicialNoteRow {
-  note: string;
-  createdBy: string;
-  createdOn: string;
-}
-
-/** The direction recorded on a referral. `publishToGazette` is a boolean — see `buildDirectionView`. */
+/** The direction recorded on a referral. `changesToStandardPublication` is a boolean — see `buildDirectionView`. */
 export interface DirectionView {
   decision: string;
   directionsText: string;
-  publishToGazette: boolean | null;
+  changesToStandardPublication: boolean | null;
   decidedOn: string;
 }
 
-/** One referral as the judicial screens render it: the referral, its application, and its timeline. */
+/** One referral as the judicial screens render it: the referral and its application. */
 export interface JudicialReferralView {
   id: string;
   state: string;
   stateTagClasses: string;
   reasons: string[];
-  /** The referral's own free text — not the application's timeline, which is `caseNotes`. */
+  /** The referral's own free text for the Master — not the application's case notes, which a Master is not shown. */
   notes: string;
   urgency: string;
   isUrgent: boolean;
   urgencyReason: string;
-  waitingSince: string;
-  /** When this judge picked it up, or `null` while it is still in the pool. */
-  claimedOn: string | null;
-  /** `Open`, so the claim control is offered. api re-checks and 409s regardless. */
-  claimable: boolean;
-  /** `Claimed`, which api's visibility means claimed *by this judge* — so the direction control is offered. */
+  /** When it was assigned to this Master (or, before assignment, claimed), or `null` if api sent neither. */
+  assignedOn: string | null;
+  /** `dd-mm-yy`, while a direction is owed and api sent a date; otherwise `null`. */
+  directionDueBy: string | null;
+  /** `Claimed`, which api's visibility means assigned *to this Master* — so the direction control is offered. */
   directable: boolean;
   /** `Decided`, which api's visibility means directed *by this judge* — so change and withdraw are offered. */
   changeable: boolean;
-  /**
-   * `Claimed` or `Decided`, the two states api's personal list admits — so the way back is My referrals rather than
-   * the shared pool the referral has left. Never a `returnTo`: see `buildJudicialReferral`.
-   */
-  isOnMyList: boolean;
   /** `null` only when api sent no application, which is a shape its type permits rather than a real state. */
   application: ApplicationView | null;
-  /** Read-only. A judge's writes are claim and direct; there is no add-note control on these screens. */
-  caseNotes: JudicialNoteRow[];
   /** The direction already recorded, or `null` for a referral still awaiting one. */
   direction: DirectionView | null;
 }
 
-/** A case field `JudicialApplicationView` carries — every property but the two collections. */
-type ApplicationField = Exclude<keyof JudicialApplicationView, "witnesses" | "documents">;
+/** A case field `JudicialApplicationView` carries — every property but the documents. */
+type ApplicationField = Exclude<keyof JudicialApplicationView, "documents">;

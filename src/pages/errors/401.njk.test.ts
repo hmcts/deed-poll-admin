@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import nunjucks from "nunjucks";
 import { describe, expect, it } from "vitest";
+import { addPathFilters } from "../../path-filters.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PAGES = path.join(HERE, "..");
@@ -21,6 +22,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 describe("errors/401.njk", () => {
   it("should link back to sign-in carrying the page the caseworker was on", () => {

@@ -113,7 +113,7 @@ describe("judicial document download route", () => {
     expect(res.status).toHaveBeenCalledWith(404);
     expect(res.render.mock.calls[0][0]).toBe("judicial/referrals/unavailable");
     expect(res.render.mock.calls[0][1]).toMatchObject({
-      poolPath: "/judicial/referrals",
+      myReferralsPath: "/judicial/referrals/mine",
       en: { heading: "This referral is no longer available" }
     });
     expect(res.setHeader).not.toHaveBeenCalled();

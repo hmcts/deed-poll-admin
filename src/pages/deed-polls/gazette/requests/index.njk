@@ -14,7 +14,7 @@
   {% else %}
     {% set rows = [] %}
     {% for request in requests %}
-      {% set link %}<a class="govuk-link" href="/deed-polls/gazette/requests/{{ request.batchId | urlencode }}">{{ details }}<span class="govuk-visually-hidden">: {{ request.submittedAt }}</span></a>{% endset %}
+      {% set link %}<a class="govuk-link" href="/deed-polls/gazette/requests/{{ request.batchId | pathSegment }}">{{ details }}<span class="govuk-visually-hidden">: {{ request.submittedAt }}</span></a>{% endset %}
       {% set rows = (rows.push([{ text: request.submittedAt }, { text: request.submittedBy }, { text: request.state }, { text: request.caseCount }, { html: link }]), rows) %}
     {% endfor %}
     {{ govukTable({ head: [{ text: submitted }, { text: by }, { text: state }, { text: count }, { text: details }], rows: rows, caption: heading, captionClasses: "govuk-visually-hidden" }) }}

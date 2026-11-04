@@ -3,7 +3,7 @@ import type { Express, NextFunction, Request, RequestHandler, Response } from "e
 const COOKIE_POLICY_NAME = "cookie_policy";
 const COOKIE_BANNER_SEEN = "cookies_preferences_set";
 
-export async function configureCookieManager(app: Express, options: CookieManagerOptions): Promise<void> {
+export function configureCookieManager(app: Express, options: CookieManagerOptions): void {
   app.use(createCookieManagerMiddleware(options));
   configureCookieRoutes(app, options);
 }

@@ -10,6 +10,7 @@ import {
   gazetteChecklistComplete,
   gazetteReviewsCurrent,
   gazetteReviewVersion,
+  NotFoundError,
   previewGazetteSelection,
   sendGazetteSelection,
   UnauthorizedError
@@ -24,6 +25,7 @@ import {
   sealGazetteJourney,
   selectedGazetteCases
 } from "../../../gazette/journey.js";
+import { gazetteSendTimeLeft } from "../../../gazette/send-deadline.js";
 
 const en = {
   title: "Review applications for the London Gazette",
@@ -75,6 +77,9 @@ const en = {
   unknown:
     "The request outcome is unknown. Do not start another send for these applications. Check this request using its original details, or use Gazette requests to investigate.",
   checkStatus: "Check request status",
+  notSent: "The email has not been sent because there was not enough time left to send it safely. Confirm and send the email again.",
+  notChecked:
+    "The request status could not be checked because there was not enough time left to check it safely. No new email has been requested. Check the request status again.",
   unavailable: "The applications could not be checked. No new email has been requested from this page. Try again or check Gazette requests.",
   again: "Review selection again",
   incomplete: "Only applications with a completed checklist can be selected",
@@ -138,6 +143,10 @@ const cy = {
   unknown:
     "Nid yw canlyniad y cais yn hysbys. Peidiwch â dechrau anfon y ceisiadau hyn eto. Gwiriwch y cais hwn gan ddefnyddio ei fanylion gwreiddiol, neu defnyddiwch geisiadau Gazette i ymchwilio.",
   checkStatus: "Gwirio statws y cais",
+  // Awaiting translation: kept in English so `yarn welsh:check` and the translation request list them.
+  notSent: "The email has not been sent because there was not enough time left to send it safely. Confirm and send the email again.",
+  notChecked:
+    "The request status could not be checked because there was not enough time left to check it safely. No new email has been requested. Check the request status again.",
   unavailable:
     "Ni ellid gwirio’r ceisiadau. Nid oes e-bost newydd wedi’i ofyn amdano o’r dudalen hon. Rhowch gynnig arall arni neu gwiriwch geisiadau Gazette.",
   again: "Adolygu’r dewis eto",
@@ -181,7 +190,12 @@ async function selectCases(req: Request, res: Response, journey: GazetteJourney,
       const id = action.slice(7);
       if (!id || id.length > 255 || (journey.reviews.length >= 100 && !journey.reviews.some((r) => r.id === id)))
         return render(req, res, withSelection, "invalid");
-      const record = await findDeedPoll(id, caller);
+      const record = await findDeedPoll(id, caller).catch((error: unknown) => {
+        // No such case is a bad action, not an outage, so the visit stands (review finding R11).
+        if (error instanceof NotFoundError) return null;
+        throw error;
+      });
+      if (!record) return render(req, res, withSelection, "invalid");
       return render(req, res, { ...withSelection, phase: "review", reviewing: { id, version: gazetteReviewVersion(record) } }, undefined, record);
     }
     if (typeof action === "string" && /^page:[1-9]\d{0,5}$/.test(action)) return render(req, res, { ...withSelection, page: Number(action.slice(5)) });
@@ -252,7 +266,7 @@ async function confirmSelection(req: Request, res: Response, journey: GazetteJou
         // An old confirmation may already have been posted in another tab. Do not offer a new identity.
         return render(req, res, null, "changed");
       }
-      return submit(req, res, { ...journey, phase: "recover" });
+      return submit(req, res, journey);
     }
     return render(req, res, null, "invalid");
   } catch (error) {
@@ -271,11 +285,15 @@ function operationFailed(req: Request, res: Response, journey: GazetteJourney, e
 async function submit(req: Request, res: Response, journey: GazetteJourney) {
   const confirmation = journey.confirmation;
   if (!confirmation) return render(req, res, null, "invalid");
+  const timeoutMs = gazetteSendTimeLeft(res);
+  // No call means nothing admitted, so the journey and its key stand unchanged for the resend or the next check.
+  if (timeoutMs === null) return render(req, res, journey, journey.phase === "recover" ? "notChecked" : "notSent");
   try {
     const status = await sendGazetteSelection(
       { caseIds: confirmation.caseIds, recipientRevision: confirmation.recipientRevision, selectionFingerprint: confirmation.selectionFingerprint },
       confirmation.key,
-      callerFromRequest(req)
+      callerFromRequest(req),
+      { timeoutMs }
     );
     res.redirect(303, `/deed-polls/gazette/requests/${encodeURIComponent(status.batchId)}`);
   } catch (error) {
@@ -295,9 +313,8 @@ async function render(req: Request, res: Response, journey: GazetteJourney | nul
     ? buildCaseList(page.cases).map((c) => ({ ...c, isReviewed: journey?.reviews.some((r) => r.id === c.id), isSelected: journey?.selected.includes(c.id) }))
     : [];
   const phase = journey?.phase;
-  const errorId = phase === "review" ? "checks" : phase === "confirm" ? "confirmed" : "selection";
-  const heading = phase === "review" ? content.reviewHeading : phase === "confirm" || phase === "recover" ? content.confirmHeading : content.heading;
-  res.status(error === "unknown" || error === "unavailable" ? 503 : error ? 400 : 200).render("deed-polls/gazette/batch", {
+  const { errorId, heading, status } = pagePresentation(phase, content, error);
+  res.status(status).render("deed-polls/gazette/batch", {
     en,
     cy,
     title: heading,
@@ -322,4 +339,13 @@ async function render(req: Request, res: Response, journey: GazetteJourney | nul
     errorId,
     errorText: error ? content[error] : null
   });
+}
+
+function pagePresentation(phase: GazetteJourney["phase"] | undefined, content: typeof en, error?: keyof typeof en) {
+  const errorStatus = error === "unknown" || error === "unavailable" || error === "notSent" || error === "notChecked" ? 503 : 400;
+  const status = error ? errorStatus : 200;
+  if (phase === "review") return { errorId: "checks", heading: content.reviewHeading, status };
+  if (phase === "confirm") return { errorId: "confirmed", heading: content.confirmHeading, status };
+  if (phase === "recover") return { errorId: "selection", heading: content.confirmHeading, status };
+  return { errorId: "selection", heading: content.heading, status };
 }

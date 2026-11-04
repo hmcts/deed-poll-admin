@@ -1,7 +1,7 @@
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { ACCESS_GAZETTE, assertDeedPollApiSettings, deedPollApiStatus, plainHttpPermitted } from "@hmcts/deed-poll";
+import { ACCESS_GAZETTE, ALLOCATE_REFERRALS, assertDeedPollApiSettings, deedPollApiStatus, MANAGE_PROCESS_CONFIG, plainHttpPermitted } from "@hmcts/deed-poll";
 import { type HealthStatus, healthcheck, monitoringMiddleware } from "@hmcts-cft/cloud-native-platform";
 import { configureCookieManager, configureGovuk, configureHelmet, configureNonce, errorHandler, notFoundHandler } from "@hmcts-cft/express-govuk-starter";
 import { expressSessionRedis } from "@hmcts-cft/express-session-redis";
@@ -20,10 +20,13 @@ import { requireSameOrigin } from "./auth/same-origin.js";
 import { assertRedisUrl, assertSessionSecret, assertSessionTimeouts, sessionCookieName, sessionStoreTtl } from "./auth/session.js";
 import { sessionLifetime } from "./auth/session-lifetime.js";
 import { assertIdamSettings, idamSettings } from "./auth/settings.js";
+import { PDFJS_ASSET_MOUNT, pdfjsDevelopmentAssets } from "./document-viewer/pdfjs-assets.js";
 import { domainErrorHandler } from "./errors.js";
+import { addPathFilters } from "./path-filters.js";
 import { createRateLimiter, rateLimitSettings } from "./rate-limit/limiter.js";
 import { mountAbuseLimits } from "./rate-limit/routes.js";
 import { uploadInFlightCap } from "./rate-limit/upload-in-flight.js";
+import { recordArrival } from "./request-arrival.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,13 +74,17 @@ export async function createApp(): Promise<Express> {
   const app = express();
 
   app.set("trust proxy", 1);
+  // First, so the Gazette send's deadline counts every layer below. See ./request-arrival.ts.
+  app.use(recordArrival());
   // Up to 100 reviewed IDs and the signed confirmation must fit even at the API field-length limits.
   app.use("/deed-polls/gazette/batch", express.urlencoded({ extended: true, limit: "512kb" }));
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
   app.use(monitoringMiddleware(config.get("applicationInsights")));
   app.use(configureNonce());
-  app.use(configureHelmet());
+  // No Google Tag Manager (review finding R12): admin uses none, and the starter's default admits its hosts, a known
+  // CSP-bypass, to the policy. Adopting it later needs a real container, a nonce on its bootstrap and analytics consent.
+  app.use(configureHelmet({ enableGoogleTagManager: false }));
   const sessionSecret = config.get<string>("session.secret");
   assertSessionSecret(sessionSecret);
   const sessionTimeouts = assertSessionTimeouts(config.get("session.idleTimeoutSeconds"), config.get("session.absoluteTimeoutSeconds"));
@@ -183,16 +190,17 @@ export async function createApp(): Promise<Express> {
       }
     : { distPath: path.join(__dirname, "../dist") };
 
-  await configureGovuk(app, [__dirname], {
+  const views = await configureGovuk(app, [__dirname], {
     nunjucksGlobals: {
       appAssetPath: isDev ? "/src/assets" : "/assets",
-      gtm: config.get("gtm"),
       dynatrace: config.get("dynatrace")
     },
     assetOptions
   });
+  addPathFilters(views);
+  if (isDev) app.use(PDFJS_ASSET_MOUNT, pdfjsDevelopmentAssets());
 
-  await configureCookieManager(app, {
+  configureCookieManager(app, {
     categories: {
       essential: [sessionCookieName()],
       analytics: ["_ga", "_gid", "dtCookie", "dtSa", "rxVisitor", "rxvt"],
@@ -240,6 +248,8 @@ export async function createApp(): Promise<Express> {
   // See ./auth/require-role.ts — and note that api gates the same routes itself; this is the UI boundary.
   app.use("/judicial", requireJudicial());
   app.use("/deed-polls/gazette", requireCapability(ACCESS_GAZETTE));
+  app.use("/deed-polls/settings", requireCapability(MANAGE_PROCESS_CONFIG));
+  app.use("/deed-polls/referrals", requireCapability(ALLOCATE_REFERRALS));
 
   // After the gates, so a refused user is not counted, and before the router, so the cap and the limiter run
   // before the upload page's multipart parser. See ./rate-limit/routes.ts. api is authoritative; this is UX.

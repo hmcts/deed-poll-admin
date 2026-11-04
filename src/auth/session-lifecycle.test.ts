@@ -1,7 +1,8 @@
 /**
  * The session's other writers racing logout, refresh and expiry, across two app instances sharing one real Redis,
  * through the middleware `createApp` mounts in its order: `sessionLifetime`, `requireAuth`, `refreshMiddleware`
- * (review finding E01, Task 3 of `docs/plans/20261020-e01-session-revocation.md`).
+ * (review finding E01, Task 3 of `docs/plans/20261020-e01-session-revocation.md`), and a persona switch racing logout
+ * (review finding R05, `docs/plans/completed/20261021-r05-r06-session-edges.md`).
  *
  * A request is held at a barrier after its session was loaded — before the middleware, inside a page, or inside the
  * `/me` backfill's call to api — so each interleaving is the one named rather than the scheduler's. What is asserted
@@ -17,8 +18,10 @@ import { createClient } from "redis";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as keepAlive } from "../pages/session/keep-alive.js";
+import { POST as switchPersona } from "../pages/switch-persona.js";
 import { fetchCallerAccess } from "./caller-access.js";
 import { GuardedSessionStore } from "./guarded-session-store.js";
+import { loginAsPersona } from "./persona-users.js";
 import { refreshMiddleware } from "./refresh-middleware.js";
 import { requireAuth } from "./require-auth.js";
 import { sessionAccessToken, sessionStoreTtl, sessionUser, signIn, signOut, updateTokens } from "./session.js";
@@ -31,6 +34,12 @@ vi.mock("./idam.js", async (importOriginal) => ({
 }));
 vi.mock("./caller-access.js", () => ({ fetchCallerAccess: vi.fn() }));
 vi.mock("./settings.js", () => ({ idamSettings: () => ({ issuerUrl: "https://idam.example/o", clientId: "deed-poll-admin" }) }));
+// The switcher's chart flag is off in `config/default.json`; its gate is `persona-switcher.test.ts`'s subject.
+vi.mock("./persona-switcher.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./persona-switcher.js")>()),
+  personaSwitcherEnabled: () => true
+}));
+vi.mock("./persona-users.js", () => ({ loginAsPersona: vi.fn() }));
 vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts-cft/cloud-native-platform")>()),
   trackEvent: vi.fn()
@@ -41,6 +50,11 @@ const LIMITS = { idleSeconds: 1800, absoluteSeconds: 36_000 };
 const COOKIE = { httpOnly: true, secure: false, sameSite: "lax" as const, maxAge: 60_000 };
 const NO_ACCESS = { staff: true, judicial: false, capabilities: [] };
 const DELIVERY_MANAGER = { staff: true, judicial: false, capabilities: ["ACCESS_GAZETTE"] };
+const JUDGE_LOGIN = {
+  user: currentUser({ staff: false, judicial: true, capabilities: [] }, "A Judge"),
+  subject: "judge-subject",
+  tokens: { accessToken: "judge-access", refreshToken: "judge-refresh", idToken: "judge-id-token", expiresAt: nowSeconds() + 3600 }
+};
 const redisReachable = await requireRedis();
 
 describe.skipIf(!redisReachable)("the session's writers across two app instances", () => {
@@ -62,6 +76,7 @@ describe.skipIf(!redisReachable)("the session's writers across two app instances
     }
     gate = barrier();
     vi.mocked(fetchCallerAccess).mockResolvedValue(undefined);
+    vi.mocked(loginAsPersona).mockResolvedValue({ ok: true, login: JUDGE_LOGIN });
   });
 
   afterEach(() => {
@@ -270,6 +285,54 @@ describe.skipIf(!redisReachable)("the session's writers across two app instances
     });
   });
 
+  // Review finding R05: the switch waits on IDAM's password grant, and a logout can land in that wait.
+  describe("a persona switch", () => {
+    it("should sign nobody back in when logout lands on another instance while the persona's IDAM grant is held", async () => {
+      const idam = barrier();
+      vi.mocked(loginAsPersona).mockImplementation(async () => {
+        idam.enter();
+        await idam.held;
+        return { ok: true, login: JUDGE_LOGIN };
+      });
+      const [a, b] = instances();
+      const cookie = await signedInCookie(a);
+      // Counted rather than assumed absent: the prefix is per run, not per test, so a sibling may have stored one.
+      const judgesBefore = judgeSessions(await storedSubjects());
+
+      const pending = switchTo(a, cookie);
+      await idam.entered;
+      await request(b).get("/logout").set("Cookie", cookie).expect(204);
+      idam.release();
+      const res = await pending;
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe("/login?returnTo=%2F");
+      expect(res.headers["set-cookie"]).toBeUndefined();
+      expect(judgeSessions(await storedSubjects())).toBe(judgesBefore);
+      expect(await signedIn(a, cookie)).toBe(false);
+      expect(await signedIn(b, cookie)).toBe(false);
+      expect(vi.mocked(trackEvent).mock.calls.map(([name]) => name)).not.toContain("auth.persona.switched");
+      expectNothingSecretLogged(cookie);
+    });
+
+    it("should still rotate the session id, sign in as the persona on both instances and emit its event", async () => {
+      const [a, b] = instances();
+      const before = await signedInCookie(a);
+
+      const res = await switchTo(a, before);
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe("/");
+      const after = (res.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
+      expect(sidOf(after)).not.toBe(sidOf(before));
+      expect(await clients[0].exists(PREFIX + sidOf(before))).toBe(0);
+      expect((await record(after)).sess.deedPoll.accessToken).toBe("judge-access");
+      expect(await signedIn(a, before)).toBe(false);
+      expect(await signedIn(b, after)).toBe(true);
+      expect(vi.mocked(trackEvent)).toHaveBeenCalledWith("auth.persona.switched", expect.objectContaining({ toSubject: "judge-subject" }));
+    });
+  });
+
   function instances(): [express.Express, express.Express] {
     return [appInstance(clients[0], gate), appInstance(clients[1], gate)];
   }
@@ -278,6 +341,22 @@ describe.skipIf(!redisReachable)("the session's writers across two app instances
     const hash = await clients[0].hGetAll(PREFIX + sidOf(cookie));
     const sess = JSON.parse(hash.sess) as StoredRecord["sess"];
     return { rev: hash.rev, sess };
+  }
+
+  /** The subject of every session under this run's prefix, so a session created under an unknown id still counts. */
+  async function storedSubjects(): Promise<string[]> {
+    const subjects: string[] = [];
+    for await (const keys of clients[0].scanIterator({ MATCH: `${PREFIX}*`, COUNT: 100 })) {
+      for (const key of keys) {
+        const body = await clients[0].hGet(key, "sess");
+        if (body) subjects.push((JSON.parse(body) as { deedPoll?: { subject?: string } }).deedPoll?.subject ?? "");
+      }
+    }
+    return subjects;
+  }
+
+  function judgeSessions(subjects: string[]): number {
+    return subjects.filter((subject) => subject === "judge-subject").length;
   }
 
   async function waitUntilGone(key: string): Promise<void> {
@@ -332,6 +411,7 @@ function appInstance(client: RedisClient, gate: Barrier) {
   app.use(requireAuth());
   app.use(refreshMiddleware);
   app.post("/session/keep-alive", keepAlive);
+  app.post("/switch-persona", express.urlencoded({ extended: false }), switchPersona);
   app.get("/page", async (req, res) => {
     if (req.query.hold === "handler") await hold(gate);
     // Left to express-session's end-of-response save.
@@ -350,6 +430,16 @@ async function page(app: express.Express, cookie: string, holdAt?: "before" | "h
   const path = holdAt ? `/page?hold=${holdAt}${extra}` : "/page";
   const res = await request(app).get(path).set("Cookie", cookie);
   return { status: res.status, location: res.headers.location, ...(res.status === 200 ? (res.body as object) : {}) };
+}
+
+/** Sent at once rather than when awaited, as supertest otherwise would, so a test can hold it at a barrier. */
+function switchTo(app: express.Express, cookie: string): Promise<request.Response> {
+  return request(app)
+    .post("/switch-persona")
+    .type("form")
+    .send({ persona: "judge" })
+    .set("Cookie", cookie)
+    .then((res) => res);
 }
 
 async function signedIn(app: express.Express, cookie: string): Promise<boolean> {

@@ -36,8 +36,9 @@
  * per field cannot say both. The *labels* are the page's, per the plan's decision 2: the wire values are
  * api's enum members, the human wording is ours.
  */
-import { CONFIRMATION_OUTCOME, REFERRAL_REASON, URGENCY } from "@hmcts/deed-poll-api-client";
+import { CONFIRMATION_OUTCOME, REFERRAL_REASON, REFERRAL_SEND_LIMITS, URGENCY } from "@hmcts/deed-poll-api-client";
 import { z } from "zod";
+import { MINOR_DETAIL_REASONS, REFERRAL_REASON_LABEL } from "./referrals-view.js";
 
 /** api's `CreateReferralRequest.notes` maxLength. */
 export const MAX_REFERRAL_NOTES = 1000;
@@ -50,6 +51,16 @@ export const MAX_REFERRAL_URGENCY_REASON = 500;
 
 /** The reason that pairs with a rule: ticking it makes `notes` mandatory, at api's end and here. */
 const REASON_REQUIRING_NOTES = "Other";
+
+/** The reason a minor's details refine — see `MINOR_DETAIL_REASONS`. */
+const MINOR_REASON = "Minor";
+
+/** The minor's details that cannot both be true, as the Masters listed them in pairs, and as api refuses them. */
+const CONTRADICTORY_MINOR_DETAILS = [
+  ["MinorParentalConsent", "MinorNoParentalConsent"],
+  ["MinorStepparentConsent", "MinorNoStepparentConsent"],
+  ["MinorAged16Or17Consented", "MinorAged16Or17NotConsented"]
+] as const;
 
 /** The urgency that pairs with a rule: choosing it makes `urgencyReason` mandatory. */
 const URGENCY_REQUIRING_REASON = "Urgent";
@@ -98,7 +109,39 @@ export const createReferralSchema = z
     if (referral.urgency === URGENCY_REQUIRING_REASON && !referral.urgencyReason) {
       ctx.addIssue({ code: "custom", path: ["urgencyReason"], message: "Enter why this referral is urgent" });
     }
+    for (const issue of minorDetailIssues(referral.reasons)) {
+      ctx.addIssue({ code: "custom", ...issue });
+    }
   });
+
+/**
+ * A minor's details beneath "Applicant is a minor" (Master Sullivan's feedback, Steve, 2026-10-27): at least one when
+ * the box is ticked, none without it, and never both halves of a pair. api refuses the last two and will refuse the
+ * first; this app asks first, so the caseworker sees the sentence beside the boxes rather than a refused write.
+ *
+ * The details are addressed to `minorDetails`, the revealed group's id, and a detail without `Minor` to `reasons`,
+ * because the group it was ticked in is hidden once "Applicant is a minor" is unticked.
+ */
+function minorDetailIssues(reasons: readonly string[]): { path: string[]; message: string }[] {
+  const details = reasons.filter((reason) => (MINOR_DETAIL_REASONS as readonly string[]).includes(reason));
+  const isMinor = reasons.includes(MINOR_REASON);
+  if (isMinor && details.length === 0) {
+    return [{ path: ["minorDetails"], message: "Select what applies to the minor's application" }];
+  }
+  if (!isMinor && details.length > 0) {
+    return [{ path: ["reasons"], message: "Select Applicant is a minor, or untick what applies to the minor's application" }];
+  }
+  const contradiction = CONTRADICTORY_MINOR_DETAILS.find(([first, second]) => details.includes(first) && details.includes(second));
+
+  return contradiction
+    ? [
+        {
+          path: ["minorDetails"],
+          message: `Select either ${REFERRAL_REASON_LABEL[contradiction[0]]} or ${REFERRAL_REASON_LABEL[contradiction[1]]}, not both`
+        }
+      ]
+    : [];
+}
 
 /**
  * The record-the-applicant's-response form: one answer, and the note that evidences it.
@@ -127,8 +170,50 @@ export const recordConfirmationSchema = z.object({
     .transform((value) => (value === undefined || value === "" ? undefined : value))
 });
 
+/** The referral queue's selection messages, beside the controls they are about. */
+export const SEND_SELECTION_MESSAGES = {
+  none: "Select at least one referral to send",
+  unknown: "Select referrals from the list",
+  tooMany: `Select at most ${REFERRAL_SEND_LIMITS.maxAllocations} referrals at once`,
+  noMaster: "Choose a Master for this referral"
+} as const;
+
+/**
+ * The referral queue's selection (plan Fa1), as the queue's form and the review's hidden inputs both post it: each
+ * ticked referral's id under `referrals`, and its Master under `master-<referralId>`.
+ *
+ * **Only the ticked rows travel.** A Master chosen on a row left unticked is not part of the selection, so it is
+ * dropped rather than refused. Every id reads as a UUID, as api's are, and none is ticked twice; a value no form
+ * offered is reported on the selection, never echoed. The bound is api's `maxItems`. Everything else (the window,
+ * each referral still waiting, each Master available, the cap) is api's to decide at the send.
+ */
+export const sendSelectionSchema = z.record(z.string(), z.unknown()).transform((body, ctx) => {
+  const ticked: unknown[] = body.referrals === undefined ? [] : Array.isArray(body.referrals) ? body.referrals : [body.referrals];
+  const refuse = (path: string, message: string) => {
+    ctx.addIssue({ code: "custom", path: [path], message });
+    return z.NEVER;
+  };
+
+  if (ticked.length === 0) return refuse("referrals", SEND_SELECTION_MESSAGES.none);
+  if (!ticked.every(isUuid) || new Set(ticked).size !== ticked.length) return refuse("referrals", SEND_SELECTION_MESSAGES.unknown);
+  if (ticked.length > REFERRAL_SEND_LIMITS.maxAllocations) return refuse("referrals", SEND_SELECTION_MESSAGES.tooMany);
+
+  const unchosen = ticked.filter((referralId) => !isUuid(body[`master-${referralId}`]));
+  for (const referralId of unchosen) ctx.addIssue({ code: "custom", path: [`master-${referralId}`], message: SEND_SELECTION_MESSAGES.noMaster });
+  if (unchosen.length > 0) return z.NEVER;
+
+  return { allocations: ticked.map((referralId) => ({ referralId, masterId: body[`master-${referralId}`] as string })) };
+});
+
+function isUuid(value: unknown): value is string {
+  return z.uuid().safeParse(value).success;
+}
+
 /** What a validated raise-a-referral form holds. The referral's state and author are api's, so neither is here. */
 export type CreateReferralInput = z.output<typeof createReferralSchema>;
 
 /** What a validated record-the-response form holds. The recorder and the date are api's, so neither is here. */
 export type RecordConfirmationInput = z.output<typeof recordConfirmationSchema>;
+
+/** What a validated queue selection holds: each referral with its Master, in the order they were ticked. */
+export type SendSelection = z.output<typeof sendSelectionSchema>;

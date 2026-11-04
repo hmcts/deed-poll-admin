@@ -6,14 +6,24 @@
  * deploy). So the one place that decides what a refused caseworker sees was verified by nothing CI runs.
  *
  * What matters here is the status/view pairing rather than the rendering: a 403 answering the **404** view is
- * what keeps `/judicial/**` non-enumerable, and it is exactly the kind of deliberate mismatch a later reader
- * "corrects".
+ * what keeps a guessed `/judicial/**` URL from saying whether that resource exists, and it is exactly the kind of
+ * deliberate mismatch a later reader "corrects". The 403 status still discloses the area (review finding R14).
  */
 import { createHash } from "node:crypto";
-import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "@hmcts/deed-poll";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { type AddressInfo, connect } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PassThrough, pipeline } from "node:stream";
+import { ACCESS_GAZETTE, ConflictError, ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "@hmcts/deed-poll";
 import { trackEvent } from "@hmcts-cft/cloud-native-platform";
-import type { NextFunction } from "express";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { errorHandler } from "@hmcts-cft/express-govuk-starter";
+import express, { type NextFunction } from "express";
+import nunjucks from "nunjucks";
+import request from "supertest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { requireCapability, requireJudicial } from "./auth/require-role.js";
+import { requireSameOrigin } from "./auth/same-origin.js";
 import { domainErrorHandler } from "./errors.js";
 import { pageResponse } from "./express-doubles.js";
 
@@ -42,10 +52,10 @@ describe("domainErrorHandler", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  // The pairing the judicial area's non-enumeration rests on: 403 so the refusal is honest to a client, the 404
-  // view so a caseworker who guessed the URL is not told there is something behind it. `errors/403` exists and is
-  // deliberately not used here — it belongs to the login flow, where the user knows who they are.
-  it("should answer a forbidden request with a 403 status on the 404 view, disclosing nothing", () => {
+  // 403 so the refusal is honest to a client, which also tells it the area exists and is closed to it (R14); the
+  // 404 view so a caseworker who guessed the URL is not told whether that resource exists. `errors/403` exists and
+  // is deliberately not used here — it belongs to the login flow, where the user knows who they are.
+  it("should answer a forbidden request with a 403 status on the 404 view, which names nothing about the resource", () => {
     const res = pageResponse();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -145,6 +155,81 @@ describe("domainErrorHandler", () => {
       expect(serialised).not.toContain("Smith");
       expect(serialised).not.toContain("a-refused-session-id");
       expect(serialised).not.toContain("Gazette access refused");
+    });
+  });
+
+  // The gates' messages are this handler's log line, so the one place to prove a refusal logs no request value is
+  // over real HTTP with the gates mounted as `app.ts` mounts them, capturing what is actually written.
+  describe("what a gate's refusal writes to the log", () => {
+    const QUERY = `?q=${encodeURIComponent("MARKER-Q Smith")}&where=${encodeURIComponent('surname = "MARKER-WHERE"')}&other=MARKER-OTHER`;
+    const app = express()
+      .use((req, res, next) => {
+        Object.assign(req, { session: {} });
+        Object.assign(res, { render: (view: string) => res.send(view) });
+        next();
+      })
+      .use(requireSameOrigin())
+      .use("/judicial", requireJudicial())
+      .use("/deed-polls/gazette", requireCapability(ACCESS_GAZETTE))
+      .use((_req, res) => res.send("reached"))
+      .use(domainErrorHandler());
+
+    let logged: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      logged.mockRestore();
+    });
+
+    it.each([
+      [
+        "a same-site write",
+        () => request(app).post(`/deed-polls/new${QUERY}`).set("Sec-Fetch-Site", "same-site"),
+        "POST /deed-polls/new from a same-site initiator",
+        "csrf.refused"
+      ],
+      [
+        "a write with an unrecognised Sec-Fetch-Site",
+        () => request(app).post(`/deed-polls/new${QUERY}`).set("Sec-Fetch-Site", "MARKER-SITE"),
+        "POST /deed-polls/new from an unrecognised Sec-Fetch-Site value",
+        "csrf.refused"
+      ],
+      [
+        "a cross-origin write without fetch metadata",
+        () => request(app).post(`/deed-polls/new${QUERY}`).set("Origin", "https://MARKER-ORIGIN.example"),
+        "POST /deed-polls/new from a cross-origin Origin",
+        "csrf.refused"
+      ],
+      [
+        "a non-judge on the judicial area",
+        () => request(app).get(`/judicial/referrals${QUERY}`),
+        "GET /judicial/referrals requires judicial access",
+        "authz.denied"
+      ],
+      [
+        "a caller without Gazette access",
+        () => request(app).get(`/deed-polls/gazette/history${QUERY}`),
+        `GET /deed-polls/gazette/history requires ${ACCESS_GAZETTE}`,
+        "authz.denied"
+      ]
+    ])("should log %s with its route and reason and no query or header value", async (_case, send, line, event) => {
+      const response = await send();
+
+      expect(response.status).toBe(403);
+      expect(response.text).toBe("errors/404");
+      expect(logged.mock.calls).toEqual([[`forbidden: ${line}`]]);
+      expect(vi.mocked(trackEvent).mock.calls.map(([name]) => name)).toEqual([event]);
+      expect(JSON.stringify([logged.mock.calls, vi.mocked(trackEvent).mock.calls])).not.toContain("MARKER");
+    });
+
+    it("should still admit a same-origin write and a read outside the gated areas", async () => {
+      const write = await request(app).post(`/deed-polls/new${QUERY}`).set("Sec-Fetch-Site", "same-origin");
+      const read = await request(app).get(`/deed-polls${QUERY}`);
+
+      expect([write.text, read.text]).toEqual(["reached", "reached"]);
+      expect(logged).not.toHaveBeenCalled();
     });
   });
 
@@ -298,15 +383,68 @@ describe("domainErrorHandler", () => {
 
   // The document download route streams, so by the time it fails the status is already on the wire. Attempting a
   // second set of headers would throw inside the error handler itself.
-  it("should hand a failure back to Express untouched once the response has begun", () => {
-    const error = new NotFoundError("Document d-1 not found");
-    const res = pageResponse();
-    (res as { headersSent: boolean }).headersSent = true;
+  // Passed on, the starter's handler would render over the sent headers and throw outside any handler.
+  it("should cut the response off and log, rather than pass on, a failure once the response has begun", () => {
+    const error = new Error("api's body failed mid-stream");
+    const res = Object.assign(pageResponse(), { headersSent: true, destroy: vi.fn() });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     domainErrorHandler()(error, REQUEST, res, next);
 
-    expect(next).toHaveBeenCalledWith(error);
+    expect(res.destroy).toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
     expect(res.render).not.toHaveBeenCalled();
     expect(res.status).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith("response failed after its headers were sent: api's body failed mid-stream");
+    consoleError.mockRestore();
+  });
+
+  it("should survive a browser closing a streamed response mid-body, with the starter's renderer behind it", async () => {
+    const body = new PassThrough();
+    const reached = Promise.withResolvers<void>();
+    const views = mkdtempSync(join(tmpdir(), "views-"));
+    mkdirSync(join(views, "errors"));
+    writeFileSync(join(views, "errors", "500.njk"), "500");
+    const app = express();
+    nunjucks.configure(views, { express: app });
+    app.set("view engine", "njk");
+    app.get("/stream", (_req, res, next) => {
+      res.setHeader("Content-Type", "application/pdf");
+      res.flushHeaders();
+      body.write("%PDF-");
+      reached.resolve();
+      pipeline(body, res, (error) => {
+        if (error) next(error);
+      });
+    });
+    app.use(domainErrorHandler());
+    // The starter's real handler: its render would answer over the sent headers and throw outside any handler.
+    app.use(errorHandler());
+    const server = app.listen(0);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const socket = connect((server.address() as AddressInfo).port, "127.0.0.1");
+    socket.write("GET /stream HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    await reached.promise;
+    const closed = new Promise((resolve) => body.once("close", resolve));
+    socket.destroy();
+    await closed;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  it("should log nothing when the browser closed a streamed response before its end", () => {
+    const error = Object.assign(new Error("Premature close"), { code: "ERR_STREAM_PREMATURE_CLOSE" });
+    const res = Object.assign(pageResponse(), { headersSent: true, destroy: vi.fn() });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    domainErrorHandler()(error, REQUEST, res, next);
+
+    expect(res.destroy).toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });

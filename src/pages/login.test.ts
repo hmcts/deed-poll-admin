@@ -92,6 +92,12 @@ describe("the login page", () => {
       // `encodeurl` does not escape it, so the browser resolves this off-site just the same.
       ["a backslash-relative URL, which resolves off-site because `\\` parses as `/`", "/\\evil.example"],
       ["a backslash-relative URL written with a trailing slash", "/\\/evil.example"],
+      // Browsers strip tab, CR and LF before parsing, so each of these would read as `//evil.example`.
+      ["a tab smuggled in after the leading slash", "/\t/evil.example"],
+      ["a newline smuggled in after the leading slash", "/\n/evil.example"],
+      ["a carriage return and newline smuggled in after the leading slash", "/\r\n/evil.example"],
+      ["a space after the leading slash", "/ /evil.example"],
+      ["a control character later in the path", "/deed-polls\u0000"],
       ["a scheme-only URL", "javascript:alert(1)"],
       ["a relative path that is not rooted", "deed-polls"],
       ["an array, as a repeated query parameter arrives", ["/deed-polls", "https://evil.example"] as unknown as string],

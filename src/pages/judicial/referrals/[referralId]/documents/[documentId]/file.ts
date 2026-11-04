@@ -17,14 +17,14 @@ import { sendDocument } from "../../../../../../document-response.js";
 import { referralPath } from "../../../../../../judicial-referral-path.js";
 import { pathSegment } from "../../../../../../path-segment.js";
 
-const POOL_PATH = "/judicial/referrals";
+const MINE_PATH = "/judicial/referrals/mine";
 
 /** The "no longer available" page's words, as `../../../[referralId].ts` renders them. See decision 10. */
 const unavailableEn = {
   title: "This referral is no longer available",
   heading: "This referral is no longer available",
-  body: "This referral is no longer in the shared list. Choose another referral from the list.",
-  backToPool: "Back to referrals for a direction"
+  body: "Your referrals are listed on My referrals.",
+  backToMine: "Back to My referrals"
 };
 
 const unavailableCy = { ...unavailableEn };
@@ -42,7 +42,7 @@ export const GET = async (req: Request, res: Response, next: NextFunction) => {
   } catch (error) {
     if (!(error instanceof NotFoundError)) throw error;
 
-    return res.status(404).render("judicial/referrals/unavailable", { poolPath: POOL_PATH, en: unavailableEn, cy: unavailableCy });
+    return res.status(404).render("judicial/referrals/unavailable", { myReferralsPath: MINE_PATH, en: unavailableEn, cy: unavailableCy });
   }
 
   sendDocument(download, res, next);

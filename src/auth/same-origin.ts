@@ -80,11 +80,10 @@ export function requireSameOrigin(): RequestHandler {
     const refusal = crossSiteRefusal(req);
     if (!refusal) return next();
 
-    // For the log, never for the user: `errors.ts` renders the shared "Page not found" view. It names what
-    // the headers said, because that is the only thing identifying which sibling service — or which
-    // compromised page in one — sent the request, and nobody could reconstruct it afterwards. The event gets
-    // only the bounded detail, never this text.
-    next(new ForbiddenError(`${req.method} ${req.originalUrl} ${refusal.text}`, { reason: "same-origin", ...refusal.details }));
+    // For the log, never for the user: `errors.ts` renders the shared "Page not found" view. The route and a
+    // fixed description only: `originalUrl` carries a search's query string, and the headers are text the
+    // sender chose. Which sibling sent it is the event's bounded `fetchSite` or `originHost`.
+    next(new ForbiddenError(`${req.method} ${req.baseUrl}${req.path} ${refusal.text}`, { reason: "same-origin", ...refusal.details }));
   };
 }
 
@@ -93,7 +92,8 @@ function crossSiteRefusal(req: Request): Refusal | undefined {
   const site = req.get("sec-fetch-site");
   if (site !== undefined) {
     if (PERMITTED_FETCH_SITES.has(site)) return undefined;
-    return { text: `from a ${site} initiator`, details: { fetchSite: REFUSED_FETCH_SITES.has(site) ? site : "unrecognised" } };
+    if (!REFUSED_FETCH_SITES.has(site)) return { text: "from an unrecognised Sec-Fetch-Site value", details: { fetchSite: "unrecognised" } };
+    return { text: `from a ${site} initiator`, details: { fetchSite: site } };
   }
 
   // Only a browser too old to send fetch metadata reaches here. `null` is not evidence either way — this
@@ -102,7 +102,7 @@ function crossSiteRefusal(req: Request): Refusal | undefined {
   const origin = req.get("origin");
   if (origin === undefined || origin === "null") return undefined;
 
-  return isSameHost(origin, req) ? undefined : { text: `from cross-origin ${origin}`, details: { originHost: hostOf(origin) } };
+  return isSameHost(origin, req) ? undefined : { text: "from a cross-origin Origin", details: { originHost: hostOf(origin) } };
 }
 
 /**

@@ -14,8 +14,8 @@ describe("terms-and-conditions page", () => {
   });
 
   describe("GET", () => {
-    it("should render terms-and-conditions template", async () => {
-      await GET(req as Request, res as Response);
+    it("should render terms-and-conditions template", () => {
+      GET(req as Request, res as Response);
 
       expect(res.render).toHaveBeenCalledWith(
         "terms-and-conditions",
@@ -30,8 +30,8 @@ describe("terms-and-conditions page", () => {
       );
     });
 
-    it("should call render exactly once", async () => {
-      await GET(req as Request, res as Response);
+    it("should call render exactly once", () => {
+      GET(req as Request, res as Response);
 
       expect(res.render).toHaveBeenCalledTimes(1);
     });

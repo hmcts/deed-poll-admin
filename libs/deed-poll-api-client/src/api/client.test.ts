@@ -8,18 +8,22 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { Readable } from "node:stream";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type MockCase, type RunningMockApi, startMockApi } from "../mock/server.js";
 import {
   type ApiConfig,
+  addBankHoliday,
+  assignReferral,
   checkApiReachable,
   claimJudicialReferral,
   closeReferral,
   createCase,
+  createMaster,
   createNote,
   createReferral,
   createSavedQuery,
   createWitness,
+  DEFAULT_TIMEOUT_MS,
   deleteNote,
   deleteSavedQuery,
   deleteWitness,
@@ -31,15 +35,19 @@ import {
   getCaseEmails,
   getFieldRules,
   getGazetteNoticeHistory,
+  getGazetteStatus,
   getJudicialMyReferrals,
   getJudicialPool,
   getJudicialReferral,
   getNote,
   getReferral,
+  getReferralQueue,
   getSavedQuery,
   getWitness,
+  listBankHolidays,
   listCases,
   listDocumentTypes,
+  listMasters,
   listNotes,
   listReferrals,
   listSavedQueries,
@@ -51,9 +59,13 @@ import {
   previewGazetteNotice,
   type ReferralCreate,
   recordConfirmation,
+  removeBankHoliday,
   reviseDirection,
   selectSavedQuery,
   sendEmail,
+  sendReferrals,
+  submitGazetteNotice,
+  updateMaster,
   updateWitness,
   uploadDocument,
   withdrawDirection,
@@ -106,6 +118,35 @@ beforeEach(() => {
   // per-year reference serials accumulate and every assertion about a serial or a list length depends on
   // what ran before it.
   mock.reset();
+});
+
+describe("API base URL paths", () => {
+  it.each([
+    { label: "no trailing slash", suffix: "", expectedPath: "/caseworker/cases" },
+    { label: "one trailing slash", suffix: "/", expectedPath: "/caseworker/cases" },
+    { label: "several trailing slashes", suffix: "///", expectedPath: "/caseworker/cases" },
+    { label: "a path prefix", suffix: "/proxy///", expectedPath: "/proxy/caseworker/cases" },
+    { label: "internal slashes", suffix: "/proxy//v1///", expectedPath: "/proxy//v1/caseworker/cases" },
+    { label: "an encoded path separator", suffix: "/api%2Fv1///", expectedPath: "/api%2Fv1/caseworker/cases" }
+  ])("should preserve the request path with $label", async ({ suffix, expectedPath }) => {
+    const paths: string[] = [];
+    const recorder = await listen(
+      createServer((req, res) => {
+        paths.push(req.url ?? "");
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ filter: "all", cases: [], page: 1, size: 25, total: 0, totalPages: 0 }));
+      })
+    );
+
+    try {
+      const result = await listCases({}, { baseUrl: `${recorder.url}${suffix}`, timeoutMs: 2000 });
+
+      expect(result.ok).toBe(true);
+      expect(paths).toEqual([expectedPath]);
+    } finally {
+      await recorder.close();
+    }
+  });
 });
 
 describe("getGazetteNoticeHistory", () => {
@@ -206,6 +247,117 @@ describe("getGazetteNoticeHistory", () => {
     } finally {
       await answering.close();
     }
+  });
+});
+
+describe("the Masters list", () => {
+  const asManager = () => ({ ...config, accessToken: roleToken("manager-1", ["caseworker-deedpoll-delivery-manager"]) });
+  const caseworker = () => ({ ...config, accessToken: roleToken("cw-1", ["caseworker-deedpoll"]) });
+
+  it("should create a Master, trimmed and lower-cased, available by default and not yet linked", async () => {
+    // Act
+    const result = await createMaster({ name: "  Master Sullivan ", email: " Sullivan@Example.TEST" }, asManager());
+
+    // Assert
+    expect(result).toEqual({
+      ok: true,
+      data: { id: expect.any(String), name: "Master Sullivan", email: "sullivan@example.test", available: true, linked: false, revision: 0 }
+    });
+  });
+
+  it("should list every Master by name for any staff caller", async () => {
+    // Arrange
+    await createMaster({ name: "Master Wren", email: "wren@example.test", available: false }, asManager());
+    await createMaster({ name: "Master Adams", email: "adams@example.test" }, asManager());
+
+    // Act
+    const result = await listMasters(caseworker());
+
+    // Assert
+    expect(result.ok && result.data.masters.map((master) => [master.name, master.available])).toEqual([
+      ["Master Adams", true],
+      ["Master Wren", false]
+    ]);
+  });
+
+  it("should patch a Master at its revision and refuse the same revision again with a conflict", async () => {
+    // Arrange
+    const created = await createMaster({ name: "Master Wren", email: "wren@example.test" }, asManager());
+    if (!created.ok) throw new Error("Expected a Master");
+
+    // Act
+    const updated = await updateMaster(created.data.id, { available: false, revision: 0 }, asManager());
+    const stale = await updateMaster(created.data.id, { name: "Master Renamed", revision: 0 }, asManager());
+
+    // Assert
+    expect(updated).toMatchObject({ ok: true, data: { available: false, revision: 1 } });
+    expect(stale).toMatchObject({ ok: false, error: { kind: "conflict", status: 409 } });
+    expect(!stale.ok && stale.error.fieldErrors).toBeUndefined();
+  });
+
+  it("should classify a duplicate email in any case as a conflict", async () => {
+    // Arrange
+    await createMaster({ name: "Master Wren", email: "wren@example.test" }, asManager());
+
+    // Act
+    const result = await createMaster({ name: "Another Wren", email: "WREN@example.test" }, asManager());
+
+    // Assert
+    expect(result).toMatchObject({ ok: false, error: { kind: "conflict", status: 409 } });
+    expect(!result.ok && result.error.fieldErrors?.map((error) => error.field)).toEqual(["email"]);
+  });
+
+  it("should classify an unknown Master as not found and a caseworker's write as forbidden", async () => {
+    expect(await updateMaster("no-such-master", { available: false, revision: 0 }, asManager())).toMatchObject({ ok: false, error: { kind: "not-found" } });
+    expect(await createMaster({ name: "Master Wren", email: "wren@example.test" }, caseworker())).toMatchObject({ ok: false, error: { kind: "forbidden" } });
+  });
+
+  it("should refuse a dot-segment id without sending it", async () => {
+    expect(await updateMaster("..", { available: false, revision: 0 }, asManager())).toMatchObject({ ok: false, error: { kind: "not-found" } });
+  });
+});
+
+describe("the bank holidays", () => {
+  const asManager = () => ({ ...config, accessToken: roleToken("manager-1", ["caseworker-deedpoll-delivery-manager"]) });
+
+  it("should add bank holidays and list them earliest first", async () => {
+    // Arrange
+    await addBankHoliday({ date: "2029-12-28", name: "Boxing Day (substitute day)" }, asManager());
+
+    // Act
+    const added = await addBankHoliday({ date: "2029-12-25", name: "Christmas Day" }, asManager());
+    const listed = await listBankHolidays({ ...config, accessToken: roleToken("cw-1", ["caseworker-deedpoll"]) });
+
+    // Assert
+    expect(added).toEqual({ ok: true, data: { date: "2029-12-25", name: "Christmas Day" } });
+    if (!listed.ok) throw new Error("Expected the list");
+    const dates = listed.data.map((holiday) => holiday.date);
+    expect(dates).toEqual(dates.toSorted());
+    expect(dates).toEqual(expect.arrayContaining(["2029-12-25", "2029-12-28"]));
+  });
+
+  it("should classify a date already listed as a conflict", async () => {
+    // Arrange
+    await addBankHoliday({ date: "2029-12-25", name: "Christmas Day" }, asManager());
+
+    // Act
+    const result = await addBankHoliday({ date: "2029-12-25", name: "Christmas" }, asManager());
+
+    // Assert
+    expect(result).toMatchObject({ ok: false, error: { kind: "conflict", status: 409 } });
+  });
+
+  it("should remove a listed date with no content and call a second removal not found", async () => {
+    // Arrange
+    await addBankHoliday({ date: "2029-12-25", name: "Christmas Day" }, asManager());
+
+    // Act
+    const removed = await removeBankHoliday("2029-12-25", asManager());
+    const again = await removeBankHoliday("2029-12-25", asManager());
+
+    // Assert
+    expect(removed).toEqual({ ok: true, data: undefined });
+    expect(again).toMatchObject({ ok: false, error: { kind: "not-found", status: 404 } });
   });
 });
 
@@ -735,14 +887,90 @@ describe("referrals", () => {
   it("should raise a referral Open and unclaimed, with its dates as Date objects", async () => {
     const id = await caseId();
 
-    const result = await createReferral(id, { reasons: ["Minor"], notes: "For the Master" }, config);
+    const result = await createReferral(id, { reasons: ["Minor", "MinorCourtOrder"], notes: "For the Master" }, config);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // Neither the state nor a holder is the caseworker's to choose, and api defaults an absent urgency to
     // Normal rather than storing none.
-    expect(result.data).toMatchObject({ state: "Open", reasons: ["Minor"], notes: "For the Master", urgency: "Normal", migrated: false, claimedBy: null });
+    expect(result.data).toMatchObject({
+      state: "Open",
+      reasons: ["Minor", "MinorCourtOrder"],
+      notes: "For the Master",
+      urgency: "Normal",
+      migrated: false,
+      claimedBy: null
+    });
     expect(result.data.createdOn).toBeInstanceOf(Date);
+  });
+
+  it("should read the queue in api's order with its window, encoding only the parameters it is given", async () => {
+    const first = await referralOn(await caseId());
+    const urgent = await referralOn(await caseId(), { reasons: ["Other"], notes: "x", urgency: "Urgent", urgencyReason: "Hearing" });
+    await openWindow();
+
+    const all = await getReferralQueue({}, teamLeader());
+    const paged = await getReferralQueue({ state: "Open", page: 2, size: 1 }, teamLeader());
+
+    expect(all.ok && all.data.referrals.map((row) => row.id)).toEqual([urgent, first]);
+    expect(all.ok && all.data.referrals[0].createdOn).toBeInstanceOf(Date);
+    expect(all.ok && all.data.window).toMatchObject({ current: { slot: "AM" }, cap: 10, sent: 0 });
+    expect(all.ok && all.data.window?.current?.closesAt).toBeInstanceOf(Date);
+    expect(paged.ok && paged.data).toMatchObject({ page: 2, size: 1, total: 2 });
+    expect(paged.ok && paged.data.referrals.map((row) => row.id)).toEqual([first]);
+  });
+
+  it("should report a caseworker reading the queue as forbidden", async () => {
+    const result = await getReferralQueue({}, { ...config, accessToken: roleToken("cw-1", ["caseworker-deedpoll"]) });
+
+    expect(!result.ok && result.error.kind).toBe("forbidden");
+  });
+
+  it("should send referrals to Masters and answer the referrals sent and the window after", async () => {
+    const id = await caseId();
+    const referralId = await referralOn(id);
+    const masterId = await masterFor("judge.a@example.com");
+    await openWindow();
+
+    const sent = await sendReferrals({ allocations: [{ referralId, masterId }] }, teamLeader());
+
+    expect(sent.ok && sent.data.referrals[0]).toMatchObject({ id: referralId, caseId: id, state: "Claimed", assignedMaster: { id: masterId } });
+    expect(sent.ok && sent.data.referrals[0].directionDueBy).toBeInstanceOf(Date);
+    expect(sent.ok && sent.data.window?.sent).toBe(1);
+  });
+
+  it("should tell a row's refusal from the window's by its field", async () => {
+    const referralId = await referralOn(await caseId());
+    const masterId = await masterFor("judge.a@example.com");
+
+    await openWindow("closed");
+    const closed = await sendReferrals({ allocations: [{ referralId, masterId }] }, teamLeader());
+    await openWindow();
+    const unknown = await sendReferrals({ allocations: [{ referralId, masterId: "00000000-0000-4000-8000-000000000000" }] }, teamLeader());
+    const notWaiting = await sendReferrals({ allocations: [{ referralId: "00000000-0000-4000-8000-000000000001", masterId }] }, teamLeader());
+
+    expect(!closed.ok && closed.error.kind).toBe("conflict");
+    expect(!closed.ok && closed.error.fieldErrors).toBeUndefined();
+    expect(!unknown.ok && unknown.error.kind).toBe("validation");
+    expect(!unknown.ok && unknown.error.fieldErrors?.map((error) => error.field)).toEqual(["allocations[0].masterId"]);
+    expect(!notWaiting.ok && notWaiting.error.kind).toBe("conflict");
+    expect(!notWaiting.ok && notWaiting.error.fieldErrors?.map((error) => error.field)).toEqual(["allocations[0].referralId"]);
+  });
+
+  it("should reassign a sent referral to another Master, and refuse one still in the queue as a conflict", async () => {
+    const id = await caseId();
+    const referralId = await referralOn(id, await toMaster("judge.a@example.com"));
+    const second = await masterFor("judge.b@example.com");
+    const waitingCase = await caseId();
+    const waiting = await referralOn(waitingCase);
+
+    const moved = await assignReferral(id, referralId, second, teamLeader());
+    const refused = await assignReferral(waitingCase, waiting, second, teamLeader());
+    const caseworkerTried = await assignReferral(id, referralId, second, { ...config, accessToken: roleToken("cw-1", ["caseworker-deedpoll"]) });
+
+    expect(moved.ok && moved.data).toMatchObject({ state: "Claimed", assignedMaster: { id: second }, claimedBy: "judge.b@example.com" });
+    expect(!refused.ok && refused.error.kind).toBe("conflict");
+    expect(!caseworkerTried.ok && caseworkerTried.error.kind).toBe("forbidden");
   });
 
   it("should list every referral a case has had, not only the live one, and read one back by id", async () => {
@@ -817,7 +1045,7 @@ describe("referrals", () => {
     expect(result.ok && result.data.state).toBe("Withdrawn");
     // Recomputed from the referrals rather than pushed: withdrawal is terminal, so the case holds none.
     const after = await getCase(id, config);
-    expect(after.ok && after.data.currentReferralState).toBe(null);
+    expect(after.ok && after.data.currentReferralState).toBeNull();
   });
 
   it("should carry the live referral's state onto the case list row as well as the case", async () => {
@@ -865,9 +1093,9 @@ describe("referrals", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // The direction survives the close: closing records that the office actioned it, not that it is undone.
-    expect(result.data).toMatchObject({ state: "Closed", decision: "Approved", publishToGazette: true });
+    expect(result.data).toMatchObject({ state: "Closed", decision: "Approved", changesToStandardPublication: false });
     const after = await getCase(id, config);
-    expect(after.ok && after.data.currentReferralState).toBe(null);
+    expect(after.ok && after.data.currentReferralState).toBeNull();
   });
 
   it("should report conflict when closing a referral no judge has directed", async () => {
@@ -911,7 +1139,7 @@ describe("recordConfirmation", () => {
     expect(after.ok && after.data.total).toBe(0);
     // The case itself says it is waiting for nothing, which is the same answer read a second way.
     const read = await getCase(id, config);
-    expect(read.ok && read.data.awaitingConfirmationSince).toBe(null);
+    expect(read.ok && read.data.awaitingConfirmationSince).toBeNull();
   });
 
   it("should send the outcome and the note and nothing else, because the recorder is the token", async () => {
@@ -1333,7 +1561,7 @@ describe("saved queries", () => {
 
     const patched = await patchSavedQuery(created.data.id, { description: null }, config);
 
-    expect(patched.ok && patched.data.description).toBe(null);
+    expect(patched.ok && patched.data.description).toBeNull();
   });
 
   it("should return an unnarrowed query's conditions as an empty array rather than null", async () => {
@@ -1427,51 +1655,32 @@ describe("the judicial surface", () => {
   const JUDGE = "judge.a@example.com";
   const ANOTHER_JUDGE = "judge.b@example.com";
 
-  it("should offer the Open referrals of every case in one shared pool, urgent first", async () => {
-    await referralOn(await caseId(), { reasons: ["Minor"] });
-    const urgent = await referralOn(await caseId(), { reasons: ["DomesticAbuse"], urgency: "Urgent", urgencyReason: "Risk to the applicant" });
+  it("should answer the deprecated pool with an empty page, whatever is waiting for assignment", async () => {
+    await referralOn(await caseId(), { reasons: ["Minor", "MinorCourtOrder"] });
+    await referralOn(await caseId(), await toMaster(JUDGE));
 
     const result = await getJudicialPool({}, judge(JUDGE));
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.data.referrals[0]?.id).toBe(urgent);
-    // Ten rather than the case list's twenty-five, and a page size rather than a cap — `total` says how much
-    // work is waiting behind the page.
-    expect(result.data).toMatchObject({ page: 1, size: 10, total: 2, totalPages: 1 });
+    // api D2: referrals are assigned by the office, so the former pool is always empty.
+    expect(result).toEqual({ ok: true, data: { referrals: [], page: 1, size: 10, total: 0, totalPages: 0 } });
   });
 
-  it("should page the pool, reporting the whole pool's total rather than the page's", async () => {
-    await referralOn(await caseId());
-    await referralOn(await caseId());
-
-    const result = await getJudicialPool({ page: 2, size: 1 }, judge(JUDGE));
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.data.referrals).toHaveLength(1);
-    expect(result.data).toMatchObject({ page: 2, size: 1, total: 2, totalPages: 2 });
-  });
-
-  it("should answer one referral with the narrow application view and the application's timeline", async () => {
+  it("should answer one referral with the narrow application view and no case notes", async () => {
     const id = await caseId({ newForename: "Jo", newSurname: "Bloggs" });
     await createNote(id, "Signature received", config);
-    const referralId = await referralOn(id);
+    const referralId = await referralOn(id, await toMaster(JUDGE));
 
     const result = await getJudicialReferral(referralId, judge(JUDGE));
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.application).toMatchObject({ newForename: "Jo", newSurname: "Bloggs" });
-    // Newest first, and the raise's own note leads it: a referral writes onto the same timeline, which reaches a
-    // judge unfiltered. The wording is api's `ReferralNotes` and is pinned in `mock/server.test.ts`.
-    expect(result.data.caseNotes.map((note) => note.note)).toEqual([expect.stringContaining("Referred to the judiciary"), "Signature received"]);
-    expect(result.data.caseNotes[0]?.createdOn).toBeInstanceOf(Date);
+    // The case has two notes (the one above and the raise's own), and a Master is sent neither (2026-10-27).
+    expect(result.data).not.toHaveProperty("caseNotes");
   });
 
   it("should report not-found for a referral another judge holds, so no referral is discoverable", async () => {
-    const referralId = await referralOn(await caseId());
-    await claimJudicialReferral(referralId, judge(JUDGE));
+    const referralId = await referralOn(await caseId(), await toMaster(JUDGE));
 
     const result = await getJudicialReferral(referralId, judge(ANOTHER_JUDGE));
 
@@ -1480,23 +1689,18 @@ describe("the judicial surface", () => {
     expect(result.error.kind).toBe("not-found");
   });
 
-  it("should claim a referral out of the pool, recording the holder from the token", async () => {
+  it("should report not-found for claiming a referral waiting for assignment, which no judge may see", async () => {
     const referralId = await referralOn(await caseId());
 
     const result = await claimJudicialReferral(referralId, judge(JUDGE));
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.data).toMatchObject({ state: "Claimed", claimedBy: JUDGE });
-    expect(result.data.claimedAt).toBeInstanceOf(Date);
-    // Out of the pool as well as claimed: the pool is what the other judges are shown.
-    const pool = await getJudicialPool({}, judge(ANOTHER_JUDGE));
-    expect(pool.ok && pool.data.referrals).toEqual([]);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("not-found");
   });
 
-  it("should report conflict when claiming a referral that is not Open, which is what a second judge gets", async () => {
-    const referralId = await referralOn(await caseId());
-    await claimJudicialReferral(referralId, judge(JUDGE));
+  it("should report conflict when claiming a referral already assigned to this judge, on the deprecated claim", async () => {
+    const referralId = await referralOn(await caseId(), await toMaster(JUDGE));
 
     const result = await claimJudicialReferral(referralId, judge(JUDGE));
 
@@ -1506,12 +1710,11 @@ describe("the judicial surface", () => {
   });
 
   it("should record a direction on a referral this judge holds, stamping the decision date and the decider", async () => {
-    const referralId = await referralOn(await caseId());
-    await claimJudicialReferral(referralId, judge(JUDGE));
+    const referralId = await referralOn(await caseId(), await toMaster(JUDGE));
 
     const result = await directJudicialReferral(
       referralId,
-      { decision: "Rejected", publishToGazette: false, directionsText: "Insufficient evidence" },
+      { decision: "Rejected", changesToStandardPublication: true, directionsText: "Insufficient evidence" },
       judge(JUDGE)
     );
 
@@ -1520,19 +1723,18 @@ describe("the judicial surface", () => {
     expect(result.data).toMatchObject({
       state: "Decided",
       decision: "Rejected",
-      publishToGazette: false,
+      changesToStandardPublication: true,
       directionsText: "Insufficient evidence",
       decidedBy: JUDGE
     });
     expect(result.data.decisionDate).toBeInstanceOf(Date);
   });
 
-  it("should report conflict for a direction on a referral this judge can see but does not hold", async () => {
-    // An Open referral is in the pool, so it is visible — and directing one nobody has claimed is the
-    // conflict, not a 404.
-    const referralId = await referralOn(await caseId());
+  it("should report conflict for a second direction on a referral this judge has already directed", async () => {
+    // Visible, because they directed it, and no longer waiting for a direction: the conflict, not a 404.
+    const referralId = await decidedBy(JUDGE);
 
-    const result = await directJudicialReferral(referralId, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+    const result = await directJudicialReferral(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -1542,10 +1744,9 @@ describe("the judicial surface", () => {
   it("should report not-found for a direction on a referral claimed by another judge, not conflict", async () => {
     // The visibility check runs first, so a referral this judge may not see is absent rather than contested —
     // otherwise a 409 would tell them somebody else holds it.
-    const referralId = await referralOn(await caseId());
-    await claimJudicialReferral(referralId, judge(JUDGE));
+    const referralId = await referralOn(await caseId(), await toMaster(JUDGE));
 
-    const result = await directJudicialReferral(referralId, { decision: "Approved", publishToGazette: true }, judge(ANOTHER_JUDGE));
+    const result = await directJudicialReferral(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(ANOTHER_JUDGE));
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -1553,10 +1754,9 @@ describe("the judicial surface", () => {
   });
 
   it("should report a decision api does not publish as a validation failure against the field", async () => {
-    const referralId = await referralOn(await caseId());
-    await claimJudicialReferral(referralId, judge(JUDGE));
+    const referralId = await referralOn(await caseId(), await toMaster(JUDGE));
 
-    const result = await directJudicialReferral(referralId, { decision: "Maybe" as never, publishToGazette: true }, judge(JUDGE));
+    const result = await directJudicialReferral(referralId, { decision: "Maybe" as never, changesToStandardPublication: false }, judge(JUDGE));
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -1565,15 +1765,11 @@ describe("the judicial surface", () => {
   });
 
   it("should answer this judge's own claimed and decided referrals, and no other judge's", async () => {
-    const claimed = await referralOn(await caseId());
-    await claimJudicialReferral(claimed, judge(JUDGE));
-    const decided = await referralOn(await caseId());
-    await claimJudicialReferral(decided, judge(JUDGE));
-    await directJudicialReferral(decided, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
-    // The two exclusions that make this a personal list rather than a second pool.
+    const claimed = await referralOn(await caseId(), await toMaster(JUDGE));
+    const decided = await decidedBy(JUDGE);
+    // The two exclusions that make this a personal list: waiting for assignment, and another Master's.
     const open = await referralOn(await caseId());
-    const theirs = await referralOn(await caseId());
-    await claimJudicialReferral(theirs, judge(ANOTHER_JUDGE));
+    const theirs = await referralOn(await caseId(), await toMaster(ANOTHER_JUDGE));
 
     const result = await getJudicialMyReferrals({}, judge(JUDGE));
 
@@ -1588,8 +1784,8 @@ describe("the judicial surface", () => {
   it("should encode the page and the size on the literal path, and send neither when it asks for neither", async () => {
     // The whole operation this adapter contributes is a path and two parameters, so the path is what there is to
     // get wrong: `/judicial/referrals/mine` and never `/judicial/referrals?mine`, and never an owner parameter.
-    await claimJudicialReferral(await referralOn(await caseId()), judge(JUDGE));
-    await claimJudicialReferral(await referralOn(await caseId()), judge(JUDGE));
+    await referralOn(await caseId(), await toMaster(JUDGE));
+    await referralOn(await caseId(), await toMaster(JUDGE));
 
     const paged = await getJudicialMyReferrals({ page: 2, size: 1 }, judge(JUDGE));
     const unpaged = await getJudicialMyReferrals({}, judge(JUDGE));
@@ -1638,14 +1834,18 @@ describe("the judicial surface", () => {
   it("should replace the direction this judge gave and say when it changed", async () => {
     const referralId = await decidedBy(JUDGE);
 
-    const result = await reviseDirection(referralId, { decision: "Rejected", publishToGazette: false, directionsText: "On reflection, no" }, judge(JUDGE));
+    const result = await reviseDirection(
+      referralId,
+      { decision: "Rejected", changesToStandardPublication: true, directionsText: "On reflection, no" },
+      judge(JUDGE)
+    );
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data).toMatchObject({
       state: "Decided",
       decision: "Rejected",
-      publishToGazette: false,
+      changesToStandardPublication: true,
       directionsText: "On reflection, no",
       decidedBy: JUDGE
     });
@@ -1653,10 +1853,9 @@ describe("the judicial surface", () => {
   });
 
   it("should report conflict for changing a direction on a referral this judge holds but has not directed", async () => {
-    const referralId = await referralOn(await caseId());
-    await claimJudicialReferral(referralId, judge(JUDGE));
+    const referralId = await referralOn(await caseId(), await toMaster(JUDGE));
 
-    const result = await reviseDirection(referralId, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+    const result = await reviseDirection(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -1666,7 +1865,7 @@ describe("the judicial surface", () => {
   it("should report not-found for changing another judge's direction, not conflict", async () => {
     const referralId = await decidedBy(ANOTHER_JUDGE);
 
-    const result = await reviseDirection(referralId, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+    const result = await reviseDirection(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -1685,11 +1884,10 @@ describe("the judicial surface", () => {
   });
 
   it("should report conflict for withdrawing a direction nobody has given, and not-found once the office closes it", async () => {
-    const open = await referralOn(await caseId());
+    const open = await referralOn(await caseId(), await toMaster(JUDGE));
     const closedCase = await caseId();
-    const closed = await referralOn(closedCase);
-    await claimJudicialReferral(closed, judge(JUDGE));
-    await directJudicialReferral(closed, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+    const closed = await referralOn(closedCase, await toMaster(JUDGE));
+    await directJudicialReferral(closed, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
     await closeReferral(closedCase, closed, config);
 
     const refusedOpen = await withdrawDirection(open, judge(JUDGE));
@@ -1699,12 +1897,12 @@ describe("the judicial surface", () => {
     expect(!refusedClosed.ok && refusedClosed.error.kind).toBe("not-found");
   });
 
-  it("should list the application's witnesses and documents, and stream a document with api's headers", async () => {
+  it("should list the application's documents, and stream a document with api's headers", async () => {
     const id = await caseId();
     const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x00, 0xff]);
     const uploaded = await uploadDocument(id, { documentTypeId: DOCUMENT_TYPE_ID, name: "birth.pdf", mimeType: "application/pdf", bytes }, config);
     if (!uploaded.ok) throw new Error("document was not uploaded");
-    const referralId = await referralOn(id);
+    const referralId = await referralOn(id, await toMaster(JUDGE));
 
     const detail = await getJudicialReferral(referralId, judge(JUDGE));
     const result = await downloadJudicialDocument(referralId, uploaded.data.id, judge(JUDGE));
@@ -1713,7 +1911,7 @@ describe("the judicial surface", () => {
       [uploaded.data.id, "Birth certificate", bytes.length]
     ]);
     expect(detail.ok && detail.data.application?.documents[0]?.uploadedOn).toBeInstanceOf(Date);
-    expect(detail.ok && detail.data.application?.witnesses).toEqual([]);
+    expect(detail.ok && detail.data.application).not.toHaveProperty("witnesses");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.contentType).toBe("application/pdf");
@@ -1731,8 +1929,7 @@ describe("the judicial surface", () => {
       config
     );
     if (!uploaded.ok) throw new Error("document was not uploaded");
-    const referralId = await referralOn(id);
-    await claimJudicialReferral(referralId, judge(ANOTHER_JUDGE));
+    const referralId = await referralOn(id, await toMaster(ANOTHER_JUDGE));
 
     const result = await downloadJudicialDocument(referralId, uploaded.data.id, judge(JUDGE));
 
@@ -1742,28 +1939,38 @@ describe("the judicial surface", () => {
   });
 
   it("should parse the rows into the same summary the pool publishes, dates included", async () => {
-    const referralId = await referralOn(await caseId(), { reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Risk to the applicant" });
-    await claimJudicialReferral(referralId, judge(JUDGE));
+    const referralId = await referralOn(
+      await caseId(),
+      await toMaster(JUDGE, { reasons: ["Minor", "MinorCourtOrder"], urgency: "Urgent", urgencyReason: "Risk to the applicant" })
+    );
 
     const result = await getJudicialMyReferrals({}, judge(JUDGE));
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const [row] = result.data.referrals;
-    expect(row).toMatchObject({ id: referralId, state: "Claimed", reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Risk to the applicant" });
+    expect(row).toMatchObject({
+      id: referralId,
+      state: "Claimed",
+      reasons: ["Minor", "MinorCourtOrder"],
+      urgency: "Urgent",
+      urgencyReason: "Risk to the applicant"
+    });
     // Converted from api's zoneless date-time, like every other row this adapter parses.
     expect(row?.createdOn).toBeInstanceOf(Date);
+    // api D2's two: when it was assigned, and when the direction is due.
+    expect(row?.assignedAt).toBeInstanceOf(Date);
+    expect(row?.directionDueBy).toBeInstanceOf(Date);
     // No application and no holder on a row: the personal list is the pool's summary, which carries neither.
     expect(row).not.toHaveProperty("application");
     expect(row).not.toHaveProperty("claimedBy");
   });
 });
 
-/** A referral on a fresh case, claimed and directed by `judgeName` — the only state a direction can change from. */
+/** A referral on a fresh case, assigned to and directed by `judgeName` — the only state a direction can change from. */
 async function decidedBy(judgeName: string): Promise<string> {
-  const referralId = await referralOn(await caseId());
-  await claimJudicialReferral(referralId, judge(judgeName));
-  await directJudicialReferral(referralId, { decision: "Approved", publishToGazette: true }, judge(judgeName));
+  const referralId = await referralOn(await caseId(), await toMaster(judgeName));
+  await directJudicialReferral(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(judgeName));
 
   return referralId;
 }
@@ -1901,6 +2108,125 @@ describe("the upload's timeout, which is longer than the JSON default", () => {
       expect(result.error.kind).toBe("validation");
     } finally {
       await answering.close();
+    }
+  });
+});
+
+/**
+ * The Gazette submit's own timeout, on a clock running `CLOCK_SCALE` times fast.
+ *
+ * api sends the batch inside the request, so a real send can take longer than `DEFAULT_TIMEOUT_MS` and still
+ * succeed (finding R03). Waiting twelve real seconds per case would be slow, so `AbortSignal.timeout` is wrapped
+ * to divide every figure by the scale: the server's delay is divided the same way, the ratios stay as they are
+ * in production, and the HTTP and the abort are both real. The recorded figures pin the constants themselves.
+ * The scale is 20, not 100, because a slow send that should succeed then has 400 ms of real margin rather than 80 ms,
+ * which a cold localhost connect (about 75 ms, see `STREAM_TIMEOUT_MS`) could eat.
+ */
+const CLOCK_SCALE = 20;
+const GAZETTE_SUBMIT_TIMEOUT_MS = 20_000;
+const SLOW_SEND_MS = 12_000;
+const SENT_STATUS = { batchId: "00000000-0000-4000-8000-000000000009", state: "Sent", caseCount: 1 };
+const SUBMIT = { caseIds: ["00000000-0000-4000-8000-000000000001"], recipientRevision: 1, selectionFingerprint: "opaque" };
+
+describe("the Gazette submit's timeout, which is longer than the JSON default", () => {
+  let armed: number[];
+
+  beforeEach(() => {
+    armed = [];
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      armed.push(ms);
+      return realTimeout(ms / CLOCK_SCALE);
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("should report a send answered after the JSON default as sent, with one admission at the server", async () => {
+    const admitted: string[] = [];
+    const slow = await listen(
+      createServer((req, res) => {
+        admitted.push(String(req.headers["idempotency-key"]));
+        req.resume();
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify(SENT_STATUS));
+        }, SLOW_SEND_MS / CLOCK_SCALE);
+      })
+    );
+
+    try {
+      const result = await submitGazetteNotice(SUBMIT, "the-original-key", { baseUrl: slow.url });
+
+      expect(result).toEqual({ ok: true, data: SENT_STATUS });
+      expect(admitted).toEqual(["the-original-key"]);
+      expect(armed).toEqual([GAZETTE_SUBMIT_TIMEOUT_MS]);
+    } finally {
+      await slow.close();
+    }
+  });
+
+  it("should still time out a submit that api never answers", async () => {
+    const silent = await listen(createServer(() => {}));
+
+    try {
+      const result = await submitGazetteNotice(SUBMIT, "the-original-key", { baseUrl: silent.url });
+
+      expect(result).toMatchObject({ ok: false, error: { kind: "timeout" } });
+      expect(armed).toEqual([GAZETTE_SUBMIT_TIMEOUT_MS]);
+    } finally {
+      await silent.close();
+    }
+  });
+
+  it("should cap a configured timeout longer than the submit's own, because it may only shorten the wait", async () => {
+    const silent = await listen(createServer(() => {}));
+
+    try {
+      const result = await submitGazetteNotice(SUBMIT, "the-original-key", { baseUrl: silent.url, timeoutMs: 60_000 });
+
+      expect(result).toMatchObject({ ok: false, error: { kind: "timeout" } });
+      expect(armed).toEqual([GAZETTE_SUBMIT_TIMEOUT_MS]);
+    } finally {
+      await silent.close();
+    }
+  });
+
+  it("should let a configured timeout shorter than the submit's own win", async () => {
+    const silent = await listen(createServer(() => {}));
+
+    try {
+      const result = await submitGazetteNotice(SUBMIT, "the-original-key", { baseUrl: silent.url, timeoutMs: 5_000 });
+
+      expect(result).toMatchObject({ ok: false, error: { kind: "timeout" } });
+      expect(armed).toEqual([5_000]);
+    } finally {
+      await silent.close();
+    }
+  });
+
+  it("should leave the preview and the status read on the JSON default, because neither sends anything", async () => {
+    const slow = await listen(
+      createServer((req, res) => {
+        req.resume();
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify(SENT_STATUS));
+        }, SLOW_SEND_MS / CLOCK_SCALE);
+      })
+    );
+
+    try {
+      const preview = await previewGazetteNotice({ caseIds: SUBMIT.caseIds }, { baseUrl: slow.url });
+      const status = await getGazetteStatus(SENT_STATUS.batchId, { baseUrl: slow.url });
+
+      expect(preview).toMatchObject({ ok: false, error: { kind: "timeout" } });
+      expect(status).toMatchObject({ ok: false, error: { kind: "timeout" } });
+      expect(armed).toEqual([DEFAULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS]);
+    } finally {
+      await slow.close();
     }
   });
 });
@@ -2185,6 +2511,128 @@ describe("when api answers 2xx with a body that breaks the contract", () => {
   });
 });
 
+describe("the diagnostics of a response that breaks the contract", () => {
+  // Synthetic markers standing in for what a caseworker searches by: an applicant's name and a field condition.
+  const SEARCH = "Zq-search-marker O'Brien & Sons/ç";
+  const CONDITION = "currentForename:Zq-where-marker,with:colon";
+  const BODIES = [
+    ["malformed JSON", "not json"],
+    ["valid JSON of the wrong shape", JSON.stringify({ filter: "all", cases: "Zq-body-marker", page: 1, size: 25, total: 1, totalPages: 1 })]
+  ] as const;
+
+  it.each(BODIES)("should name the operation without its query when api answers %s", async (_label, body) => {
+    const answering = await listen(
+      createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(body);
+      })
+    );
+
+    try {
+      const result = await listCases(
+        { filter: "Zq-filter-marker", q: SEARCH, where: [CONDITION, "state:Zq-second-where"], sort: "Zq-sort-marker:asc", page: 2, size: 10 },
+        { baseUrl: answering.url, timeoutMs: 2000 }
+      );
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.kind).toBe("invalid-response");
+      expect(result.error.message).toMatch(/^GET \/caseworker\/cases /);
+      const diagnostics = JSON.stringify(result.error);
+      for (const marker of ["Zq-", "O'Brien", "%27", "currentForename", "page=", "?"]) expect(diagnostics).not.toContain(marker);
+    } finally {
+      await answering.close();
+    }
+  });
+
+  it("should still send every search value, encoded, exactly once", async () => {
+    const urls: string[] = [];
+    const answering = await listen(
+      createServer((req, res) => {
+        urls.push(req.url ?? "");
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("not json");
+      })
+    );
+
+    try {
+      await listCases({ q: SEARCH, where: [CONDITION] }, { baseUrl: answering.url, timeoutMs: 2000 });
+
+      expect(urls).toHaveLength(1);
+      const sent = new URL(urls[0] ?? "", answering.url);
+      expect(sent.pathname).toBe("/caseworker/cases");
+      expect(sent.searchParams.get("q")).toBe(SEARCH);
+      expect(sent.searchParams.getAll("where")).toEqual([CONDITION]);
+    } finally {
+      await answering.close();
+    }
+  });
+
+  it("should keep the schema's field paths, which name the contract and not the data", async () => {
+    const answering = await listen(
+      createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ filter: "all", cases: "Zq-body-marker", page: 1, size: 25, total: 1, totalPages: 1 }));
+      })
+    );
+
+    try {
+      const result = await listCases({ q: SEARCH }, { baseUrl: answering.url, timeoutMs: 2000 });
+
+      expect(result).toMatchObject({ ok: false, error: { kind: "invalid-response", status: 200, message: expect.stringContaining("(cases)") } });
+    } finally {
+      await answering.close();
+    }
+  });
+
+  it("should leave out the query of every other listing that carries one", async () => {
+    const answering = await listen(
+      createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("not json");
+      })
+    );
+    const config = { baseUrl: answering.url, timeoutMs: 2000 };
+
+    try {
+      const results = await Promise.all([
+        getGazetteNoticeHistory({ page: 7, size: 9 }, config),
+        getJudicialPool({ page: 7, size: 9 }, config),
+        getJudicialMyReferrals({ page: 7, size: 9 }, config)
+      ]);
+
+      for (const result of results) {
+        expect(result.ok).toBe(false);
+        if (result.ok) continue;
+        expect(result.error.kind).toBe("invalid-response");
+        expect(result.error.message).not.toContain("?");
+        expect(result.error.message).not.toContain("page=");
+      }
+    } finally {
+      await answering.close();
+    }
+  });
+
+  it("should keep an encoded path segment encoded, so a question mark in an id is not read as a query", async () => {
+    const answering = await listen(
+      createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("not json");
+      })
+    );
+
+    try {
+      const result = await getCase("abc?def#ghi", { baseUrl: answering.url, timeoutMs: 2000 });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.message).toBe("GET /caseworker/cases/abc%3Fdef%23ghi returned a body that is not JSON");
+    } finally {
+      await answering.close();
+    }
+  });
+});
+
 describe("the bearer token", () => {
   it("should be presented on every call, because api authenticates all of them", async () => {
     const headers: (string | undefined)[] = [];
@@ -2254,7 +2702,7 @@ function awaitingConfirmation(): { caseId: string; referralId: string } {
     claimedAt: new Date("2026-03-15T09:00:00"),
     decision: "Rejected",
     directionsText: JUDGES_REASON,
-    publishToGazette: false,
+    changesToStandardPublication: true,
     decisionDate: new Date("2026-03-18T09:00:00"),
     decidedBy: "judge.a@example.com",
     decidedById: "judge.a@example.com",
@@ -2272,12 +2720,31 @@ function awaitingConfirmation(): { caseId: string; referralId: string } {
   return { caseId: seeded.id, referralId: waiting.id };
 }
 
-/** A referral raised over the contract, which is where every referral journey starts. */
-async function referralOn(id: string, body: ReferralCreate = { reasons: ["Minor"] }): Promise<string> {
-  const created = await createReferral(id, body, config);
+/**
+ * A referral raised over the contract, which is where every referral journey starts. Given a `masterId` (from
+ * `toMaster`), it is then sent to that Master from the queue by a Team leader, in a window the mock's clock is moved
+ * into, as api F1 sends every referral.
+ */
+async function referralOn(id: string, body: ReferralCreate & { masterId?: string } = { reasons: ["Minor", "MinorCourtOrder"] }): Promise<string> {
+  const { masterId, ...raise } = body;
+  const created = await createReferral(id, raise, config);
   if (!created.ok) throw new Error(`referral was not created: ${created.error.message}`);
+  if (masterId === undefined) return created.data.id;
+
+  await openWindow();
+  const sent = await sendReferrals({ allocations: [{ referralId: created.data.id, masterId }] }, teamLeader());
+  if (!sent.ok) throw new Error(`referral was not sent: ${sent.error.message}`);
 
   return created.data.id;
+}
+
+/** The mock's clock moved just inside the next morning window, where a send is admitted. */
+async function openWindow(window: "open" | "closed" = "open"): Promise<void> {
+  await fetch(`${mock.url}/__mock/clock`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ window }) });
+}
+
+function teamLeader(): ApiConfig {
+  return { ...config, accessToken: roleToken("lead-1", ["caseworker-deedpoll-team-leader"]) };
 }
 
 /**
@@ -2288,12 +2755,10 @@ async function referralOn(id: string, body: ReferralCreate = { reasons: ["Minor"
  */
 async function decidedReferral(): Promise<{ caseId: string; referralId: string }> {
   const id = await caseId();
-  const referralId = await referralOn(id);
+  const referralId = await referralOn(id, await toMaster("judge.a@example.com"));
   const judgeConfig = judge("judge.a@example.com");
 
-  const claimed = await claimJudicialReferral(referralId, judgeConfig);
-  if (!claimed.ok) throw new Error(`referral was not claimed: ${claimed.error.message}`);
-  const directed = await directJudicialReferral(referralId, { decision: "Approved", publishToGazette: true }, judgeConfig);
+  const directed = await directJudicialReferral(referralId, { decision: "Approved", changesToStandardPublication: false }, judgeConfig);
   if (!directed.ok) throw new Error(`referral was not directed: ${directed.error.message}`);
 
   return { caseId: id, referralId };
@@ -2308,15 +2773,41 @@ async function decidedReferral(): Promise<{ caseId: string; referralId: string }
  */
 async function refusedCase(patch: Parameters<typeof createCase>[0] = {}): Promise<{ caseId: string; referralId: string }> {
   const id = await caseId({ applicantEmail: "applicant@example.com", oldForename: "Sam", oldSurname: "Smith", ...patch });
-  const referralId = await referralOn(id);
+  const referralId = await referralOn(id, await toMaster("judge.a@example.com"));
   const judgeConfig = judge("judge.a@example.com");
 
-  const claimed = await claimJudicialReferral(referralId, judgeConfig);
-  if (!claimed.ok) throw new Error(`referral was not claimed: ${claimed.error.message}`);
-  const directed = await directJudicialReferral(referralId, { decision: "Rejected", publishToGazette: false, directionsText: JUDGES_REASON }, judgeConfig);
+  const directed = await directJudicialReferral(
+    referralId,
+    { decision: "Rejected", changesToStandardPublication: true, directionsText: JUDGES_REASON },
+    judgeConfig
+  );
   if (!directed.ok) throw new Error(`referral was not directed: ${directed.error.message}`);
 
   return { caseId: id, referralId };
+}
+
+/**
+ * A referral body to be sent to the Master entry for `subject`, created and linked on first use: a Master sees only
+ * what is sent to them, so this is how a test puts a referral in a judge's hands now there is no claim.
+ * The entry is named after the subject, so `claimedBy` reads as it did when the judge claimed it.
+ */
+async function toMaster(subject: string, body: ReferralCreate = { reasons: ["Minor", "MinorCourtOrder"] }): Promise<ReferralCreate & { masterId: string }> {
+  return { ...body, masterId: await masterFor(subject) };
+}
+
+async function masterFor(subject: string): Promise<string> {
+  const email = `${subject.toLowerCase().replace(/[^a-z0-9]/g, "-")}@masters.test`;
+  const manager = { ...config, accessToken: roleToken("manager-1", ["caseworker-deedpoll-delivery-manager"]) };
+  const listed = await listMasters(manager);
+  const known = listed.ok ? listed.data.masters.find((master) => master.email === email) : undefined;
+  if (known) return known.id;
+  const created = await createMaster({ name: subject, email }, manager);
+  if (!created.ok) throw new Error(`Master was not created: ${created.error.message}`);
+  // The Master's first judicial request links the entry to their subject, as api's `MasterLinking` does.
+  const linking = `x.${Buffer.from(JSON.stringify({ sub: subject, email, roles: ["caseworker-deedpoll-judicial"] })).toString("base64url")}.signature`;
+  await getJudicialMyReferrals({}, { ...config, accessToken: linking });
+
+  return created.data.id;
 }
 
 /**
@@ -2356,4 +2847,9 @@ async function listen(server: Server): Promise<{ url: string; close: () => Promi
         server.close((error) => (error ? reject(error) : resolve()));
       })
   };
+}
+
+/** A token the mock reads roles from, as `getGazetteNoticeHistory`'s tests build one. */
+function roleToken(sub: string, roles: string[]): string {
+  return `x.${Buffer.from(JSON.stringify({ sub, roles })).toString("base64url")}.signature`;
 }

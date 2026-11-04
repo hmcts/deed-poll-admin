@@ -161,11 +161,19 @@ yarn format                     # Format code with Biome
 
 # deed-poll-api
 yarn mock:api                   # The in-memory api, on port 3200 (yarn dev starts it too)
-yarn mock:seed                  # Fill the running mock with cases: every tab, a page of results, and nine
+yarn mock:seed                  # Fill the running mock with cases: every tab, a page of results, and twelve
                                 # referrals (four Decided, so the dashboard's "returned — action needed"
                                 # banner is non-zero; two of those also awaiting the applicant's
-                                # confirmation, so that banner and tab are non-empty as well). Resets the
-                                # store first; `--keep` adds to it
+                                # confirmation, so that banner and tab are non-empty as well; two sent to
+                                # Master Judge on different days; one closed; five waiting in the queue to
+                                # be sent, two of them urgent), and three Masters (Master Wren unavailable;
+                                # Master Judge on the judge persona's email, so it links on that persona's
+                                # first judicial request and finds its two on My referrals; the directed
+                                # ones are Master Sullivan's, linked to a seed identity). Everything past
+                                # the queue is sent by a Team leader in a past morning window, so the
+                                # current window's count reads 0. Resets the store first and leaves the
+                                # mock's clock at real time; `--keep` adds to it and skips Masters already
+                                # listed
 ```
 
 The mock starts **empty**, so `yarn mock:seed` is what makes the list page, its filters and the dashboard's
@@ -173,8 +181,8 @@ count show anything at all. An empty store looks the same as a feature that is n
 
 Delivery Managers can follow the London Gazette count from the case list to an oldest-enrolled-first,
 read-only ready list and paginated send history. History shows the full case count and identifies
-truncated reference previews. The ready list links to **London Gazette recipient**, a Delivery Manager-only
-settings editor backed by the API. It starts unset, validates one email address, displays the last
+truncated reference previews. The ready list links to the **London Gazette recipient** section of **Service settings**
+(`/deed-polls/settings`), a settings editor backed by the API. It starts unset, validates one email address, displays the last
 change attribution, and requires reloading after a concurrent edit. The court contact mailbox is
 not used as a default recipient. Saving settings sends no email. Deploy the API settings contract
 and migrations (through API PR #93) before this admin version. The request list and
@@ -184,9 +192,39 @@ No status page offers a resend control. **Review and select applications** opens
 mandatory five-item checklist: complete it for each application, select the reviewed
 cases, check the API-confirmed recipient and adult/minor groups, then explicitly send.
 One email contains spreadsheet download links. Changed data invalidates review;
-a lost response offers a status check using the original request identity. Reviews
+a lost response offers a status check using the original request identity. A send waits at most 20 s
+for the API, so a slower one shows as an unknown outcome that the status check recovers. If the request
+has already used most of its time before the send, nothing is sent or checked: the page says so and
+keeps the same request identity, so trying again cannot send twice. Reviews
 belong to the current visit and are not persisted as business sign-off. See
 [plan 16](docs/plans/16-gazette-1-ready-list-review-and-send.md).
+
+Delivery Managers also reach **Service settings** (`/deed-polls/settings`) from the case list. It sets the
+referral process (the processing window in days, the reminder interval, the number of referrals that can be sent in each window across all Masters, and the two
+referral windows' times, effective immediately for every referral), holds the London Gazette
+recipient for Delivery Managers who also have Gazette access, lists the Masters (adding one, and changing a Master's
+name, email or availability; a signed-in Master whose email changes signs in again before they see their referrals),
+lists the bank holidays (adding one, and removing one after a confirmation page), and links to Manage Case staff
+administration for adding staff and changing their access. Each section saves on its own. The page needs `MANAGE_PROCESS_CONFIG` from
+the API's `GET /me`, so an existing session sees the link within one token lifetime or after signing in again.
+Deploy the API's D1 settings contract (Masters, bank holidays and the extended process settings) to every replica
+before this admin version; see [DEPLOYMENT.md](docs/DEPLOYMENT.md#what-a-deploy-of-this-app-needs-from-api). See
+[the settings plan](docs/plans/20261026-dm-settings-page.md) and
+[the Da1 plan](docs/plans/completed/20261028-da1-settings-contract-mock-and-page.md).
+
+Raising a referral asks no Master: every referral waits in a queue, which a caseworker sees as "Waiting to be sent"
+and then "With {Master}" with its due date. Team leaders and Delivery Managers (`ALLOCATE_REFERRALS`) open
+**Referrals** (`/deed-polls/referrals`) from the case list. Its **To send** tab lists the queue, urgent first: they
+check a referral, choose a Master for each one selected, review the selection and press **Send referrals**, which is
+offered only inside a referral window and never takes the window past its cap, the total across every Master. Its
+**With a Master** tab lists the referrals already sent, each of which can be reassigned at any time without using a
+place in the window. Caseworkers no longer assign or reassign. The case list says how many referrals are waiting to
+be sent, linking a Team leader or Delivery Manager to the screen. Masters have no pool and claim nothing:
+`/judicial/referrals` redirects to **My referrals**, grouped into Urgent, Awaiting your direction and Directed,
+awaiting the office, the last two by the day each was sent. Deploy api F1 to every replica before this admin version;
+see [DEPLOYMENT.md](docs/DEPLOYMENT.md#what-a-deploy-of-this-app-needs-from-api),
+[the Db1 plan](docs/plans/completed/20261028-db1-assignment-contract-mock-and-pages.md) and
+[the Fa1 plan](docs/plans/20261030-fa1-referral-queue-screen.md).
 
 The seed includes 26 ready cases, cases excluded by the publication/sent-date rules, and 26 frozen
 history batches. The newest batch has 101 cases and a sorted 100-reference preview. No email is sent.
@@ -199,9 +237,9 @@ the local IDAM simulator (`yarn idam:build` if its image is missing, then `docke
 and seed it with `yarn idam:users`. Then provide a separate Redis instance on port 6316 (for example,
 `docker run --rm -p 6316:6379 redis:8-alpine`). Run `yarn test:gazette` from this repository root.
 The suite starts/stops its own app on 3316 and fresh mock on 3216, uses Redis database 1, and refuses
-to reuse occupied app/mock ports. All eight journeys sign in through IDAM and include axe checks; the Delivery Manager
-read and recipient-settings journeys also check Welsh. The dedicated config keeps the empty-state fixture out of the shared
-`yarn test:e2e` suite. It never resets an existing mock. These checks cover ready/history reads, recipient settings (including invalid and stale edits),
+to reuse occupied app/mock ports. All ten journeys, the two service settings journeys included (the referral-process save, and the Masters and bank holidays), sign in through IDAM and include axe checks; the Delivery Manager
+read and recipient-settings journeys also check Welsh. The dedicated config keeps the empty-state fixture, and the settings journey's
+referral-process save, out of the shared `yarn test:e2e` suite. It never resets an existing mock. These checks cover ready/history reads, recipient settings (including invalid and stale edits),
 all request outcomes and complete legacy membership, with Welsh and axe checks;
 the mandatory review/send journey covers all five outcomes, lost responses and duplicate confirmation tabs.
 
@@ -214,7 +252,62 @@ database 2. It takes about twelve minutes, because it waits on a real clock: the
 the warning and the timed-out page. A second journey, without JavaScript, shows the server still ends the session.
 These local checks use the mock and never send a real Notify email.
 
+For the document viewer journeys (`yarn test:document-viewer`), prepare the same way: `yarn build`, the IDAM
+simulator seeded with `yarn idam:users`, and Redis on 6379. The suite starts its own app on 3319 and a fresh mock on
+3219, uses Redis database 4, and is kept out of `yarn test:e2e` because it switches the mock's preview scenario. It
+runs one caseworker and one judicial journey over all five file types, including a PDF with a page too large to
+draw in full (see below).
+
+For the referral queue journeys (`yarn test:referrals`), prepare the same way: `yarn build`, the IDAM simulator
+seeded with `yarn idam:users`, and Redis on 6379. The suite starts its own app on 3318 and a fresh mock on 3218, uses
+Redis database 5, and is kept out of `yarn test:e2e` because it moves the mock's referral clock in and out of a window
+and lowers the window's cap, which would refuse every send a parallel worker makes on a shared mock.
+
 There are no database commands: this repo has no database.
+
+### The document viewer
+
+Every document link opens a full-page viewer in the same tab. There are two entry points: the case page's
+Documents tab (generated deeds included) and the judicial referral's document list. Each has its own scoped
+routes: `/deed-polls/{id}/documents/{documentId}/view` and
+`/judicial/referrals/{referralId}/documents/{documentId}/view`, with `/preview` and `/download` beside each. The old
+`/file` routes still work. The viewer shows one page at a time. It has page controls, thumbnails, zoom, fit to
+width or whole page, and rotation, plus a document selector with previous and next document. Each document keeps
+its own page, zoom and rotation during the visit, and **Back to case** or **Back to referral** returns to
+`#documents`. Judges see no case reference. Without JavaScript you still get the selector, neighbour links,
+**Download original** and the return link.
+
+- **Formats.** api turns every allowed upload type into a PDF preview: a PDF as it is, JPEG and PNG as one page,
+  TIFF as one page per frame, and DOCX paginated by api's Docmosis Tornado conversion. The page count comes from the
+  preview PDF. **Download original** always returns the uploaded bytes and filename as an attachment, and rotation
+  changes only what is on screen.
+- **Limits.** The adapter waits at most 27 s for a preview (api's budget is 25 s, both gateways cut off at 30 s). It
+  relays at most 50 MiB (`DOCUMENT_PREVIEW_LIMITS` in `libs/deed-poll-api-client/src/api/client.ts`, pinned to the
+  published spec). The viewer refuses a preview over 100 pages before drawing any of it.
+- **Errors.** api's four preview refusals (`PREVIEW_INVALID_DOCUMENT`, `PREVIEW_LIMIT_EXCEEDED`,
+  `PREVIEW_UNAVAILABLE`, `PREVIEW_BUSY`) and a missing document each get a fixed sentence in the viewer, and the
+  download keeps working. **Try again** appears only for busy and failed previews, and **Sign in again** only when
+  the session has ended. A DOCX before the converter is provisioned is the `PREVIEW_UNAVAILABLE` state (decision 3).
+- **A page that cannot be drawn in full.** A preview that opens but has a page holding an image over the viewer's
+  64-megapixel `maxImageSize` (for example a very large scan, in the page or in a stamp or signature) shows that page as "This page
+  could not be shown in full. Download the original to see it." with a **Download original** link, and nothing of the
+  page is left drawn. Its thumbnail is a grey placeholder. The other pages, page controls, zoom, rotation and document
+  switching keep working, and returning to the page tries it again. This is a page state, not the document-level
+  unavailable state above, which still covers a preview that cannot be opened at all. It relies on a patched
+  `pdfjs-dist` (`.yarn/patches/`), because PDF.js 6.4.299 otherwise draws such a page without the image and reports it
+  as drawn. Only an oversized image does this: any other fault, such as a broken embedded font, keeps PDF.js's own
+  fallback and draws as before. See
+  [`docs/plans/completed/20261025-document-viewer-incomplete-pages.md`](docs/plans/completed/20261025-document-viewer-incomplete-pages.md)
+  and [`docs/plans/completed/20261025-document-viewer-oversized-image-only.md`](docs/plans/completed/20261025-document-viewer-oversized-image-only.md).
+- **PDF.js.** `pdfjs-dist` is pinned to 6.4.299 with a committed Yarn patch (`.yarn/patches/`, see above) and bundled by vite, and its worker is a hashed asset served from this app's
+  origin. Its fonts, cmaps and the JavaScript image decoders are served under `/assets/pdfjs/`
+  (`src/document-viewer/pdfjs-assets.ts`). It runs with WebAssembly, scripting, XFA and range requests turned off,
+  so the CSP is unchanged. No CDN and no external viewer are used.
+- `docs/prototypes/document-viewer.html` is a **design-only** prototype with fictional pages. It is not a renderer
+  or a test fixture. The mock's synthetic previews are built in `libs/deed-poll-api-client/src/mock/document-preview.ts`.
+
+The plan and its evidence are in
+[`docs/plans/completed/20261023-full-page-document-viewer.md`](docs/plans/completed/20261023-full-page-document-viewer.md).
 
 ### Representative data in non-production environments
 
@@ -230,8 +323,9 @@ sitting covers the caseworker screens, the staff controls and Gazette and `/judi
 needs `yarn idam:users` to have seeded the simulator, since the personas are four separate fixture accounts.
 
 Team leaders (`caseworker-deedpoll-team-leader`) can override privacy, delete notes/witnesses,
-manage shared queries and perform API CCD repair. Delivery Managers (`caseworker-deedpoll-delivery-manager`)
-have those capabilities plus Gazette access. Neither role grants judicial access. The temporary legacy
+manage shared queries, perform API CCD repair, and send referrals from the queue to Masters and reassign them
+(`ALLOCATE_REFERRALS`, `/deed-polls/referrals`). Delivery Managers (`caseworker-deedpoll-delivery-manager`)
+have those capabilities plus Gazette access and the service settings page (`MANAGE_PROCESS_CONFIG`, `/deed-polls/settings`). Neither role grants judicial access. The temporary legacy
 admin role retains Team leader capabilities and cannot use Gazette; its seeded account is only for
 migration-refusal checks. Ordinary caseworker and judge permissions are unchanged.
 

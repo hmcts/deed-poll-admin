@@ -6,7 +6,8 @@
  * `field-rules` in the API, and pinned by a wiring test for the same reason.
  *
  * The form asks for four things, not the whole case: a case is logged incrementally, and the rest
- * is filled in through the edit tabs. `dateReceived` is the one that cannot be deferred, because api
+ * is filled in through the edit tabs. Creation records the old name; the proposed new name is entered
+ * on the Application tab. `dateReceived` is the one that cannot be deferred, because api
  * derives the reference number's year from it — a create without it comes back as a 400 attributed to
  * that field, which is why the field is on this form at all rather than left to the Application tab.
  */
@@ -29,8 +30,8 @@ const en = {
   heading: "New deed poll case",
   typeLabel: "Application type",
   typeEmpty: "Choose a type",
-  forenameLabel: "New forename",
-  surnameLabel: "New surname",
+  forenameLabel: "Old forename",
+  surnameLabel: "Old surname",
   dateReceivedLabel: "Date received",
   dateReceivedHint: "For example, 27 3 2026",
   submit: "Create case",
@@ -45,7 +46,7 @@ const cy = { ...en };
 
 const typeOptions = [{ value: "", text: en.typeEmpty }, ...Object.entries(DEED_POLL_TYPE_LABEL).map(([value, text]) => ({ value, text }))];
 
-export const GET = async (_req: Request, res: Response) => {
+export const GET = (_req: Request, res: Response) => {
   res.render("deed-polls/new", { values: {}, typeOptions, en, cy });
 };
 
@@ -70,8 +71,8 @@ export const POST = async (req: Request, res: Response) => {
   // hand-crafted POST set anything on the schema, including `state`, which is derived not supplied.
   const parsed = createDeedPollSchema.safeParse({
     type: body.type || undefined,
-    newForename: body.newForename || undefined,
-    newSurname: body.newSurname || undefined,
+    oldForename: trimmedOrAbsent(body.oldForename),
+    oldSurname: trimmedOrAbsent(body.oldSurname),
     dateReceived: composeDateParts(body["dateReceived-day"], body["dateReceived-month"], body["dateReceived-year"]) ?? undefined
   });
 
@@ -107,6 +108,16 @@ export const POST = async (req: Request, res: Response) => {
     throw error;
   }
 };
+
+/**
+ * Trimmed as the edit tabs' `readFieldInput` trims (review finding R15), with whitespace alone read as absent
+ * like an empty value. Anything that is not a string is passed on for the schema to refuse.
+ */
+function trimmedOrAbsent(value: unknown): unknown {
+  if (typeof value !== "string") return value || undefined;
+
+  return value.trim() || undefined;
+}
 
 /**
  * Re-render with the submitted values, not an empty form.

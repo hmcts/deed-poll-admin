@@ -49,8 +49,8 @@ const CONFIRMATION_RECORDED = "recorded";
 const CONFIRMATION_CONFLICT = "conflict";
 
 const en = {
-  title: "Referral to the judiciary",
-  heading: "Referral to the judiciary",
+  title: "Referral to a Master",
+  heading: "Referral to a Master",
   referralHeading: "Referral",
   // Decision 3: "Referral status" and not "Status". The case header carries a `DeedPollState` of its own and a
   // direction does not decide it, so an unqualified "Status" on a referral invites reading one as the other.
@@ -61,7 +61,11 @@ const en = {
   urgencyReasonLabel: "Reason for urgency",
   progressHeading: "Progress",
   createdLabel: "Raised",
-  claimedLabel: "Claimed by the judiciary",
+  claimedLabel: "Claimed by a Master",
+  // Plan Db1: who it is assigned to, when, and when their direction is due. The claim row above is for a referral a
+  // Master claimed before assignment existed.
+  assignedLabel: "Assigned to",
+  directionDueLabel: "Direction due by",
   modifiedLabel: "Last updated",
   // Decision 9: a migrated referral carries no reasons because the previous system recorded none. Saying so
   // is the difference between an explained gap and one that reads as a fault.
@@ -69,22 +73,22 @@ const en = {
   // api requires at least one reason on a create, so this is only reachable for a row corrected behind its
   // back. It states what is true of the data rather than claiming the referral was migrated.
   noneRecorded: "None recorded.",
-  directionHeading: "Direction from the judiciary",
+  directionHeading: "Direction from the Master",
   decisionLabel: "Decision",
   directionsLabel: "Directions",
-  gazetteLabel: "Published in the Gazette",
+  gazetteLabel: "Changes to the standard publications in the Gazette",
   decidedByLabel: "Decided by",
   decidedLabel: "Decision date",
   yes: "Yes",
   no: "No",
-  // The third state of api's nullish `publishToGazette`, said rather than collapsed into "No": a direction it
+  // The third state of api's nullish `changesToStandardPublication`, said rather than collapsed into "No": a direction it
   // recorded no answer for must not read as one directed against publication.
   gazetteNotRecorded: "Not recorded",
   // api sets `directionChangedAt` when the judge changes or withdraws their direction, and writes the case note
   // that says which. This says only that it happened and when: the earlier direction is on api's audit trail.
-  directionChangedFor: (changedOn: string) => `The judge changed this direction on ${changedOn}.`,
+  directionChangedFor: (changedOn: string) => `The Master changed this direction on ${changedOn}.`,
   withdraw: "Withdraw this referral",
-  withdrawHint: "Withdrawing takes the case back from the judiciary. You can refer it again afterwards.",
+  withdrawHint: "Withdrawing takes the case back from the Master. You can refer it again afterwards.",
   markActioned: "Mark direction as actioned",
   // Decision 3: the referral is actioned by the caseworker, not by the state machine. The direction does not
   // move the application on — they make the updates it calls for and then say they have.
@@ -151,7 +155,7 @@ export const GET = async (req: Request, res: Response) => {
     // The boolean as this page's words, resolved here because `buildDirectionView` deliberately leaves it a
     // boolean for the page's own `en`/`cy` to name — and because the three states are one decision worth
     // making somewhere testable rather than in a template ternary. Same shape as the judicial referral page.
-    gazetteAnswer: gazetteAnswer(view.direction?.publishToGazette, content),
+    gazetteAnswer: gazetteAnswer(view.direction?.changesToStandardPublication, content),
     // Resolved here because the sentence interpolates the date. Empty rather than null, so the template asks "is
     // there something to say".
     directionChanged: view.directionChangedOn === null ? "" : content.directionChangedFor(view.directionChangedOn),
@@ -202,14 +206,14 @@ function closeRefusal(state: string | null | undefined, content: typeof en): str
 }
 
 /**
- * The Gazette direction in words — three answers, because api's `publishToGazette` is nullish.
+ * The Gazette direction in words — three answers, because api's `changesToStandardPublication` is nullish.
  *
  * A direction with no recorded answer says so (decision 4). Collapsing `null` onto "No" would assert the judge
  * directed against publication, which is a claim api never made.
  */
-function gazetteAnswer(publishToGazette: boolean | null | undefined, content: typeof en): string {
-  if (publishToGazette === true) return content.yes;
-  if (publishToGazette === false) return content.no;
+function gazetteAnswer(changesToStandardPublication: boolean | null | undefined, content: typeof en): string {
+  if (changesToStandardPublication === true) return content.yes;
+  if (changesToStandardPublication === false) return content.no;
 
   return content.gazetteNotRecorded;
 }

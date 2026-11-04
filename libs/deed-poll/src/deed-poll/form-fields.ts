@@ -1,5 +1,6 @@
 import type { CardColumn } from "./card-layout.js";
 import { LABELS } from "./enums/dynamics-values.js";
+import type { NumberFormat } from "./numeric-input.js";
 
 /**
  * Form-field metadata — the single source of truth for the editable case form.
@@ -15,6 +16,14 @@ import { LABELS } from "./enums/dynamics-values.js";
  *   - Notes/Witnesses/Documents are subgrids, handled separately (nested CRUD).
  */
 
+/**
+ * The most characters a `textarea` field saves, and the `maxlength` the edit form's character count advertises.
+ * api stores the three as unbounded `text`, so this app is what holds the 2,000 the field definitions describe
+ * (review finding R15). A browser's `maxlength` counts UTF-16 code units with each line break as one, and so does
+ * `readFieldInput`, though the form submits a line break as CRLF.
+ */
+export const TEXTAREA_MAX_LENGTH = 2000;
+
 /** The control kind, deciding how a field renders and how its POST value coerces. */
 export type FieldKind = "text" | "textarea" | "date" | "number" | "boolean" | "enum" | "multiselect";
 
@@ -25,8 +34,22 @@ export interface FieldDef {
   kind: FieldKind;
   /** For kind 'enum'/'multiselect': the LABELS set key (e.g. 'type'). */
   enumSet?: keyof typeof LABELS;
+  /**
+   * For kind 'number': `integer` where `UpdateCaseRequest` publishes the field as `integer`/`int32`, otherwise
+   * `decimal`, which is what absent means. `form-fields.test.ts` pins each editable number field to the contract.
+   */
+  numberFormat?: NumberFormat;
+  /**
+   * For kind 'boolean': `UpdateCaseRequest` publishes the field as `["boolean", "null"]`, so "not answered" is a
+   * value of its own. Such a field renders as Yes / No radios rather than one checkbox, because an unticked box
+   * and an unanswered question both arrive absent, and reading absent as `false` turned every stored `null`
+   * into "No" on any save of its tab (review finding R07). `form-fields.test.ts` pins this to the contract.
+   */
+  nullable?: boolean;
   /** Read-only on the form (disabled input); never written on save. */
   readOnly?: boolean;
+  /** Omit from staff details and edit forms while retaining the field catalogue. */
+  hidden?: boolean;
   /**
    * The column is NOT NULL with a database default, so an absent input must be
    * omitted from a patch rather than nulled. Set this on any field the api client
@@ -111,7 +134,7 @@ const APPLICATION_TAB: TabDef = {
         { name: "referencenumber", label: "Reference number", kind: "number", readOnly: true, column: 1 },
         { name: "displayReference", label: "Display reference", kind: "text", readOnly: true, column: 1 },
         { name: "dateOfApplication", label: "Date of application", kind: "date", column: 1 },
-        { name: "inPerson", label: "In person", kind: "boolean", column: 1 },
+        { name: "inPerson", label: "In person", kind: "boolean", nullable: true, column: 1 },
         // an internal counter, not a caseworker concept
         { name: "postCounter", label: "Post / Counter", kind: "enum", enumSet: "postCounter", queryable: false, column: 1 },
         // unique per case — a lookup, never a filter
@@ -125,18 +148,18 @@ const APPLICATION_TAB: TabDef = {
         // separate card: all four are hidden by getFieldRules for a non-minor type,
         // so on an Adult case the left column simply ends at Marital status.
         { name: "minorDateOfBirth", label: "Minor's date of birth", kind: "date", column: 1 },
-        { name: "ageOfMinor", label: "Age of minor years", kind: "number", column: 1 },
+        { name: "ageOfMinor", label: "Age of minor years", kind: "number", numberFormat: "integer", column: 1 },
         // duplicates ageOfMinor at finer grain
-        { name: "ageOfMinorMonths", label: "Age of minor months", kind: "number", queryable: false, column: 1 },
+        { name: "ageOfMinorMonths", label: "Age of minor months", kind: "number", numberFormat: "integer", queryable: false, column: 1 },
         { name: "parents", label: "Parents", kind: "text", column: 1 },
 
         { name: "privacy", label: "Privacy", kind: "enum", enumSet: "privacy", notNullable: true, column: 2 },
-        { name: "state", label: "State", kind: "enum", enumSet: "state", readOnly: true, column: 2 },
+        { name: "state", label: "Status", kind: "enum", enumSet: "state", readOnly: true, column: 2 },
         { name: "urgency", label: "Urgency", kind: "enum", enumSet: "urgency", notNullable: true, column: 2 },
         // free prose; the queryable fact is the `urgency` enum beside it
         { name: "urgencyreason", label: "Urgency reason", kind: "text", queryable: false, column: 2 },
-        // unique per case — a lookup, never a filter
-        { name: "onlineApplicationReference", label: "Online application reference", kind: "text", queryable: false, column: 2 },
+        // Retained for existing data, queries and emails; staff no longer need to see or enter it.
+        { name: "onlineApplicationReference", label: "Online application reference", kind: "text", queryable: false, hidden: true, column: 2 },
         // a records-management flag, not a caseworker's worklist
         { name: "retainPermanently", label: "Retain permanently", kind: "boolean", queryable: false, column: 2 },
         { name: "awaitingFurtherDocsInfo", label: "Awaiting further docs/info", kind: "date", column: 2 }
@@ -312,8 +335,8 @@ const ENROLMENT_TAB: TabDef = {
       // cell empty — a single stack, not two columns.
       label: "Enrolment",
       fields: [
-        { name: "dateEnroled", label: "Date enroled", kind: "date", column: 1 },
-        { name: "daysReceivedToEnroled", label: "Days received to enroled", kind: "number", readOnly: true, column: 1 },
+        { name: "dateEnroled", label: "Date enrolled", kind: "date", column: 1 },
+        { name: "daysReceivedToEnroled", label: "Days received to enrolled", kind: "number", readOnly: true, column: 1 },
         { name: "dateNoticeSentToLondonGazette", label: "Date notice sent to London Gazette", kind: "date", column: 1 }
       ]
     }
@@ -396,7 +419,7 @@ export const CASE_FIELD_TABS: TabDef[] = [
 ];
 
 /**
- * The tabs a caseworker **navigates and edits** — the catalogue above without the retired referral tab.
+ * The tabs a caseworker **navigates and edits** — the catalogue above without the retired referral tab or hidden fields.
  *
  * So the case detail page shows one referral tab rather than two (`detail-view.ts` iterates this list), the edit
  * form's tab strip does not offer the retired one, and `tabFor`/the POST guard in
@@ -406,7 +429,10 @@ export const CASE_FIELD_TABS: TabDef[] = [
  * Filtered rather than listed a second time, so a tab added to the catalogue reaches the form without a second
  * edit — the same derivation argument as `query-fields.ts`, one list further out.
  */
-export const FORM_TABS: TabDef[] = CASE_FIELD_TABS.filter((tab) => tab !== LEGACY_REFERRAL_TAB);
+export const FORM_TABS: TabDef[] = CASE_FIELD_TABS.filter((tab) => tab !== LEGACY_REFERRAL_TAB).map((tab) => ({
+  ...tab,
+  sections: tab.sections.map((section) => ({ ...section, fields: section.fields.filter((field) => !field.hidden) }))
+}));
 
 /**
  * Case properties api publishes and answers conditions on that have **no control on any form tab**.

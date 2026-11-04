@@ -14,8 +14,8 @@ describe("accessibility-statement page", () => {
   });
 
   describe("GET", () => {
-    it("should render accessibility-statement template", async () => {
-      await GET(req as Request, res as Response);
+    it("should render accessibility-statement template", () => {
+      GET(req as Request, res as Response);
 
       expect(res.render).toHaveBeenCalledWith(
         "accessibility-statement",
@@ -30,8 +30,8 @@ describe("accessibility-statement page", () => {
       );
     });
 
-    it("should call render exactly once", async () => {
-      await GET(req as Request, res as Response);
+    it("should call render exactly once", () => {
+      GET(req as Request, res as Response);
 
       expect(res.render).toHaveBeenCalledTimes(1);
     });

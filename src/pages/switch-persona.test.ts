@@ -141,7 +141,7 @@ describe("the persona switch", () => {
 
     expect(loginAsPersona).toHaveBeenCalledWith(expect.objectContaining({ clientId: "deed-poll-admin" }), {
       id: "judge",
-      name: "Judge",
+      name: "Master",
       fixtureUsername: "judge@example.com",
       roleNames: [DEEDPOLL_JUDICIAL]
     });
@@ -174,6 +174,7 @@ describe("the persona switch", () => {
 
     await route.POST(req, pageResponse(), vi.fn());
 
+    expect(req.sessionStore.destroyExisting).toHaveBeenCalledWith(CASEWORKER_SESSION_ID);
     expect(req.session.regenerate).toHaveBeenCalled();
     expect(req.session.save).toHaveBeenCalled();
   });
@@ -243,10 +244,53 @@ describe("the persona switch", () => {
     }
   });
 
+  // Review finding R05: a logout that landed while IDAM's grant was in flight must stay a logout.
+  describe("when the session was ended elsewhere while IDAM answered", () => {
+    function endedDuringGrant(): RequestDouble {
+      const req = Object.assign(signedInCaseworker(), { originalUrl: "/switch-persona" });
+      vi.mocked(req.sessionStore.destroyExisting).mockResolvedValue(false);
+      return req;
+    }
+
+    it("should sign the browser out and send it to sign in, rather than signing it in as the persona", async () => {
+      const req = endedDuringGrant();
+      const res = pageResponse();
+
+      await route.POST(req, res, vi.fn());
+
+      expect(req.session.regenerate).not.toHaveBeenCalled();
+      expect(req.session.destroy).toHaveBeenCalled();
+      expect(req.session.deedPoll).toEqual({});
+      expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2F");
+    });
+
+    it("should emit no switch event, since the logout that ended the session already emitted its own", async () => {
+      await route.POST(endedDuringGrant(), pageResponse(), vi.fn());
+
+      expect(trackEvent).not.toHaveBeenCalled();
+    });
+
+    it("should let any other failure to replace the session reach the error handler", async () => {
+      const req = signedInCaseworker();
+      vi.mocked(req.sessionStore.destroyExisting).mockRejectedValue(new Error("store down"));
+
+      await expect(route.POST(req, pageResponse(), vi.fn())).rejects.toThrow("store down");
+      expect(trackEvent).not.toHaveBeenCalled();
+    });
+
+    it("should emit no switch event when the new session cannot be created after the old one was deleted", async () => {
+      const req = signedInCaseworker();
+      req.session.regenerate.mockImplementation((done?: (error?: Error) => void) => done?.(new Error("regenerate failed")));
+
+      await expect(route.POST(req, pageResponse(), vi.fn())).rejects.toThrow("regenerate failed");
+      expect(trackEvent).not.toHaveBeenCalled();
+    });
+  });
+
   describe("when the switcher is not on offer", () => {
     // `next()` reaches `notFoundHandler()`, which `app.ts` mounts after the router — so a deployed environment
-    // outside the allowlist answers exactly as it would for a route that does not exist. Same non-enumerability
-    // argument as `/judicial/**`'s 404.
+    // outside the allowlist answers exactly as it would for a route that does not exist — unlike `/judicial/**`'s
+    // refusal, whose 403 discloses the area.
     it("should hand the request on to the not-found handler when the flag is off", async () => {
       settings.set("personaSwitcher.enabled", false);
       const req = signedInCaseworker();
@@ -320,7 +364,7 @@ describe("the persona switch", () => {
 
       await route.POST(signedInCaseworker(), res, vi.fn());
 
-      expect(res.render).toHaveBeenCalledWith("switch-persona", expect.objectContaining({ personaName: "Judge", reason: REASON }));
+      expect(res.render).toHaveBeenCalledWith("switch-persona", expect.objectContaining({ personaName: "Master", reason: REASON }));
       expect(res.redirect).not.toHaveBeenCalled();
     });
 
@@ -380,7 +424,7 @@ describe("the persona switch", () => {
      */
     it("should render the strip as it is after the attempt, not as it was before", async () => {
       const res = pageResponse();
-      res.locals.personaSwitcher = { personas: [{ id: "judge", name: "Judge", isCurrent: false, isAvailable: true }] };
+      res.locals.personaSwitcher = { personas: [{ id: "judge", name: "Master", isCurrent: false, isAvailable: true }] };
 
       await route.POST(signedInCaseworker(), res, vi.fn());
 

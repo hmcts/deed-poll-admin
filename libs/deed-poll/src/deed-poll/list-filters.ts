@@ -60,7 +60,7 @@ export const LIST_FILTERS: ListFilter[] = [
   { key: "all", label: "All applications" },
   { key: "open", label: "Open", where: { state: { notIn: [DeedPollState.Enroled, DeedPollState.Returned] } } },
   { key: "received", label: "Received", where: { state: DeedPollState.Received } },
-  { key: "enroled", label: "Enroled", where: { state: DeedPollState.Enroled } },
+  { key: "enroled", label: "Enrolled", where: { state: DeedPollState.Enroled } },
   { key: "returned", label: "Returned", where: { state: DeedPollState.Returned } },
   // The one tab whose criterion is not a case state, which is why it has no `where` to state: a case is on
   // it because api's `awaitingConfirmationSince` is set, and its `state` still reads `Returned` — there is

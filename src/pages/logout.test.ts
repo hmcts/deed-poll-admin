@@ -58,12 +58,12 @@ describe("the logout page", () => {
     // and IDAM would prompt the user to confirm which session to end.
     await GET(signedIn(), pageResponse());
 
-    expect(endSessionUrl).toHaveBeenCalledWith(expect.anything(), "an-id-token");
+    expect(endSessionUrl).toHaveBeenCalledWith({ issuerUrl: "https://idam.example/o" }, "an-id-token", undefined);
   });
 
   it("signs out locally even when the issuer advertises no end-session endpoint", async () => {
     // The local half is the half that matters, so say it is done rather than pretending the IDAM
-    // session is gone as well.
+    // session is gone as well. Not `/`: that sends an anonymous visitor straight to sign-in.
     vi.mocked(endSessionUrl).mockResolvedValue(undefined);
     const req = signedIn();
     const res = pageResponse();
@@ -71,7 +71,7 @@ describe("the logout page", () => {
     await GET(req, res);
 
     expect(req.session.destroy).toHaveBeenCalled();
-    expect(res.redirect).toHaveBeenCalledWith("/");
+    expect(res.redirect).toHaveBeenCalledWith("/signed-out");
   });
 
   it("tells the browser to drop its cached pages, on the way to IDAM and on the local fallback", async () => {
@@ -95,20 +95,50 @@ describe("the logout page", () => {
 
     await GET(pageRequest({ signedIn: false }), res);
 
-    expect(endSessionUrl).toHaveBeenCalledWith(expect.anything(), undefined);
+    expect(endSessionUrl).toHaveBeenCalledWith({ issuerUrl: "https://idam.example/o" }, undefined, undefined);
     expect(res.redirect).toHaveBeenCalled();
   });
 
-  it("leaves the user signed out locally even if the IDAM lookup throws", async () => {
-    // Local first is the whole point of the ordering: the failure that matters is being left
-    // authenticated here, and by this point that cannot happen.
-    vi.mocked(endSessionUrl).mockRejectedValue(new Error("IDAM unreachable"));
-    const req = signedIn();
+  describe("while IDAM discovery is failing", () => {
+    // Review finding R04: the lookup used to throw past the header and the redirect, answering 500 to a user who
+    // had in fact been signed out.
+    beforeEach(() => {
+      vi.mocked(endSessionUrl).mockRejectedValue(new Error("IDAM discovery failed recently"));
+      vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    });
 
-    await expect(GET(req, pageResponse())).rejects.toThrow("IDAM unreachable");
+    it("should still destroy the local session", async () => {
+      const req = signedIn();
 
-    expect(req.session.destroy).toHaveBeenCalled();
-    expect(req.session.deedPoll.user).toBeUndefined();
+      await GET(req, pageResponse());
+
+      expect(req.session.destroy).toHaveBeenCalled();
+      expect(req.session.deedPoll.user).toBeUndefined();
+    });
+
+    it("should tell the browser to drop its cached pages and redirect to the signed-out page, not to / which signs in", async () => {
+      const res = pageResponse();
+
+      await GET(signedIn(), res);
+
+      expect(res.setHeader).toHaveBeenCalledWith("Clear-Site-Data", '"cache"');
+      expect(res.redirect).toHaveBeenCalledWith("/signed-out");
+      expect(res.setHeader.mock.invocationCallOrder[0]).toBeLessThan(res.redirect.mock.invocationCallOrder[0]);
+    });
+
+    it("should emit auth.logout exactly once", async () => {
+      await GET(signedIn(), pageResponse());
+
+      expect(vi.mocked(trackEvent).mock.calls.map(([name]) => name)).toEqual(["auth.logout"]);
+    });
+
+    it("should ask IDAM only after the local session has gone", async () => {
+      const req = signedIn();
+
+      await GET(req, pageResponse());
+
+      expect(req.session.destroy.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(endSessionUrl).mock.invocationCallOrder[0]);
+    });
   });
 
   describe("security events", () => {

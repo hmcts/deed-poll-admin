@@ -1,5 +1,5 @@
 /**
- * The three behaviours the mock can be put into, as data.
+ * The behaviours the mock can be put into, as data.
  *
  * `deed-poll-api` is not deployed, so every local run and every test of this app talks to the mock. What
  * matters is that the awkward paths are as easy to reach as the happy one: a build that has only ever
@@ -9,22 +9,22 @@
  * environment variable, so one Playwright run can walk the happy path and then a failure path without a
  * second server.
  *
- * Three, not five: this app has no payment and no submit, so the only axes that matter are "is api
- * there" and "does api refuse a write". `deed-poll-web`'s client has five for the journey it serves.
+ * The axes that matter are "is api there", "does api refuse a write", whether an email send fails, and
+ * whether a document preview can be produced. `deed-poll-web`'s client has five for the journey it serves.
  */
 import type { WireDocumentType, WireEmailHistory } from "../api/wire.js";
 
 export const MOCK_SCENARIOS = {
-  "happy-path": { caseWrite: "accept", reachable: true, emailSend: "accept" },
+  "happy-path": { caseWrite: "accept", reachable: true, emailSend: "accept", documentPreview: "convert" },
   /**
    * Every case write comes back 400 with a field error, whatever it contains.
    *
    * The point is not to model a rule — the mock enforces api's real refusals anyway — but to prove the
    * pages put api's complaint onto the right input's error summary rather than showing a banner.
    */
-  "write-rejection": { caseWrite: "reject", reachable: true, emailSend: "accept" },
+  "write-rejection": { caseWrite: "reject", reachable: true, emailSend: "accept", documentPreview: "convert" },
   /** Every contract route answers 503, leaving only the `__mock` control routes and the health paths. */
-  "api-unavailable": { caseWrite: "accept", reachable: false, emailSend: "accept" },
+  "api-unavailable": { caseWrite: "accept", reachable: false, emailSend: "accept", documentPreview: "convert" },
   /**
    * A send enqueues and then fails permanently, as though Notify had rejected the address outright.
    *
@@ -39,7 +39,15 @@ export const MOCK_SCENARIOS = {
    * `Failed` and only the reason text differs. api keys its note on the **transition into** `Failed` precisely so
    * that both routes write one.
    */
-  "email-send-failure": { caseWrite: "accept", reachable: true, emailSend: "fail" }
+  "email-send-failure": { caseWrite: "accept", reachable: true, emailSend: "fail", documentPreview: "convert" },
+  /**
+   * Every DOCX preview answers 503 `PREVIEW_UNAVAILABLE`, as api does before Docmosis is provisioned (decision 3 of
+   * `docs/plans/completed/20261023-full-page-document-viewer.md`) or while the converter is down. The other four formats are
+   * api's own work and still preview, and every original still downloads.
+   */
+  "preview-converter-unavailable": { caseWrite: "accept", reachable: true, emailSend: "accept", documentPreview: "converter-unavailable" },
+  /** Every preview, of any format, answers 429 `PREVIEW_BUSY` with `Retry-After`: every permit on the pod is in use. */
+  "preview-busy": { caseWrite: "accept", reachable: true, emailSend: "accept", documentPreview: "busy" }
 } as const satisfies Record<string, MockFixture>;
 
 /**
@@ -301,6 +309,11 @@ interface MockFixture {
    * through the contract: a real terminal failure needs Notify to reject the send, and there is no Notify here.
    */
   emailSend: "accept" | "fail";
+  /**
+   * What a document preview does once the document is found: build it, refuse a DOCX as api does with no converter,
+   * or refuse every preview as a pod with no permit left does. See `document-preview.ts`.
+   */
+  documentPreview: "convert" | "converter-unavailable" | "busy";
 }
 
 export type MockScenario = keyof typeof MOCK_SCENARIOS;

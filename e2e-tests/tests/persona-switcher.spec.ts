@@ -13,10 +13,10 @@
  * `caseworker-deedpoll-judicial` on `CurrentUser`. What tells them apart is **api answering the switched
  * token**, and this is where that is asserted.
  *
- * The discriminating assertion is the referral **claimed by `judge@example.com` before the switch**. api makes
- * a `Claimed` referral visible to its holder alone, deriving the holder from the token — so the judge persona
+ * The discriminating assertion is the referral **assigned to `judge@example.com`'s Master before the switch**. api
+ * makes an assigned referral visible to that Master's linked judge alone, deriving the judge from the token — so the judge persona
  * reads it (200) and a caseworker wearing a forged role list would be answered 404, on the very page the
- * chrome had just invited them onto. The referral held by *another* judge is the other side of the same rule,
+ * chrome had just invited them onto. The referral assigned to *another* Master is the other side of the same rule,
  * and it is refused here too: the identity in the token is doing the work, not anything this app holds.
  *
  * The two role-derived refusals are the app's own gate — `/judicial/**` is refused to both caseworker personas
@@ -36,7 +36,8 @@
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, expect, type Locator, type Page, test } from "@playwright/test";
-import { CASEWORKER_EMAIL, DEPLOYED_STACK_SKIP_REASON, JUDGE_EMAIL, RUNS_AGAINST_DEPLOYED_STACK, signInAsCaseworker } from "./idam-session.js";
+import { CASEWORKER_EMAIL, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsCaseworker } from "./idam-session.js";
+import { judgePersonaMaster, newMaster, sendToMaster } from "./masters.js";
 
 /** The mock api, which `playwright.config.ts` starts on 3200 beside the app on 3000. */
 const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
@@ -44,22 +45,17 @@ const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
 const CASE_LIST_PATH = "/deed-polls";
 const POOL_PATH = "/judicial/referrals";
 
+/** A Master's home since plan Db1, where the bare pool path redirects. */
+const MINE_PATH = "/judicial/referrals/mine";
+
 /** `PERSONA_SWITCH_PATH` in `src/auth/persona-switcher.ts`, where the strip's form posts. */
 const SWITCH_PATH = "/switch-persona";
-
-/**
- * A judge who is not the persona, so api's answer about the referral they hold is a 404.
- *
- * Deliberately not `judge@example.com`: the point of the second referral is a *different* holder, which is
- * what makes the refusal a matter of whose token arrived rather than of which roles it carries.
- */
-const OTHER_JUDGE = "e2e.personaswitcher.otherjudge@example.com";
 
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
 
 test("one tester works as a caseworker, a judge, a Team leader and a Delivery Manager without signing out", async ({ page, request }) => {
   // Arrange: a case to find on the list, a note on it to look for an staff control against, and two referrals
-  // already claimed — one by the judge persona, one by somebody else.
+  // already assigned — one to the judge persona's Master, one to another Master.
   const seeded = await seedPersonaFixtures(request);
 
   // The ordinary caseworker holds the document-reader role without staff capabilities.
@@ -68,7 +64,7 @@ test("one tester works as a caseworker, a judge, a Team leader and a Delivery Ma
 
   await expect(personaStrip(page)).toContainText("Dev only");
   await expect(currentPersona(page)).toHaveText("Caseworker (current)");
-  await expect(switchTo(page, "Judge")).toBeVisible();
+  await expect(switchTo(page, "Master")).toBeVisible();
   await expect(switchTo(page, "Team leader")).toBeVisible();
   await expect(switchTo(page, "Delivery Manager")).toBeVisible();
 
@@ -108,33 +104,33 @@ test("one tester works as a caseworker, a judge, a Team leader and a Delivery Ma
   await expect(personaStrip(page)).toHaveCount(0);
   await page.goto(CASE_LIST_PATH);
 
-  await switchTo(page, "Judge").click();
+  await switchTo(page, "Master").click();
 
   // `/` and not a list path (decision 8): the switch redirects there and `src/pages/index.ts` resolves the new
-  // persona's home, so landing on the pool is the routing agreeing with the roles api has just derived.
-  await expect(page).toHaveURL(POOL_PATH);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referrals for a direction");
+  // persona's home, so landing on My referrals is the routing agreeing with the roles api has just derived.
+  await expect(page).toHaveURL(MINE_PATH);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("My referrals");
   // Decision 7: the strip is on the judicial chrome as well, or the switch would be a trap door.
-  await expect(currentPersona(page)).toHaveText("Judge (current)");
+  await expect(currentPersona(page)).toHaveText("Master (current)");
 
-  // **The assertion the whole plan turns on.** This referral was claimed by `judge@example.com` before any
-  // switch happened, and api shows a claimed referral to its holder alone — resolved from the token. A role
+  // **The assertion the whole plan turns on.** This referral was assigned to `judge@example.com`'s Master before any
+  // switch happened, and api shows an assigned referral to that Master's judge alone — resolved from the token. A role
   // rewrite would have arrived with the caseworker's token and been answered 404 here, on the page its own
   // chrome had just offered.
   const own = await page.goto(`${POOL_PATH}/${seeded.ownReferralId}`);
   expect(own?.status()).toBe(200);
-  await expect(summaryRow(page, "Status")).toContainText("Claimed");
+  await expect(referralRow(page, "Status")).toContainText("Claimed");
   await expect(page.getByRole("button", { name: "Record a direction" })).toBeVisible();
   await expectNoAccessibilityViolations(page);
 
-  // And the other side of the same rule: the referral another judge holds is refused, so what the switched
+  // And the other side of the same rule: the referral another Master holds is refused, so what the switched
   // token buys is one identity's work and not the judicial surface wholesale. 404 and not 403 — api answers
   // withdrawn, closed, somebody else's and never-there identically (decision 10), and the copy must stay true
   // of all four.
   const theirs = await page.goto(`${POOL_PATH}/${seeded.otherReferralId}`);
   expect(theirs?.status()).toBe(404);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("This referral is no longer available");
-  await expect(page.locator("body")).not.toContainText(OTHER_JUDGE);
+  await expect(page.locator("body")).not.toContainText(seeded.otherMasterName);
 
   // ── to the Team leader ──────────────────────────────────────────────────────────────────────────────────
   // Switched from a judicial page, which is the return journey decision 7 is about.
@@ -212,7 +208,7 @@ test("a write from a sibling service in the same environment is refused, which S
  * The judicial area refused to a persona without the role, on every URL under it.
  *
  * The gate is mounted on the prefix in `src/app.ts` and fires before anything is resolved, so a referral id
- * that exists nowhere is refused identically to the pool — which is what stops the status code reporting
+ * that exists nowhere is refused identically to the area's own lists — which is what stops the status code reporting
  * whether there was something there. **403 rendered on the 404 view** is `src/errors.ts`'s deliberate choice.
  */
 async function expectJudicialAreaRefused(page: Page): Promise<void> {
@@ -221,7 +217,7 @@ async function expectJudicialAreaRefused(page: Page): Promise<void> {
 
     expect(response?.status(), `${path} should be refused`).toBe(403);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Page not found");
-    await expect(page.locator("body")).not.toContainText("Referrals for a direction");
+    await expect(page.locator("body")).not.toContainText("My referrals");
   }
 }
 
@@ -261,7 +257,9 @@ async function seedPersonaFixtures(request: APIRequestContext): Promise<PersonaF
   expect(created.status(), await created.text()).toBe(201);
   const noteId = (await created.json()).id;
 
-  // Two more cases, because api allows a case only one live referral at a time.
+  // Two more cases, because api allows a case only one live referral at a time, and a Master for each.
+  const own = await judgePersonaMaster(request);
+  const other = await newMaster(request, "Persona other");
   const held = await seedCase(request, {
     newSurname: `Otherby${token}`,
     displayReference: reference(1),
@@ -277,8 +275,9 @@ async function seedPersonaFixtures(request: APIRequestContext): Promise<PersonaF
     surname,
     note,
     noteEditUrl: `${CASE_LIST_PATH}/${listed}/notes/${noteId}/edit`,
-    ownReferralId: await seedClaimedReferral(request, held, JUDGE_EMAIL),
-    otherReferralId: await seedClaimedReferral(request, taken, OTHER_JUDGE)
+    ownReferralId: await seedAssignedReferral(request, held, own.id),
+    otherReferralId: await seedAssignedReferral(request, taken, other.id),
+    otherMasterName: other.name
   };
 }
 
@@ -295,22 +294,18 @@ async function seedCase(request: APIRequestContext, fields: Record<string, strin
 }
 
 /**
- * A referral raised on a case and claimed by a named judge — which is what puts it out of the pool and into
- * exactly one judge's hands.
+ * A referral raised on a case and sent to a Master from the queue — which puts it into exactly one judge's hands.
  *
- * Standard rather than urgent, deliberately: `judicial.spec.ts` orders its own journey by being the only spec
- * raising urgent referrals, and both of these leave the pool the moment they are claimed anyway.
+ * Standard rather than urgent, deliberately: `judicial.spec.ts` reads its own urgent referrals off My referrals.
  */
-async function seedClaimedReferral(request: APIRequestContext, caseId: string, judge: string): Promise<string> {
+async function seedAssignedReferral(request: APIRequestContext, caseId: string, masterId: string): Promise<string> {
   const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, {
     headers: bearer(CASEWORKER_EMAIL),
-    data: { reasons: ["Minor"] }
+    data: { reasons: ["Minor", "MinorCourtOrder"] }
   });
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;
-
-  const claimed = await request.post(`${MOCK_API_URL}${POOL_PATH}/${referralId}/claim`, { headers: bearer(judge) });
-  expect(claimed.status(), await claimed.text()).toBe(200);
+  await sendToMaster(request, referralId, masterId);
 
   return referralId;
 }
@@ -360,13 +355,19 @@ function deleteNote(page: Page): Locator {
 }
 
 /**
- * A `govukSummaryList` row, addressed by its **key** rather than by its text.
- *
- * Scoped to the key cell and not to the row: `hasText` is a case-insensitive substring over the whole row, so
- * a row whose *value* is the tag "Claimed" answers to a key of "Claimed" — and the referral view has both.
+ * A row of the referral's own summary list, the one under the "Referral" heading. Since the case's state was
+ * relabelled Status (2026-10-22), the judicial application section above it has a "Status" row of its own.
  */
-function summaryRow(page: Page, key: string): Locator {
-  return page.locator(".govuk-summary-list__row").filter({ has: page.locator(".govuk-summary-list__key", { hasText: key }) });
+function referralRow(page: Page, key: string): Locator {
+  const referralList = page.locator("xpath=//h2[normalize-space()='Referral']/following-sibling::dl[contains(@class,'govuk-summary-list')][1]");
+  const keyCell = page.locator(".govuk-summary-list__key").filter({ hasText: exactText(key) });
+
+  return referralList.locator(".govuk-summary-list__row").filter({ has: keyCell });
+}
+
+/** The whole of a cell's text, so a key never matches another key that merely contains it. */
+function exactText(text: string): RegExp {
+  return new RegExp(`^\\s*${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
 }
 
 /**
@@ -389,8 +390,10 @@ interface PersonaFixtures {
   surname: string;
   note: string;
   noteEditUrl: string;
-  /** Claimed by `judge@example.com` before the switch, so only a genuine judge token can read it. */
+  /** Assigned to `judge@example.com`'s Master before the switch, so only a genuine judge token can read it. */
   ownReferralId: string;
-  /** Claimed by somebody else, so no token this switcher can obtain may read it. */
+  /** Assigned to another Master, so no token this switcher can obtain may read it. */
   otherReferralId: string;
+  /** That Master's name, which the refusal must not show. */
+  otherMasterName: string;
 }

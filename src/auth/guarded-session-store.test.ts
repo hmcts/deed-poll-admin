@@ -47,6 +47,56 @@ describe.skipIf(!redisReachable)("the guarded session store", () => {
   });
 
   describe("its contract", () => {
+    describe.each([NaN, -Infinity, -1, 0, Infinity, 1e100, Number.MAX_SAFE_INTEGER + 1])("with an invalid TTL of %s", (ttl) => {
+      it("should leave no record when saving a fresh session", async () => {
+        const store = new GuardedSessionStore({ client: clients[0], prefix: PREFIX, ttl: () => ttl });
+        const sid = randomUUID();
+
+        await set(store, sid, session("fresh"));
+
+        expect(await clients[0].exists(PREFIX + sid)).toBe(0);
+      });
+
+      it("should delete an existing session instead of renewing it", async () => {
+        const sid = await stored("first");
+        const store = new GuardedSessionStore({ client: clients[0], prefix: PREFIX, ttl: () => ttl });
+        const loaded = (await get(store, sid)) as SessionData;
+
+        await set(store, sid, loaded);
+
+        expect(await clients[0].exists(PREFIX + sid)).toBe(0);
+      });
+    });
+
+    it.each(["update", "publish"])("should remove a session with an infinite TTL during %s", async (operation) => {
+      const sid = await stored("first");
+      const store = new GuardedSessionStore({ client: clients[0], prefix: PREFIX, ttl: () => Infinity });
+      const loaded = (await get(store, sid)) as SessionData & { marker: string };
+      if (operation === "publish") {
+        const claim = await store.claimRefresh(sid, loaded);
+        expect(claim.outcome).toBe("acquired");
+        store.attachRefreshLease(loaded, (claim as { lease: string }).lease);
+      }
+      loaded.marker = "second";
+
+      await set(store, sid, loaded);
+
+      expect(await clients[0].exists(PREFIX + sid)).toBe(0);
+    });
+
+    it.each([60, 60.1])("should round a positive TTL of %s up to whole seconds", async (ttl) => {
+      const store = new GuardedSessionStore({ client: clients[0], prefix: PREFIX, ttl: () => ttl });
+      const sid = randomUUID();
+      const started = Date.now();
+
+      await set(store, sid, session("first"));
+
+      expect(await get(stores[1], sid)).toMatchObject({ marker: "first" });
+      const remaining = await clients[0].pTTL(PREFIX + sid);
+      expect(remaining).toBeGreaterThanOrEqual(Math.ceil(ttl) * 1000 - (Date.now() - started) - 1);
+      expect(remaining).toBeLessThanOrEqual(Math.ceil(ttl) * 1000);
+    });
+
     it("should create a session it has never stored, under a fresh id", async () => {
       const sid = randomUUID();
 
@@ -169,6 +219,26 @@ describe.skipIf(!redisReachable)("the guarded session store", () => {
       expect(warn.mock.calls.flat().join(" ")).not.toContain(sid);
     });
 
+    it("should delete a session it holds and report that it was there, and report one already gone as not there", async () => {
+      const sid = await stored("first");
+
+      const present = await stores[0].destroyExisting(sid);
+      const gone = await stores[1].destroyExisting(sid);
+
+      expect(present).toBe(true);
+      expect(gone).toBe(false);
+      expect(await clients[0].exists(PREFIX + sid)).toBe(0);
+    });
+
+    it("should report a session as there to exactly one of two instances deleting it at once", async () => {
+      const sid = await stored("first");
+
+      const reports = await Promise.all([stores[0].destroyExisting(sid), stores[1].destroyExisting(sid)]);
+
+      expect(reports.filter(Boolean)).toHaveLength(1);
+      expect(await clients[0].exists(PREFIX + sid)).toBe(0);
+    });
+
     it("should bound a signed-in key by the absolute limit and an anonymous one by ten minutes", async () => {
       const anonymous = await stored("first");
       const signedIn = randomUUID();
@@ -245,27 +315,32 @@ describe.skipIf(!redisReachable)("the guarded session store", () => {
       expect((await next.claimRefresh(sid, (await get(next, sid)) as SessionData)).outcome).toBe("acquired");
     });
 
-    it("should give up a lease whose claim reply was lost, so the session is not blocked until it expires", async () => {
-      const sid = await stored("first");
-      let replies = 0;
-      const lossy = new GuardedSessionStore({
-        client: {
-          eval: async (script, options) => {
-            const reply = await clients[1].eval(script, options);
-            if (script.includes("'TIME'") && replies++ === 0) throw new Error("Command timeout");
-            return reply;
-          }
-        },
-        prefix: PREFIX,
-        ttl: sessionStoreTtl(LIMITS)
-      });
+    it.each(["received", "lost"])(
+      "should give up a lease whose claim reply was lost and preserve the claim error when the release reply is %s",
+      async (releaseReply) => {
+        const sid = await stored("first");
+        const claimError = new Error("Command timeout");
+        let replies = 0;
+        const lossy = new GuardedSessionStore({
+          client: {
+            eval: async (script, options) => {
+              const reply = await clients[1].eval(script, options);
+              if (script.includes("'TIME'") && replies++ === 0) throw claimError;
+              if (script.includes("'HDEL'") && releaseReply === "lost") throw new Error("Release timeout");
+              return reply;
+            }
+          },
+          prefix: PREFIX,
+          ttl: sessionStoreTtl(LIMITS)
+        });
 
-      await expect(lossy.claimRefresh(sid, (await get(lossy, sid)) as SessionData)).rejects.toThrow("Command timeout");
+        await expect(lossy.claimRefresh(sid, (await get(lossy, sid)) as SessionData)).rejects.toBe(claimError);
 
-      expect(await clients[0].hGet(PREFIX + sid, "lease")).toBeNull();
-      const next = leased({ refreshWaitMs: 0 });
-      expect((await next.claimRefresh(sid, (await get(next, sid)) as SessionData)).outcome).toBe("acquired");
-    });
+        expect(await clients[0].hGet(PREFIX + sid, "lease")).toBeNull();
+        const next = leased({ refreshWaitMs: 0 });
+        expect((await next.claimRefresh(sid, (await get(next, sid)) as SessionData)).outcome).toBe("acquired");
+      }
+    );
 
     it("should release only the lease it was given, never one another request now holds", async () => {
       const sid = await stored("first");

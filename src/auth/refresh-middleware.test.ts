@@ -21,6 +21,7 @@ import { fetchCallerAccess } from "./caller-access.js";
 import { SessionWriteRefusedError } from "./guarded-session-store.js";
 import { refreshTokens } from "./idam.js";
 import { refreshMiddleware } from "./refresh-middleware.js";
+import { STATUS_PATH, TIMED_OUT_PATH } from "./session-lifetime.js";
 
 vi.mock("./idam.js", async (importOriginal) => ({
   describeIdamError: (await importOriginal<typeof import("./idam.js")>()).describeIdamError,
@@ -588,11 +589,27 @@ describe("refreshMiddleware and the refresh lease", () => {
     expect(next).toHaveBeenCalled();
   });
 
+  it.each([STATUS_PATH, TIMED_OUT_PATH])("should neither refresh nor backfill /me on %s, which an expired session still reaches", async (path) => {
+    const req = request([], { user: ROLES_ERA_USER, accessToken: "the-session-token", tokenExpiresAt: expiringIn(60) });
+    (req as unknown as { path: string }).path = path;
+
+    await refreshMiddleware(req, res, next);
+
+    expect(store(req).claimRefresh).not.toHaveBeenCalled();
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect(fetchCallerAccess).not.toHaveBeenCalled();
+    expect(req.session.deedPoll.accessToken).toBe("the-session-token");
+    expect(next).toHaveBeenCalled();
+  });
+
   it("should fail closed, and not ask IDAM, when the store cannot coordinate refreshes", async () => {
     const req = request();
     (req as unknown as { sessionStore: unknown }).sessionStore = {};
 
-    await expect(refreshMiddleware(req, res, next)).rejects.toThrow("cannot coordinate");
+    const refresh = refreshMiddleware(req, res, next);
+
+    await expect(refresh).rejects.toThrow(TypeError);
+    await expect(refresh).rejects.toThrow("the session store cannot coordinate token refreshes");
 
     expect(refreshTokens).not.toHaveBeenCalled();
     expect(next).not.toHaveBeenCalled();

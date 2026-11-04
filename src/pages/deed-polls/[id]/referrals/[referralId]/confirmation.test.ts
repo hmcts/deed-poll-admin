@@ -35,7 +35,7 @@ const AWAITING = {
   claimedAt: new Date("2026-05-14T09:00:00Z"),
   decision: "Approved",
   directionsText: null,
-  publishToGazette: true,
+  changesToStandardPublication: false,
   decisionDate: new Date("2026-05-15T10:30:00Z"),
   decidedBy: "A Judge",
   createdBy: "A Caseworker",

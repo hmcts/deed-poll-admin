@@ -10,8 +10,8 @@
 import type { Request, Response } from "express";
 import { signOut } from "./session.js";
 
-export async function endedElsewhere(req: Request, res: Response): Promise<void> {
+export async function endedElsewhere(req: Request, res: Response, returnTo = req.originalUrl): Promise<void> {
   console.warn("Session ended elsewhere while this request held it — continuing signed out");
   await signOut(req);
-  res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
+  res.redirect(`/login?returnTo=${encodeURIComponent(returnTo)}`);
 }

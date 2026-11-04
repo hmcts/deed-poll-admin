@@ -12,9 +12,11 @@
  * against their inputs, which a query string cannot express.
  *
  * Two checks, in this order:
- *  1. **Date parts**, per field — is `99/99/abcd` even a date? Must run first, because the
- *     cross-field rules compare dates and can say nothing useful about a pair where one side is
- *     unparseable.
+ *  1. **Per-field input**, via `collectFormErrors` — is `99/99/abcd` even a date, is `12x` even a
+ *     number? Must run first, because the cross-field rules compare dates and can say nothing useful
+ *     about a pair where one side is unparseable, and because an unreadable number used to reach the
+ *     patch as `null`, clearing the stored value (review finding E04). Both kinds are reported in one
+ *     re-render, and nothing is written while either is wrong.
  *  2. **Cross-field rules**, via `updateDeedPoll`, which throws `InvalidInputError`. Caught and
  *     turned back into form errors: the domain is right to throw, since it also guards the API, and
  *     this page is right not to show a browser a JSON 400.
@@ -23,7 +25,7 @@ import {
   buildEditView,
   buildErrorSummary,
   buildUpdatePatch,
-  collectDateErrors,
+  collectFormErrors,
   enrolmentWitnessWarning,
   FORM_TABS,
   type FormError,
@@ -32,6 +34,7 @@ import {
   LEGACY_REFERRAL_TAB,
   NotFoundError,
   type TabDef,
+  TEXTAREA_MAX_LENGTH,
   tabFor,
   updateDeedPoll
 } from "@hmcts/deed-poll";
@@ -47,6 +50,9 @@ const en = {
   subgridLinkPrefix: "View",
   save: "Save",
   cancel: "Cancel",
+  // The two answers of a nullable boolean's radios — see `nullable` on FieldDef.
+  yes: "Yes",
+  no: "No",
   // Shown when api refuses the save without naming a field. Its own wording is developer-facing — the
   // fallback in `failureFromResponse` is literally "deed-poll-api answered 400" — and
   // `.claude/rules/backend.md` forbids putting api's internal error text in front of a caseworker, so
@@ -55,8 +61,7 @@ const en = {
   // The witness-shortfall banner's title and its way out. The sentence itself is view-model data, not a
   // label: it interpolates the case's count and api's threshold — see enrolment-requirement.ts.
   bannerTitle: "Important",
-  witnessWarningLink: "View the witnesses on this case",
-  noteMaxLength: 2000
+  witnessWarningLink: "View the witnesses on this case"
 };
 
 // English content in the cy shape — see the note in ../../index.ts.
@@ -84,8 +89,9 @@ export const POST = async (req: Request, res: Response) => {
   const body = req.body as Record<string, unknown>;
 
   // **Strict on write, deliberately unlike GET.** `tabFor` falls back to the first tab, which is
-  // Application — 46 editable fields. `buildUpdatePatch` writes every field it is given, blanking
-  // absent ones, so falling back here would null all 46 from a body that never mentioned them.
+  // Application — 46 editable fields. `buildUpdatePatch` reads an absent checkbox as unticked, so
+  // falling back here would untick every Application box and declaration from a body that never
+  // mentioned them.
   // A mistyped tab in a POST target is not something to guess at.
   //
   // This is also what refuses the retired `referral` slug, which GET redirects: a form posted from a stale page
@@ -100,9 +106,9 @@ export const POST = async (req: Request, res: Response) => {
 
   const fields = tab.sections.flatMap((section) => section.fields);
 
-  const dateErrors = collectDateErrors(body, fields);
-  if (dateErrors.length > 0) {
-    return rerenderWithErrors(req, res, tab, dateErrors);
+  const inputErrors = collectFormErrors(body, fields);
+  if (inputErrors.length > 0) {
+    return rerenderWithErrors(req, res, tab, inputErrors);
   }
 
   try {
@@ -169,6 +175,8 @@ function render(
       found.witnesses.length,
       (errors ?? []).map((error) => error.field)
     ),
+    // The limit `readFieldInput` enforces, so the advertised and enforced numbers cannot drift (review finding R15).
+    textareaMaxLength: TEXTAREA_MAX_LENGTH,
     errors: errors ?? [],
     errorSummary: errors ? buildErrorSummary(errors, tab) : [],
     en,

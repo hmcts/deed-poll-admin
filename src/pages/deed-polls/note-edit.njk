@@ -64,7 +64,7 @@
         {% if canDelete %}
           {{ govukButton({ text: delete, name: "action", value: "delete", classes: "govuk-button--warning" }) }}
         {% endif %}
-        <a class="govuk-link" href="/deed-polls/{{ case.id }}#notes">{{ cancel }}</a>
+        <a class="govuk-link" href="{{ case.id | casePath }}#notes">{{ cancel }}</a>
       </div>
     </form>
   </div>

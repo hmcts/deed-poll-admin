@@ -5,7 +5,7 @@
  * case page. It is a stand-in for the CONTRACT, not a second implementation of api: there is no database,
  * no signature verification, no S2S and no document storage, and it forgets everything when it stops.
  *
- * Seven routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
+ * Nine routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
  * could be mistaken for one api serves:
  *
  *   POST /__mock/scenario   switch behaviour (see fixtures.ts)
@@ -18,12 +18,18 @@
  *                           start the wait for an applicant's confirmation, which no contract route here can
  *                           do: the write that starts it is notify-3's email and this mock has no template
  *                           for it. See the route for why it is not a second template.
+ *   POST /__mock/clock      move the referral clock by `{ offsetMinutes }` from real time, so a journey can make
+ *                           an assignment overdue or cross a referral window without waiting (plan Db1), or with
+ *                           `{ window: "open" | "closed" }` to just inside or just after the next morning window,
+ *                           where a send is admitted or refused (plan Fa1)
+ *   POST /__mock/referrals/unassign-overdue
+ *                           run api's processing-window sweep now, as its timer would
  *
  * `GET /health` and `GET /health/liveness` are outside the contract too, so `yarn dev` and Playwright's
  * `webServer` have something to wait for — and so the readiness check task 5 adds has something to probe.
  * Both, because api's actuator serves both and `checkApiReachable` deliberately probes the liveness group.
  *
- * **Thirteen of api's rules are restated here.** A mock that applied none of them would let a
+ * **Sixteen of api's rules are restated here.** A mock that applied none of them would let a
  * page ship having never seen a real reference number or a derived state:
  *
  *   1. Reference-number allocation — the year from Date Received, the prefix from Type, a per-year serial.
@@ -42,10 +48,10 @@
  *      answering 200 where api answers 409 is how a page ships with no conflict handling at all.
  *   9. `currentReferralState` recomputed from the case's referrals at every transition — never pushed per
  *      site. See `refreshCurrentReferralState`, which is also why closing a referral leaves the case null.
- *  10. The judicial surface's visibility rule, and the order of each of its two lists — an `Open` referral is
- *      every judge's, a claimed or decided one is only its holder's, and a closed or withdrawn one is nobody's.
- *      The pool is urgent first then longest-waiting; a judge's own list is unfinished work first, then the
- *      pool's keys, then the id. See `visibleToJudge`, `poolOrder` and `myReferralsOrder`. **Ownership is the
+ *  10. The judicial surface's visibility rule, and the order of a judge's list — since api D2 an `Open` referral
+ *      (waiting for assignment) is no judge's, an assigned or decided one is only its Master's, and a closed or
+ *      withdrawn one is nobody's. The deprecated pool is always empty; a judge's own list is undirected first,
+ *      urgent first among those only, then oldest, then the id. See `visibleToJudge` and `myReferralsOrder`. **Ownership is the
  *      token's subject and never the display name** (api's `claimedById`/`decidedById`), which is why
  *      `callerSubject` exists beside `auditName`: keyed on the name, one judge's list would enumerate a
  *      namesake's work.
@@ -75,10 +81,25 @@
  *      api's `StaffArea` and `RoleCapabilities`), and Gazette history's paging. Fixture claims are decoded,
  *      never verified; local IDAM tokens without roles use the configured userinfo endpoint; the history
  *      reads frozen batches, newest first with an identity tie-break and a sorted 100-reference preview.
+ *  14. Document previews on both surfaces (api PR #129), scoped and visible exactly as `/file` is: a real PDF
+ *      per format, or api's refusal for the same input — see `document-preview.ts`, whose fixtures are all
+ *      synthetic. The `preview-converter-unavailable` and `preview-busy` scenarios reach api's 503 and 429.
+ *  15. api D1's Masters list, bank holidays and extended process settings (`masters.ts`, `bank-holidays.ts`,
+ *      `process-settings.ts`), in api's words: the Delivery Manager's writes, a revision and a stale-beats-no-op
+ *      check on each, the window ordering rule, api's V42 holiday seed, and a judge linked to the unlinked entry
+ *      holding their IDAM email on their first judicial request. Reads admit any staff caller; the subject a
+ *      Master is linked to is never published.
+ *  16. api F1's referral queue: every referral raised `Open`; the queue read in api's two orders with the window's
+ *      state and counts (`referral-windows.ts`); the batch send, all or nothing, in api's checking order and words
+ *      (the shape, an open window, each referral `Open` or a replay, each Master available, the cap across all
+ *      Masters counting every referral sent in the window); reassignment of a `Claimed` referral at any time,
+ *      keeping its window; all three `ALLOCATE_REFERRALS` only. Linking's and unlinking's referral side;
+ *      `directionDueBy`; My referrals by the day sent; and the processing window's `unassignOverdue` back to the
+ *      queue, on api's request-time triggers and the explicit `/__mock` hook, against the mock's clock.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
  * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `ReferralNotes`, `JudicialReferralService`,
- * `CaseEmailService`, `GazetteNoticeHistory`, `RoleCapabilities`, `StaffArea` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
+ * `ReferralQueue`, `ReferralWindows`, `CaseEmailService`, `GazetteNoticeHistory`, `DocumentPreviewService`, `MasterService`, `BankHolidays`, `ProcessSettingsService`, `RoleCapabilities`, `StaffArea` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
  * privacy lock, the minor and Gazette write gates, create-time defaults, the saved-query permission rules —
  * see `savedQuery`) is deliberately NOT modelled: no
  * page's behaviour depends on it, and a half-copy would be a second opinion to keep in step. If a page
@@ -89,11 +110,9 @@
  *   - **The `caseworker-deedpoll-judicial` role gate on `/judicial/**`.** This mock reads a name out of a
  *     token and no roles on this surface, exactly as for the saved-query and witness-delete gates, so a 403
  *     is not a state those routes can produce. Gazette history separately models its admin gate. api's gate is api's own test.
- *   - **The inactivity sweep that hands a forgotten claim back to the pool.** It is a two-hour window on
- *     api's clock and nothing a page can drive, so a mock of it would be untestable machinery. It takes the
- *     sixth of api's lifecycle notes with it: `ReferralNotes.claimLapsed` is the only one this mock never
- *     writes, because the only event that writes it is the sweep. Nothing here should grow a timer to reach
- *     it — a page cannot drive one either.
+ *   - **api's timer for the processing window.** `unassignOverdue` runs on api's request-time triggers here and on
+ *     the `/__mock` hook, never on a timer of the mock's own: a journey drives it by moving the mock's clock and
+ *     then asking, so nothing happens behind a test's back.
  *
  * **On the email surface this mock stands in for GOV.UK Notify as well as for api**, which none of the other
  * routes require. Three consequences, all deliberate:
@@ -140,8 +159,10 @@ import type {
   WireSavedQuery,
   WireWitness
 } from "../api/wire.js";
-import { REFERRAL_STATE, URGENCY, WIRE_SCHEMAS } from "../api/wire.js";
+import { REFERRAL_REASON, REFERRAL_SEND_LIMITS, WIRE_SCHEMAS } from "../api/wire.js";
+import { createBankHolidays } from "./bank-holidays.js";
 import { callerAccess } from "./caller-access.js";
+import { buildDocumentPreview, type DocumentPreviewMode, PREVIEW_BUSY_RETRY_AFTER_SECONDS } from "./document-preview.js";
 import {
   APPLICATION_REJECTED,
   DEFAULT_SCENARIO,
@@ -156,6 +177,9 @@ import {
   type MockScenario
 } from "./fixtures.js";
 import { createGazetteRequests } from "./gazette-requests.js";
+import { createMasters } from "./masters.js";
+import { createProcessSettings } from "./process-settings.js";
+import { closesAt, isWeekdayNotIn, londonDay, nextToOpen, openAt, opensAt, type ReferralWindow, type WindowTimes } from "./referral-windows.js";
 
 /** Fixture-only batch input: full frozen membership, never a production send operation. */
 const SEEDABLE_GAZETTE_BATCH = z
@@ -272,6 +296,28 @@ const SEEDABLE_CONFIRMATION_REQUEST = WIRE_SCHEMAS.ReferralResponse.pick({ confi
  * `iso` publishes UTC: api's timestamps are zoneless `LocalDateTime`s, so a note formatted in the local zone
  * would date a midnight referral to the previous day west of Greenwich.
  */
+/** api's `ReferralSchemas.SELECT_A_MASTER`. */
+const SELECT_A_MASTER = "Select a Master who is available";
+
+/** api F1's `ReferralQueue.NO_LONGER_WAITING`, on every refused `allocations[i].referralId`. */
+const NO_LONGER_WAITING = "This referral is no longer waiting to be sent";
+
+/** api F1's `ReferralService.SEND_FROM_THE_QUEUE`: a reassignment of a referral never sent. */
+const SEND_FROM_THE_QUEUE = "Send this referral from the queue: it has not been sent to a Master yet.";
+
+/** The send's `maxItems`, api's `MAX_WINDOW_CAP`. */
+const MAX_ALLOCATIONS = REFERRAL_SEND_LIMITS.maxAllocations;
+
+// `java.util.UUID.fromString` reads any hex case; api answers the lower-case form.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** api's `ReferralQueue` formats: `HH:mm` and the weekday with the date, both in London. */
+const LONDON_TIME = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "Europe/London" });
+const WEEKDAY = new Intl.DateTimeFormat("en-GB", { weekday: "long", timeZone: "UTC" });
+/** api's `ReferralNotes.MAX_JUDGE_NAME_LENGTH`. */
+const MAX_MASTER_NAME_IN_NOTE = 200;
+/** Who api attributes the processing window's release to, `CurrentUser.SERVICE_ACCOUNT_NAME`: no person did it. */
+const SERVICE_ACCOUNT_NAME = "# svc_HMCTS_LCPT_Dev";
 const NOTE_DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
 /** api's `DeedPollService.WITNESSES_REQUIRED_FOR_ENROLMENT`. Restated because this file plays api. */
@@ -300,6 +346,15 @@ function hasGazetteAccess(claims: { roles?: unknown }): boolean {
   return callerAccess(claims).capabilities.includes("ACCESS_GAZETTE");
 }
 
+function hasProcessConfigAccess(claims: { roles?: unknown }): boolean {
+  return callerAccess(claims).capabilities.includes("MANAGE_PROCESS_CONFIG");
+}
+
+/** api F1's gate on the queue, the send and reassignment: Team leaders and Delivery Managers. */
+function hasAllocateAccess(claims: { roles?: unknown }): boolean {
+  return callerAccess(claims).capabilities.includes("ALLOCATE_REFERRALS");
+}
+
 /**
  * Build the mock. Nothing is listening until `listen` is called — `startMockApi` does that.
  *
@@ -315,6 +370,9 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     updatedBy: null
   };
   const gazetteRequests = createGazetteRequests();
+  const processSettings = createProcessSettings();
+  const masters = createMasters({ linked: attachToLinkedMaster, unlinked: detachFromUnlinkedMaster });
+  const bankHolidays = createBankHolidays();
   const gazetteBatches = new Map<string, z.infer<typeof SEEDABLE_GAZETTE_BATCH>>();
   const savedQueries = new Map<string, MockSavedQuery>();
   /**
@@ -328,6 +386,12 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   const selectedQueryIds = new Set<string>();
   let scenario: MockScenario = options.scenario ?? DEFAULT_SCENARIO;
   const serials = new Map<number, number>();
+  /**
+   * How far the referral clock runs ahead of (or behind) real time, which `/__mock/clock` moves. It dates a referral's
+   * raise, assignment, claim and direction, its window and `directionDueBy`, and the processing window's cutoff, so a
+   * journey can make an assignment overdue or cross a window. Notes and audit columns keep real time.
+   */
+  let clockOffsetMinutes = 0;
 
   const server = createServer((req, res) => {
     handle(req, res).catch((error) => {
@@ -352,6 +416,18 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       if (!isMockScenario(requested)) return send(res, 400, { error: `unknown scenario: ${String(requested)}` });
       scenario = requested;
       return send(res, 200, { scenario });
+    }
+
+    if (method === "POST" && pathname === "/__mock/clock") {
+      const body = (await readJsonBody(req)) as { offsetMinutes?: unknown; window?: unknown } | null;
+      const offset = body?.window === "open" || body?.window === "closed" ? minutesToMorningWindow(body.window) : body?.offsetMinutes;
+      if (typeof offset !== "number" || !Number.isSafeInteger(offset)) return send(res, 400, { error: "offsetMinutes must be a whole number" });
+      clockOffsetMinutes = offset;
+      return send(res, 200, { now: clock().toISOString(), offsetMinutes: clockOffsetMinutes });
+    }
+
+    if (method === "POST" && pathname === "/__mock/referrals/unassign-overdue") {
+      return send(res, 200, { released: unassignOverdue() });
     }
 
     if (method === "POST" && pathname === "/__mock/reset") {
@@ -469,6 +545,49 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return send(res, 200, gazetteSettings);
     }
 
+    if (pathname === "/caseworker/masters" || pathname.startsWith("/caseworker/masters/")) {
+      const claims = await callerClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      const id = pathname === "/caseworker/masters" ? null : decodeURIComponent(pathname.slice("/caseworker/masters/".length));
+      if (id === null && method === "GET") {
+        if (!callerAccess(claims).staff) return send(res, 403, { error: "Deed poll staff role required" });
+        return send(res, 200, { masters: masters.list() });
+      }
+      if (id?.includes("/")) return send(res, 404, { error: "Not found" });
+      if ((id === null && method !== "POST") || (id !== null && method !== "PATCH")) return send(res, 405, { error: "Method not allowed" });
+      if (!hasProcessConfigAccess(claims)) return send(res, 403, { error: "Delivery Manager role required" });
+      const result = id === null ? masters.create(await readJsonBody(req)) : masters.update(id, await readJsonBody(req));
+      return send(res, result.status, result.body);
+    }
+
+    if (pathname === "/caseworker/process-settings/bank-holidays" || pathname.startsWith("/caseworker/process-settings/bank-holidays/")) {
+      const claims = await callerClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      const date =
+        pathname === "/caseworker/process-settings/bank-holidays"
+          ? null
+          : decodeURIComponent(pathname.slice("/caseworker/process-settings/bank-holidays/".length));
+      if (date === null && method === "GET") {
+        if (!callerAccess(claims).staff) return send(res, 403, { error: "Deed poll staff role required" });
+        return send(res, 200, bankHolidays.list());
+      }
+      if ((date === null && method !== "POST") || (date !== null && method !== "DELETE")) return send(res, 405, { error: "Method not allowed" });
+      if (!hasProcessConfigAccess(claims)) return send(res, 403, { error: "Delivery Manager role required" });
+      if (date !== null) return bankHolidays.remove(date) ? sendNoContent(res) : send(res, 404, { error: "No such bank holiday" });
+      const result = bankHolidays.add(await readJsonBody(req));
+      return send(res, result.status, result.body);
+    }
+
+    if (pathname === "/caseworker/process-settings") {
+      const claims = await callerClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      if (!hasProcessConfigAccess(claims)) return send(res, 403, { error: "Delivery Manager role required" });
+      if (method === "GET") return send(res, 200, processSettings.read());
+      if (method !== "PUT") return send(res, 405, { error: "Method not allowed" });
+      const result = processSettings.update(await readJsonBody(req), typeof claims.name === "string" ? claims.name : "Delivery Manager");
+      return send(res, result.status, result.body);
+    }
+
     if (
       pathname === "/caseworker/gazette-notice-previews" ||
       pathname === "/caseworker/gazette-notice-requests" ||
@@ -482,16 +601,16 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       }
       if (method === "POST" && (typeof claims.sub !== "string" || !claims.sub)) return send(res, 401, { error: "Subject required" });
       const result = gazetteRequests.handle(
-        method,
-        pathname,
-        searchParams,
-        method === "POST" ? await readJsonBody(req) : undefined,
-        req.headers["idempotency-key"],
-        typeof claims.sub === "string" ? claims.sub : "",
-        typeof claims.name === "string" ? claims.name : "Administrator",
-        cases,
-        gazetteSettings,
-        gazetteBatches
+        {
+          method,
+          path: pathname,
+          query: searchParams,
+          body: method === "POST" ? await readJsonBody(req) : undefined,
+          key: req.headers["idempotency-key"],
+          subject: typeof claims.sub === "string" ? claims.sub : "",
+          name: typeof claims.name === "string" ? claims.name : "Administrator"
+        },
+        { cases, settings: gazetteSettings, batches: gazetteBatches }
       );
       if (result.loseResponse) {
         res.destroy();
@@ -526,6 +645,16 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return send(res, 200, { batches, ...paging, total: ordered.length, totalPages: Math.ceil(ordered.length / paging.size) });
     }
 
+    // api F1's referral queue, `ALLOCATE_REFERRALS` before anything is read, the body included.
+    if (pathname === "/caseworker/referral-queue" || pathname === "/caseworker/referral-queue/sends") {
+      const claims = await callerClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      if (!hasAllocateAccess(claims)) return send(res, 403, { error: "Team leader or Delivery Manager role required" });
+      if (pathname === "/caseworker/referral-queue" && method === "GET") return referralQueue(res, searchParams);
+      if (pathname === "/caseworker/referral-queue/sends" && method === "POST") return sendReferrals(req, res);
+      return send(res, 405, { error: `no such route: ${method} ${pathname}` });
+    }
+
     if (method === "GET" && pathname === "/caseworker/document-types") return send(res, 200, MOCK_DOCUMENT_TYPES);
 
     // The collection before the `{id}` pattern, for the reason recorded above the field-rules route: matched
@@ -545,8 +674,14 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     // A sibling namespace to `/caseworker`, not a section of it, so its own branch rather than a widening of
     // the case-scoped pattern below: a judicial path carries no case id, because api resolves the case from
     // the referral precisely so a judge cannot name an application.
+    // api's `MasterLinking` interceptor, on every judicial path before the request is answered.
+    if (pathname.startsWith("/judicial/")) await linkJudicialCaller(req);
+
     if (pathname === "/judicial/referrals") {
-      if (method === "GET") return judicialPool(res, searchParams);
+      if (method === "GET") {
+        unassignOverdue();
+        return judicialPool(res, searchParams);
+      }
       return send(res, 405, { error: `no such route: ${method} ${pathname}` });
     }
 
@@ -556,14 +691,17 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     // one gets — for a page that exists. `referrals-admin-6` decision 6, and `server.test.ts` asserts the dispatch
     // rather than trusting this comment.
     if (pathname === "/judicial/referrals/mine") {
-      if (method === "GET") return myReferrals(req, res, searchParams);
+      if (method === "GET") {
+        unassignOverdue();
+        return myReferrals(req, res, searchParams);
+      }
       return send(res, 405, { error: `no such route: ${method} ${pathname}` });
     }
 
-    const judicial = /^\/judicial\/referrals\/([^/]+)(?:\/(claim|direction|direction\/withdraw|documents\/([^/]+)\/file))?$/.exec(pathname);
+    const judicial = /^\/judicial\/referrals\/([^/]+)(?:\/(claim|direction|direction\/withdraw|documents\/([^/]+)\/(file|preview)))?$/.exec(pathname);
     if (judicial) {
       const documentId = judicial[3] === undefined ? undefined : decodeURIComponent(judicial[3]);
-      return judicialReferral(req, res, method, decodeURIComponent(judicial[1]), documentId === undefined ? judicial[2] : "file", documentId);
+      return judicialReferral(req, res, method, decodeURIComponent(judicial[1]), documentId === undefined ? judicial[2] : judicial[4], documentId);
     }
 
     // Before the `{id}` route, exactly as api relies on Spring ordering a literal pattern first: matched
@@ -582,16 +720,22 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     }
 
     // The trailing group is an ACTION on the child rather than a second child id — `/file` on a document,
-    // `/withdrawal`, `/closure` and `/confirmation` on a referral, `/preview` on an email — which is why they
+    // `/withdrawal`, `/closure`, `/confirmation` and `/assignment` on a referral, `/preview` on an email — which is why they
     // share one group. An email's "child" is its template key rather than a stored row's id, which is api's shape
     // too: the key is the only thing that identifies which email is being composed.
     const scoped =
-      /^\/caseworker\/cases\/([^/]+)(?:\/(notes|witnesses|documents|referrals|emails)(?:\/([^/]+))?)?(?:\/(file|withdrawal|closure|confirmation|preview))?$/.exec(
+      /^\/caseworker\/cases\/([^/]+)(?:\/(notes|witnesses|documents|referrals|emails)(?:\/([^/]+))?)?(?:\/(file|withdrawal|closure|confirmation|preview|assignment))?$/.exec(
         pathname
       );
     if (!scoped) return send(res, 404, { error: `no such route: ${method} ${pathname}` });
 
     const [, rawId, collection, childId, action] = scoped;
+    // api F1: reassignment is `ALLOCATE_REFERRALS` only, refused before the case or the referral is read.
+    if (collection === "referrals" && action === "assignment" && method === "PUT") {
+      const claims = await callerClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      if (!hasAllocateAccess(claims)) return send(res, 403, { error: "Team leader or Delivery Manager role required" });
+    }
     const found = cases.get(decodeURIComponent(rawId));
     if (!found) return send(res, 404, { error: `DeedPoll ${decodeURIComponent(rawId)} not found` });
 
@@ -603,7 +747,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
     if (collection === "notes") return notes(req, res, method, found, childId);
     if (collection === "witnesses") return witnesses(req, res, method, found, childId);
-    if (collection === "documents") return documents(req, res, method, found, childId, action === "file");
+    if (collection === "documents") return documents(req, res, method, found, childId, action);
     if (collection === "referrals") return referrals(req, res, method, found, childId, action);
     if (collection === "emails") return emails(req, res, method, found, childId, action === "preview");
 
@@ -741,8 +885,10 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (MOCK_SCENARIOS[scenario].caseWrite === "reject") return send(res, 400, MOCK_WRITE_REJECTION);
 
     // Merged before the rules run, for the reason api's own update does: a patch setting one date of a
-    // pair is valid or not depending on the other, which it may never mention.
-    const merged = { ...record, ...(parsed.data as Partial<MockCase>) };
+    // pair is valid or not depending on the other, which it may never mention. Then gated, as api's
+    // `applyGazetteGate` and `applyMinorGate` gate the merged record: admin leaves a field its rules hide out
+    // of the patch (review finding R02), so this is what clears one.
+    const merged = writeGates({ ...record, ...(parsed.data as Partial<MockCase>) });
     const dateErrors = dateRuleErrors(merged);
     if (dateErrors.length > 0) return send(res, 400, { error: "Case dates are inconsistent", errors: dateErrors });
 
@@ -873,7 +1019,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     method: string,
     record: MockCase,
     documentId: string | undefined,
-    wantsFile: boolean
+    action: string | undefined
   ): Promise<void> {
     if (documentId === undefined && method === "POST") {
       const upload = parseMultipart(await readRawBody(req), req.headers["content-type"] ?? "");
@@ -900,12 +1046,12 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return send(res, 201, toWireDocument(created));
     }
 
-    if (documentId !== undefined && method === "GET" && wantsFile) {
+    if (documentId !== undefined && method === "GET" && (action === "file" || action === "preview")) {
       const id = decodeURIComponent(documentId);
       const document = record.documents.find((candidate) => candidate.id === id);
       if (!document) return send(res, 404, { error: `Document ${id} not found` });
 
-      return sendDocumentFile(res, document);
+      return action === "file" ? sendDocumentFile(res, document) : sendDocumentPreview(res, document, MOCK_SCENARIOS[scenario].documentPreview);
     }
 
     return send(res, 404, { error: `no such route: ${method} on documents` });
@@ -979,6 +1125,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     }
 
     if (method === "POST" && action === "confirmation") return recordConfirmation(req, res, record, referral);
+    if (method === "PUT" && action === "assignment") return reassign(req, res, record, referral);
 
     return send(res, 405, { error: `no such route: ${method} on a referral` });
   }
@@ -1034,11 +1181,11 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   }
 
   /**
-   * Raise a referral, unclaimed and into the shared pool.
+   * Raise a referral, always `Open` since api F1: it waits in the queue until a Team leader or Delivery Manager sends
+   * it to a Master. A `masterId` is ignored, as any unknown key is.
    *
-   * Neither the state nor a target judge is the caller's to choose, so neither is read off the body: a new
-   * referral is `Open`, and who picks it up is a later transition. `migrated` is false because a caseworker
-   * raised it — the flag exists to explain why a backfilled referral has no reasons.
+   * The state is not the caller's to choose, so it is not read off the body. `migrated` is false because a
+   * caseworker raised it — the flag exists to explain why a backfilled referral has no reasons.
    *
    * The 409 comes after the body checks, as api orders them: at most one referral of a case may be live, and
    * the same request succeeds unchanged once that one is closed or withdrawn, so it is a state rather than a
@@ -1055,7 +1202,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return send(res, 409, { error: `Case ${record.id} already has a referral that has not been closed or withdrawn` });
     }
 
-    const now = new Date();
+    const now = clock();
     const author = auditName(req);
     const created: MockReferral = {
       id: randomUUID(),
@@ -1072,7 +1219,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       claimedAt: null,
       decision: null,
       directionsText: null,
-      publishToGazette: null,
+      changesToStandardPublication: null,
       decisionDate: null,
       decidedBy: null,
       decidedById: null,
@@ -1263,14 +1410,9 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   }
 
   /**
-   * One page of the shared pool: the `Open` referrals of every case, urgent first then longest-waiting.
-   *
-   * `Open` only, which is what makes it a pool rather than a list of everything a judge may see: a claimed or
-   * decided referral is reachable by id by the judge it belongs to, and putting it here would show it to every
-   * other judge.
-   *
-   * A page past the end is an empty page rather than an error, as the case list's is, and `total` says where to
-   * look instead. The default size is ten and not the case list's twenty-five — see `POOL_PAGE_SIZE`.
+   * The former shared pool, deprecated by api D2 and kept for one release: referrals are assigned by the office, so
+   * it is always an empty page with a total of 0. It still parses its paging, as api's `CasePaging` still does, and
+   * its caller still sweeps first.
    */
   function judicialPool(res: ServerResponse, parameters: URLSearchParams): void {
     const paging = parsePaging(parameters.get("page"), parameters.get("size"), POOL_PAGE_SIZE);
@@ -1279,19 +1421,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return;
     }
 
-    const waiting = [...cases.values()]
-      .flatMap((record) => record.referrals)
-      .filter((referral) => referral.state === "Open")
-      .sort(poolOrder);
-    const from = (paging.page - 1) * paging.size;
-
-    send(res, 200, {
-      referrals: waiting.slice(from, from + paging.size).map(toWireJudicialSummary),
-      page: paging.page,
-      size: paging.size,
-      total: waiting.length,
-      totalPages: Math.ceil(waiting.length / paging.size)
-    });
+    send(res, 200, { referrals: [], page: paging.page, size: paging.size, total: 0, totalPages: 0 });
   }
 
   /**
@@ -1308,13 +1438,10 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
    * colleague's would be *enumerating* their work — a sharper disclosure than the individual read, which at least
    * needed an id. A referral with no owner subject is on nobody's list, exactly as it is visible to nobody.
    *
-   * **api's order, reproduced rather than approximated** — `MINE_ORDER`: unfinished work first, then the pool's own
-   * two keys, then the id. See `myReferralsOrder` for why each is there. A page must not compensate for this, so
-   * getting it wrong here is worse than not modelling it at all.
-   *
-   * The inactivity sweep api runs before this query is the one thing not modelled — it is a two-hour window on
-   * api's clock, and the file's docblock says why there is no timer here. A lapsed claim therefore stays on this
-   * list locally where api would have returned it to the pool.
+   * **api's order, reproduced rather than approximated** — `MINE_ORDER` since D2: undirected first, urgent first
+   * among those only, then oldest, then the id. See `myReferralsOrder`. A page must not compensate for this, so
+   * getting it wrong here is worse than not modelling it at all. Its caller sweeps overdue assignments first, as
+   * api's `mine` does.
    */
   function myReferrals(req: IncomingMessage, res: ServerResponse, parameters: URLSearchParams): void {
     const paging = parsePaging(parameters.get("page"), parameters.get("size"), POOL_PAGE_SIZE);
@@ -1362,6 +1489,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     // hold, and the name is what a caseworker reads afterwards. See `callerSubject`.
     const judge = auditName(req);
     const subject = callerSubject(req);
+    // api's deprecated claim sweeps before it resolves, as the two lists do; the read and the direction do not.
+    if (method === "POST" && action === "claim") unassignOverdue();
     const located = locateReferral(referralId);
     if (!located || !visibleToJudge(located.referral, subject)) return send(res, 404, { error: `Referral ${referralId} not found` });
 
@@ -1371,11 +1500,11 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
     // Visibility is the referral's, already checked above: a document is readable by exactly the judges who may
     // read the referral. One 404 for a document not on this application and one with no file, as api answers.
-    if (method === "GET" && action === "file") {
+    if (method === "GET" && (action === "file" || action === "preview")) {
       const document = record.documents.find((candidate) => candidate.id === documentId && candidate.bytes.length > 0);
       if (!document) return send(res, 404, { error: `Document ${documentId} not found` });
 
-      return sendDocumentFile(res, document);
+      return action === "file" ? sendDocumentFile(res, document) : sendDocumentPreview(res, document, MOCK_SCENARIOS[scenario].documentPreview);
     }
 
     if (method === "POST" && action === "claim") {
@@ -1383,7 +1512,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       // a non-`Open` referral here is one they hold or have already decided. Another judge's is the 404 above.
       if (referral.state !== "Open") return send(res, 409, { error: `Referral ${referralId} is ${referral.state} and can only be claimed while it is Open` });
 
-      const now = new Date();
+      const now = clock();
       // Both halves of the identity: the subject is what makes it theirs, the name is what says whose it is.
       transition(record, referral, judge, { state: "Claimed", claimedBy: judge, claimedById: subject, claimedAt: now, modifiedOn: now });
       // The claiming judge, not the service account: a person did this, and their name in `createdBy` is why the
@@ -1396,6 +1525,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (method === "POST" && action === "direction") {
       const parsed = WIRE_SCHEMAS.JudicialDirectionRequest.safeParse(await readJsonBody(req));
       if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
+      const missing = directionsMissing(parsed.data);
+      if (missing) return send(res, 400, missing);
 
       // Both halves, as api asks both: the state says a claim exists and the subject says whose. This is what
       // refuses a direction on a referral withdrawn under the judge who was reading it. The SUBJECT and not the
@@ -1404,12 +1535,12 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
         return send(res, 409, { error: `Referral ${referralId} is not claimed by ${judge} -- it is ${referral.state}` });
       }
 
-      const now = new Date();
+      const now = clock();
       transition(record, referral, judge, {
         state: "Decided",
         decision: parsed.data.decision,
         directionsText: parsed.data.directionsText?.trim() || null,
-        publishToGazette: parsed.data.publishToGazette,
+        changesToStandardPublication: parsed.data.changesToStandardPublication,
         // From the clock and the token, never from the payload — api's rule, and the reason the direction body
         // carries neither.
         decisionDate: now,
@@ -1427,6 +1558,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if ((method === "PUT" && action === "direction") || (method === "POST" && action === "direction/withdraw")) {
       const parsed = method === "PUT" ? WIRE_SCHEMAS.JudicialDirectionRequest.safeParse(await readJsonBody(req)) : null;
       if (parsed && !parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
+      const missing = parsed ? directionsMissing(parsed.data) : null;
+      if (missing) return send(res, 400, missing);
 
       // Visibility already admits a `Decided` referral only to the judge who directed it, so the state is the
       // whole of the check: a 409 here is the pool or the caller's own undirected claim, never someone else's.
@@ -1434,14 +1567,14 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
         return send(res, 409, { error: `Referral ${referralId} is ${referral.state} -- only a direction you gave can be changed or withdrawn` });
       }
 
-      const now = new Date();
+      const now = clock();
       if (parsed) {
         // `decidedBy` stays as first signed and `decisionDate` moves to now, as api's `reviseDirection` does.
         transition(record, referral, judge, {
           state: "Decided",
           decision: parsed.data.decision,
           directionsText: parsed.data.directionsText?.trim() || null,
-          publishToGazette: parsed.data.publishToGazette,
+          changesToStandardPublication: parsed.data.changesToStandardPublication,
           decisionDate: now,
           directionChangedAt: now,
           modifiedOn: now
@@ -1450,12 +1583,17 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       } else {
         // Composed before the direction is cleared, because the note says which direction stopped being the answer.
         const note = referralDirectionWithdrawnNote(referral);
-        // Still held by the same judge: the claim fields are untouched, so the referral is theirs to direct again.
+        // Back with its Master to direct again, restarting the processing window but keeping the cap's window, as
+        // api's `withdrawDirection` does. An assignment goes to whoever its Master is linked to now; a pre-D2 claim
+        // has no Master and stays with the subject that claimed it.
         transition(record, referral, judge, {
           state: "Claimed",
+          claimedById: referral.assignedMasterId ? (masters.assignee(referral.assignedMasterId)?.subject ?? null) : referral.claimedById,
+          claimedAt: now,
+          assignedAt: now,
           decision: null,
           directionsText: null,
-          publishToGazette: null,
+          changesToStandardPublication: null,
           decisionDate: null,
           decidedBy: null,
           decidedById: null,
@@ -1485,6 +1623,273 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     }
 
     return null;
+  }
+
+  /** The referral clock: real time moved by `/__mock/clock`. */
+  function clock(): Date {
+    return new Date(Date.now() + clockOffsetMinutes * 60_000);
+  }
+
+  /**
+   * `/__mock/clock`'s `{ window }`: the offset from real time to five minutes after the next morning window opens
+   * (`open`, so a journey has hours to send in) or closes (`closed`, hours before the afternoon's opens). The morning
+   * because the afternoon window is half an hour by default, which a slow journey could cross.
+   */
+  function minutesToMorningWindow(window: "open" | "closed"): number {
+    const times = windowTimes();
+    let next = nextToOpen(new Date(), times, isWorkingDay);
+    while (next.slot !== "AM") next = nextToOpen(opensAt(next, times), times, isWorkingDay);
+    const edge = window === "open" ? opensAt(next, times) : closesAt(next, times);
+    return Math.ceil((edge.getTime() + 5 * 60_000 - Date.now()) / 60_000);
+  }
+
+  /** The stored window times, as api's `ProcessSettingsService.referralWindows()` reads them. */
+  function windowTimes(): WindowTimes {
+    const settings = processSettings.read();
+    return {
+      morningStart: settings.morningWindowStart ?? "07:00",
+      morningEnd: settings.morningWindowEnd ?? "10:30",
+      afternoonStart: settings.afternoonWindowStart ?? "14:00",
+      afternoonEnd: settings.afternoonWindowEnd ?? "14:30"
+    };
+  }
+
+  function isWorkingDay(day: string): boolean {
+    return isWeekdayNotIn((candidate) => bankHolidays.has(candidate))(day);
+  }
+
+  function processingMinutes(): number {
+    return processSettings.read().referralClaimExpiryMinutes;
+  }
+
+  function allReferrals(): { record: MockCase; referral: MockReferral }[] {
+    return [...cases.values()].flatMap((record) => record.referrals.map((referral) => ({ record, referral })));
+  }
+
+  /**
+   * api's `ReferralQueue.windowAt`: the window open now or null, the next to open, the cap, and the referrals sent in
+   * the open window and not since withdrawn (decision A-2), in total and by each available Master. 0 outside a window.
+   */
+  function queueWindow(now: Date): unknown {
+    const times = windowTimes();
+    const current = openAt(now, times, isWorkingDay);
+    const next = nextToOpen(now, times, isWorkingDay);
+    const inWindow = current ? allReferrals().filter(({ referral }) => holdsAPlaceIn(referral, current)) : [];
+    return {
+      current: current ? { ...current, closesAt: closesAt(current, times).toISOString() } : null,
+      next: { ...next, opensAt: opensAt(next, times).toISOString() },
+      cap: processSettings.read().windowCap,
+      sent: inWindow.length,
+      masters: masters
+        .list()
+        .filter((master) => master.available)
+        .map((master) => ({
+          id: master.id,
+          name: master.name,
+          sentInWindow: inWindow.filter(({ referral }) => referral.assignedMasterId === master.id).length
+        }))
+    };
+  }
+
+  /**
+   * `GET /caseworker/referral-queue` (api F1): `Open` referrals urgent first, then oldest raised, then id; or `Claimed`
+   * ones oldest sent first, then id. Across every case, paged as the case list is.
+   */
+  function referralQueue(res: ServerResponse, parameters: URLSearchParams): void {
+    const raw = parameters.get("state")?.trim() ?? "";
+    if (raw !== "" && raw !== "Open" && raw !== "Claimed") {
+      send(res, 400, { error: "Referral queue state is not valid", errors: [{ field: "state", message: "state is Open or Claimed" }] });
+      return;
+    }
+    const paging = parsePaging(parameters.get("page"), parameters.get("size"));
+    if ("errors" in paging) {
+      send(res, 400, { error: "Case list paging is not valid", errors: paging.errors });
+      return;
+    }
+    const state = raw === "Claimed" ? "Claimed" : "Open";
+    const rows = allReferrals()
+      .filter(({ referral }) => referral.state === state)
+      .sort(state === "Open" ? queueOrder : sentOrder);
+    const from = (paging.page - 1) * paging.size;
+
+    send(res, 200, {
+      referrals: rows.slice(from, from + paging.size).map(({ record, referral }) => toQueueItem(record, referral)),
+      page: paging.page,
+      size: paging.size,
+      total: rows.length,
+      totalPages: Math.ceil(rows.length / paging.size),
+      window: queueWindow(clock())
+    });
+  }
+
+  /**
+   * `POST /caseworker/referral-queue/sends` (api F1's `ReferralQueue.send`), all or nothing, its checks in api's
+   * order: the body's shape (400 naming the entry), an open window (409 naming the next), each referral `Open` or a
+   * replay (the same Master in this same window, skipped rather than refused; 409 on `referralId`), each new one's
+   * Master available (400 on `masterId`), then the cap across all Masters (409, no field).
+   */
+  async function sendReferrals(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const parsed = parseSend(await readJsonBody(req));
+    if ("errors" in parsed) return send(res, 400, { error: "Referrals to send are not valid", errors: parsed.errors });
+
+    const now = clock();
+    const times = windowTimes();
+    const window = openAt(now, times, isWorkingDay);
+    if (!window) return send(res, 409, { error: closedRefusal(now, times, isWorkingDay) });
+
+    const byId = new Map(allReferrals().map((entry) => [entry.referral.id, entry]));
+    const fresh: number[] = [];
+    const notWaiting: MockFieldError[] = [];
+    parsed.allocations.forEach((allocation, index) => {
+      const found = byId.get(allocation.referralId)?.referral;
+      if (found?.state === "Open") fresh.push(index);
+      else if (!found || !isReplay(found, allocation.masterId, window))
+        notWaiting.push({ field: `allocations[${index}].referralId`, message: NO_LONGER_WAITING });
+    });
+    if (notWaiting.length > 0) return send(res, 409, { error: NO_LONGER_WAITING, errors: notWaiting });
+
+    const unavailable = fresh
+      .filter((index) => !masters.assignee(parsed.allocations[index].masterId)?.available)
+      .map((index) => ({ field: `allocations[${index}].masterId`, message: SELECT_A_MASTER }));
+    if (unavailable.length > 0) return send(res, 400, { error: SELECT_A_MASTER, errors: unavailable });
+
+    if (fresh.length > 0) {
+      const sent = allReferrals().filter(({ referral }) => holdsAPlaceIn(referral, window)).length;
+      const cap = processSettings.read().windowCap;
+      if (sent + fresh.length > cap) return send(res, 409, { error: fullRefusal(window, Math.max(0, cap - sent), fresh.length) });
+    }
+
+    const author = auditName(req);
+    for (const index of fresh) {
+      const allocation = parsed.allocations[index];
+      const { record, referral } = byId.get(allocation.referralId) as { record: MockCase; referral: MockReferral };
+      const master = masters.assignee(allocation.masterId) as Assignee;
+      stampAssignment(record, referral, master, window, author, now);
+      appendNote(record, referralSentNote(referral, master.name), author);
+      refreshAwaitingConfirmation(record);
+    }
+
+    return send(res, 200, {
+      referrals: parsed.allocations.map((allocation) => {
+        const { record, referral } = byId.get(allocation.referralId) as { record: MockCase; referral: MockReferral };
+        return toQueueItem(record, referral);
+      }),
+      window: queueWindow(now)
+    });
+  }
+
+  /**
+   * The assignment's columns, as api's `stampAssignment` writes them: `Claimed` by the Master's name, owned by their
+   * linked subject or by nobody until they sign in, `claimedAt` and `assignedAt` now (so a reassignment restarts the
+   * processing window). A send stamps the window it was sent in; a reassignment passes none and keeps it.
+   */
+  function stampAssignment(record: MockCase, referral: MockReferral, master: Assignee, window: ReferralWindow | null, author: string, now: Date): void {
+    transition(record, referral, author, {
+      state: "Claimed",
+      claimedBy: master.name,
+      claimedById: master.subject,
+      claimedAt: now,
+      assignedAt: now,
+      assignedMasterId: master.id,
+      ...(window ? { windowDate: window.date, windowSlot: window.slot } : {}),
+      modifiedOn: now
+    });
+  }
+
+  /**
+   * `PUT …/assignment` (api F1): `ALLOCATE_REFERRALS` only (gated before the case is read), a `Claimed` referral only,
+   * at any time, with no cap and the window kept. The checks in api's order: the body, the Master (400), an `Open`
+   * referral (409, send it from the queue), any other state but `Claimed` (409), then the Master it already has (a
+   * no-op 200 writing nothing).
+   */
+  async function reassign(req: IncomingMessage, res: ServerResponse, record: MockCase, referral: MockReferral): Promise<void> {
+    const parsed = WIRE_SCHEMAS.AssignReferralRequest.safeParse(await readJsonBody(req));
+    if (!parsed.success) {
+      const { status, body } = selectAMaster();
+      return send(res, status, body);
+    }
+    const master = masters.assignee(parsed.data.masterId);
+    if (!master?.available) {
+      const { status, body } = selectAMaster();
+      return send(res, status, body);
+    }
+    if (referral.state === "Open") return send(res, 409, { error: SEND_FROM_THE_QUEUE });
+    if (referral.state !== "Claimed") {
+      return send(res, 409, { error: `Referral ${referral.id} is ${referral.state}: only a referral waiting for a direction can be assigned` });
+    }
+    if (referral.assignedMasterId === master.id) return send(res, 200, toWireReferral(referral));
+
+    const from = referral.claimedBy;
+    const author = auditName(req);
+    stampAssignment(record, referral, master, null, author, clock());
+    appendNote(record, referralReassignedNote(referral, from ?? "", master.name), author);
+    refreshAwaitingConfirmation(record);
+
+    return send(res, 200, toWireReferral(referral));
+  }
+
+  function toQueueItem(record: MockCase, referral: MockReferral): unknown {
+    return wireQueueItem(record, referral, processingMinutes());
+  }
+
+  /**
+   * api's `unassignOverdue`: every `Claimed` referral whose processing window, from `assignedAt` or for a pre-D2 claim
+   * `claimedAt`, ended before now goes back to the office, `Open` with its claim and assignment cleared, with one
+   * note attributed to the service account. Returns how many it released.
+   */
+  function unassignOverdue(): number {
+    const minutes = processingMinutes();
+    const cutoff = clock().getTime() - minutes * 60_000;
+    let released = 0;
+    for (const record of cases.values()) {
+      for (const referral of record.referrals) {
+        const started = referral.assignedAt ?? referral.claimedAt;
+        if (referral.state !== "Claimed" || !started || started.getTime() >= cutoff) continue;
+        const from = referral.claimedBy;
+        transition(record, referral, SERVICE_ACCOUNT_NAME, {
+          state: "Open",
+          claimedBy: null,
+          claimedById: null,
+          claimedAt: null,
+          assignedMasterId: null,
+          assignedAt: null,
+          windowDate: null,
+          windowSlot: null
+        });
+        appendNote(record, referralReturnedToQueueNote(referral, from, minutes), SERVICE_ACCOUNT_NAME);
+        released++;
+      }
+    }
+    return released;
+  }
+
+  /** Linking's referral side, api's `attachToLinkedMaster` and `attachLegacyClaims`, in that order. */
+  function attachToLinkedMaster(masterId: string, subject: string): void {
+    for (const referral of [...cases.values()].flatMap((record) => record.referrals)) {
+      if (referral.assignedMasterId === masterId && referral.claimedById === null && (referral.state === "Claimed" || referral.state === "Decided")) {
+        referral.claimedById = subject;
+      }
+      if (referral.claimedById === subject && !referral.assignedMasterId && referral.state === "Claimed") referral.assignedMasterId = masterId;
+    }
+  }
+
+  /** api's `detachFromUnlinkedMaster`: an email change cuts the old account off the Master's undirected referrals. */
+  function detachFromUnlinkedMaster(masterId: string): void {
+    for (const referral of [...cases.values()].flatMap((record) => record.referrals)) {
+      if (referral.assignedMasterId === masterId && referral.claimedById !== null && referral.state === "Claimed") referral.claimedById = null;
+    }
+  }
+
+  function toWireReferral(referral: MockReferral): unknown {
+    return wireReferral(referral, processingMinutes());
+  }
+
+  function toWireJudicialSummary(referral: MockReferral): unknown {
+    return wireJudicialSummary(referral, processingMinutes());
+  }
+
+  function toWireJudicialDetail(record: MockCase, referral: MockReferral): unknown {
+    return wireJudicialDetail(record, referral, processingMinutes());
   }
 
   async function createSavedQuery(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -1654,10 +2059,30 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     return record;
   }
 
+  /**
+   * The caller api would link: the judicial role, the subject and IDAM's email, trimmed and lower-cased and
+   * ignored without an `@`, as api's `CurrentUser` reads it. Best effort, as api's interceptor is: nothing here can
+   * refuse the request.
+   */
+  async function linkJudicialCaller(req: IncomingMessage): Promise<void> {
+    const claims = await callerClaims(req, options.userInfoUrl);
+    if (!claims) return;
+    const email = typeof claims.email === "string" ? claims.email.trim().toLowerCase() : "";
+    masters.linkIfListed({
+      isJudicial: callerAccess(claims).judicial,
+      subject: typeof claims.sub === "string" && claims.sub.length > 0 ? claims.sub : null,
+      email: email.includes("@") ? email : null
+    });
+  }
+
   function reset(): void {
     cases.clear();
+    clockOffsetMinutes = 0;
     gazetteBatches.clear();
     gazetteRequests.reset();
+    processSettings.reset();
+    masters.reset();
+    bankHolidays.reset();
     gazetteSettings = { recipientEmail: null, revision: 0, updatedAt: null, updatedBy: null };
     serials.clear();
     savedQueries.clear();
@@ -1779,7 +2204,7 @@ function callerSubject(req: IncomingMessage): string {
 
 // Local IDAM puts roles in userinfo, not its access token. Fixture tokens still carry roles directly. Shared by
 // `GET /me` and the Gazette gate so the two read the same roles for one token.
-async function callerClaims(req: IncomingMessage, userInfoUrl?: string): Promise<{ sub?: unknown; roles?: unknown; name?: unknown } | null> {
+async function callerClaims(req: IncomingMessage, userInfoUrl?: string): Promise<{ sub?: unknown; roles?: unknown; name?: unknown; email?: unknown } | null> {
   const claims = tokenClaims(req);
   if (!claims || claims.roles !== undefined || !userInfoUrl) return claims;
   try {
@@ -1802,13 +2227,13 @@ async function callerClaims(req: IncomingMessage, userInfoUrl?: string): Promise
  * page depends on. Anything undecodable is `null` rather than an error, so a hand-rolled `curl` against the mock
  * still works.
  */
-function tokenClaims(req: IncomingMessage): { sub?: unknown; name?: unknown; roles?: unknown } | null {
+function tokenClaims(req: IncomingMessage): { sub?: unknown; name?: unknown; roles?: unknown; email?: unknown } | null {
   const bearer = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? "");
   const payload = bearer?.[1].split(".")[1];
   if (payload === undefined) return null;
 
   try {
-    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: unknown; name?: unknown; roles?: unknown };
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: unknown; name?: unknown; roles?: unknown; email?: unknown };
   } catch {
     return null;
   }
@@ -2202,6 +2627,19 @@ function reprefix(existing: string | null | undefined, type: string | null | und
 }
 
 /**
+ * api's two write-path gates on an update: Publish to London Gazette = No clears the notice date, and a type
+ * that hides the minor-only fields (Adult, Adult Transgender, Relinquishment) clears all four.
+ */
+function writeGates<T extends Partial<MockCase>>(merged: T): T {
+  const hidesMinorFields = merged.type === "Adult" || merged.type === "AdultTransgender" || merged.type === "DeedOfRelinquishment";
+  return {
+    ...merged,
+    ...(merged.publishToLondonGazette === false ? { dateNoticeSentToLondonGazette: null } : {}),
+    ...(hidesMinorFields ? Object.fromEntries(MINOR_ONLY_FIELDS.map((field) => [field, null])) : {})
+  };
+}
+
+/**
  * The state, from which dates are populated. The FIRST match wins, and the order is api's.
  *
  * Note that signature-received is evaluated BEFORE the referral pair, so a signed case reads Awaiting
@@ -2368,6 +2806,39 @@ function sendDocumentFile(res: ServerResponse, document: MockDocument): void {
   res.end(document.bytes);
 }
 
+/**
+ * One document's preview, with the headers api publishes for both preview operations, or api's refusal. The same
+ * 404 as `/file` for a document with no bytes, because api reads the original first. See `document-preview.ts`.
+ */
+function sendDocumentPreview(res: ServerResponse, document: MockDocument, mode: DocumentPreviewMode): void {
+  if (document.bytes.length === 0) {
+    send(res, 404, { error: `Document ${document.id} not found` });
+    return;
+  }
+
+  const outcome = buildDocumentPreview(document.mimeType, document.bytes, mode);
+  if (!outcome.ok) {
+    res.writeHead(outcome.status, {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+      ...(outcome.code === "PREVIEW_BUSY" ? { "retry-after": String(PREVIEW_BUSY_RETRY_AFTER_SECONDS) } : {})
+    });
+    res.end(JSON.stringify({ error: outcome.error, code: outcome.code }));
+    return;
+  }
+
+  res.writeHead(200, {
+    "content-type": "application/pdf",
+    "content-length": String(outcome.pdf.length),
+    "content-disposition": 'inline; filename="document-preview.pdf"',
+    "content-security-policy": "default-src 'none'; sandbox",
+    "x-content-type-options": "nosniff",
+    "cache-control": "no-store",
+    "accept-ranges": "none"
+  });
+  res.end(outcome.pdf);
+}
+
 function toWireNote(note: MockNote): unknown {
   return isoDates(note);
 }
@@ -2486,7 +2957,7 @@ function referralRaisedNote(referral: MockReferral): string {
   // Each piece of the caseworker's own text on its own line rather than run into the sentence before it with
   // a full stop this would have to add — api's reasoning: their text is prose they wrote, and one that
   // already ended in a stop would read as "Friday..".
-  const lines = [`Referred to the judiciary. Reasons: ${referral.reasons.join(", ")}.`];
+  const lines = [`Referral raised, waiting to be sent to a Master. Reasons: ${describedReasons(referral.reasons)}.`];
   if (referral.urgency === "Urgent" && referral.urgencyReason) lines.push(`Marked urgent: ${referral.urgencyReason}`);
   if (referral.notes) lines.push(`Notes: ${referral.notes}`);
 
@@ -2500,7 +2971,138 @@ function referralRaisedNote(referral: MockReferral): string {
  * them in the prose would put the same name in the grid twice.
  */
 function referralClaimedNote(referral: MockReferral): string {
-  return `Referral ${identifiesReferral(referral)}, claimed by the judiciary.`;
+  return `Referral ${identifiesReferral(referral)}, claimed by a Master.`;
+}
+
+/** api F1's `ReferralNotes.sent`, one per referral in a send. */
+function referralSentNote(referral: MockReferral, master: string): string {
+  return `Referral ${identifiesReferral(referral)}, sent to ${namedMaster(master)} by the office.`;
+}
+
+/** api D2's `ReferralNotes.reassigned`. */
+function referralReassignedNote(referral: MockReferral, from: string, to: string): string {
+  return `Referral ${identifiesReferral(referral)}, reassigned from ${namedMaster(from)} to ${namedMaster(to)}.`;
+}
+
+/** api F1's `ReferralNotes.returnedToQueue`, composed before the release clears the Master's name. */
+function referralReturnedToQueueNote(referral: MockReferral, from: string | null | undefined, processingMinutes: number): string {
+  return `Referral ${identifiesReferral(referral)}, returned to the queue to be sent again: no direction from ${namedMaster(from)} within ${durationInWords(processingMinutes)}.`;
+}
+
+/** api's `ReferralNotes.named`: a Master's display name bounded at 200 characters, or "an unnamed Master". */
+function namedMaster(name: string | null | undefined): string {
+  return !name || name.trim() === "" ? "an unnamed Master" : name.slice(0, MAX_MASTER_NAME_IN_NOTE);
+}
+
+/** api's `ReferralNotes.inWords`: whole days, else whole hours, else minutes. */
+function durationInWords(minutes: number): string {
+  const [count, unit] = minutes % 1440 === 0 ? [minutes / 1440, "day"] : minutes % 60 === 0 ? [minutes / 60, "hour"] : [minutes, "minute"];
+  return `${count} ${unit}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * api's `ReferralSchemas.parseSend`, in its words: a non-empty `allocations` of at most the cap's published maximum,
+ * each entry a `referralId` and a `masterId` that read as UUIDs, and no `referralId` twice. Every entry's errors at
+ * once, named by its index.
+ */
+function parseSend(body: unknown): { allocations: { referralId: string; masterId: string }[] } | { errors: MockFieldError[] } {
+  const entries = typeof body === "object" && body !== null ? (body as { allocations?: unknown }).allocations : undefined;
+  if (!Array.isArray(entries) || entries.length === 0) return { errors: [{ field: "allocations", message: "Choose at least one referral to send" }] };
+  if (entries.length > MAX_ALLOCATIONS) return { errors: [{ field: "allocations", message: `Send at most ${MAX_ALLOCATIONS} referrals at once` }] };
+
+  const errors: MockFieldError[] = [];
+  const allocations: { referralId: string; masterId: string }[] = [];
+  const seen = new Set<string>();
+  entries.forEach((entry: unknown, index) => {
+    const path = `allocations[${index}]`;
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      errors.push({ field: path, message: "Each entry names a referralId and a masterId" });
+      return;
+    }
+    const { referralId, masterId } = entry as { referralId?: unknown; masterId?: unknown };
+    const referral = asUuid(referralId);
+    const master = asUuid(masterId);
+    if (referral === null) errors.push({ field: `${path}.referralId`, message: "Select a referral to send" });
+    else if (seen.has(referral)) errors.push({ field: `${path}.referralId`, message: "This referral is in the send more than once" });
+    else seen.add(referral);
+    if (master === null) errors.push({ field: `${path}.masterId`, message: SELECT_A_MASTER });
+    if (referral !== null && master !== null) allocations.push({ referralId: referral, masterId: master });
+  });
+
+  return errors.length > 0 ? { errors } : { allocations };
+}
+
+function asUuid(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().toLowerCase();
+  return UUID_PATTERN.test(trimmed) ? trimmed : null;
+}
+
+/** Sent in this window, in any state since. */
+function isInWindow(referral: MockReferral, window: ReferralWindow): boolean {
+  return referral.windowDate === window.date && referral.windowSlot === window.slot;
+}
+
+/** What the cap counts: sent in this window and not since withdrawn, which gives the place back (decision A-2). */
+function holdsAPlaceIn(referral: MockReferral, window: ReferralWindow): boolean {
+  return isInWindow(referral, window) && referral.state !== "Withdrawn";
+}
+
+/** The same send again, whose answer was lost: already `Claimed` by this Master in this window. */
+function isReplay(referral: MockReferral, masterId: string, window: ReferralWindow): boolean {
+  return referral.state === "Claimed" && referral.assignedMasterId === masterId && isInWindow(referral, window);
+}
+
+/** api's `ReferralQueue.closed`: "… The next one opens at 14:00 today." ("tomorrow", or the weekday and date). */
+function closedRefusal(now: Date, times: WindowTimes, isWorkingDay: (day: string) => boolean): string {
+  const next = nextToOpen(now, times, isWorkingDay);
+  const today = londonDay(now);
+  const tomorrow = new Date(`${today}T00:00:00Z`);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  const day =
+    next.date === today
+      ? "today"
+      : next.date === tomorrow.toISOString().slice(0, 10)
+        ? "tomorrow"
+        : `on ${WEEKDAY.format(new Date(`${next.date}T00:00:00Z`))} ${NOTE_DAY.format(new Date(`${next.date}T00:00:00Z`))}`;
+  return `Referrals can only be sent during a referral window. The next one opens at ${LONDON_TIME.format(opensAt(next, times))} ${day}.`;
+}
+
+/**
+ * api's `ReferralQueue.full`: "Only 3 more referrals can be sent this morning. Remove 2 and try again.", or with no
+ * room left, "No more referrals can be sent this morning."
+ */
+function fullRefusal(window: ReferralWindow, room: number, requested: number): string {
+  const when = window.slot === "AM" ? "this morning" : "this afternoon";
+  if (room === 0) return `No more referrals can be sent ${when}.`;
+  return `Only ${room} more ${room === 1 ? "referral" : "referrals"} can be sent ${when}. Remove ${requested - room} and try again.`;
+}
+
+/** The queue's `Open` order: urgent first, then the oldest raised, then the id. */
+function queueOrder(left: { referral: MockReferral }, right: { referral: MockReferral }): number {
+  return (
+    urgencyRank(left.referral) - urgencyRank(right.referral) ||
+    left.referral.createdOn.getTime() - right.referral.createdOn.getTime() ||
+    rank(left.referral.id, right.referral.id)
+  );
+}
+
+/** The queue's `Claimed` order: the oldest sent first (`coalesce(assignedAt, claimedAt)`), then the id. */
+function sentOrder(left: { referral: MockReferral }, right: { referral: MockReferral }): number {
+  return sentAt(left.referral) - sentAt(right.referral) || rank(left.referral.id, right.referral.id);
+}
+
+function urgencyRank(referral: MockReferral): number {
+  return referral.urgency === "Urgent" ? 0 : 1;
+}
+
+function sentAt(referral: MockReferral): number {
+  return (referral.assignedAt ?? referral.claimedAt ?? referral.createdOn).getTime();
+}
+
+/** api's 400 for an unknown or unavailable Master, on `masterId`. */
+function selectAMaster(): { status: number; body: unknown } {
+  return { status: 400, body: { error: SELECT_A_MASTER, errors: [{ field: "masterId", message: SELECT_A_MASTER }] } };
 }
 
 /**
@@ -2513,9 +3115,9 @@ function referralClaimedNote(referral: MockReferral): string {
  */
 function referralDirectedNote(referral: MockReferral): string {
   return (
-    `Judicial direction recorded for referral ${identifiesReferral(referral)}.` +
+    `Master’s direction recorded for referral ${identifiesReferral(referral)}.` +
     ` Decision: ${referral.decision ?? "not recorded"}.` +
-    ` Publish to the London Gazette: ${gazetteAnswer(referral.publishToGazette)}.` +
+    ` Changes to standard publication in the Gazette: ${gazetteAnswer(referral.changesToStandardPublication)}.` +
     " See the referral for the full direction."
   );
 }
@@ -2526,9 +3128,9 @@ function referralDirectedNote(referral: MockReferral): string {
  */
 function referralDirectionRevisedNote(referral: MockReferral): string {
   return (
-    `Judicial direction revised for referral ${identifiesReferral(referral)}.` +
+    `Master’s direction revised for referral ${identifiesReferral(referral)}.` +
     ` Decision: ${referral.decision ?? "not recorded"}.` +
-    ` Publish to the London Gazette: ${gazetteAnswer(referral.publishToGazette)}.` +
+    ` Changes to standard publication in the Gazette: ${gazetteAnswer(referral.changesToStandardPublication)}.` +
     " See the referral for the full direction."
   );
 }
@@ -2536,16 +3138,16 @@ function referralDirectionRevisedNote(referral: MockReferral): string {
 /** The note for a judge withdrawing their direction to give a new one, composed before the direction is cleared. */
 function referralDirectionWithdrawnNote(referral: MockReferral): string {
   return (
-    `Judicial direction withdrawn for referral ${identifiesReferral(referral)}.` +
+    `Master’s direction withdrawn for referral ${identifiesReferral(referral)}.` +
     ` The withdrawn decision was: ${referral.decision ?? "not recorded"}.` +
-    ` Publish to the London Gazette: ${gazetteAnswer(referral.publishToGazette)}.` +
-    " The referral is back with the judge to direct again."
+    ` Changes to standard publication in the Gazette: ${gazetteAnswer(referral.changesToStandardPublication)}.` +
+    " The referral is back with the Master to direct again."
   );
 }
 
 /** The note for the office acknowledging that a returned direction has been carried out. */
 function referralActionedNote(referral: MockReferral): string {
-  return `Judicial direction for referral ${identifiesReferral(referral)}, marked as actioned.`;
+  return `Master’s direction for referral ${identifiesReferral(referral)}, marked as actioned.`;
 }
 
 /**
@@ -2555,7 +3157,7 @@ function referralActionedNote(referral: MockReferral): string {
  * referrals over its life, and a bare "referral withdrawn" in a grid of thirty notes does not say which.
  */
 function referralWithdrawnNote(referral: MockReferral): string {
-  return `Referral to the judiciary withdrawn. It was ${identifiesReferral(referral)}.`;
+  return `Referral to a Master withdrawn. It was ${identifiesReferral(referral)}.`;
 }
 
 /**
@@ -2653,8 +3255,45 @@ function emailCouldNotBeSentNote(template: MockEmailTemplate): string {
  * the note is already under their case. A referral with no reasons is a backfilled one, so it says so rather
  * than trailing off; the raised note above has no such fallback, because api's does not.
  */
+/**
+ * api's `ReferralReason.label()`: each reason in the admin screens' words, which api's notes write since api#155
+ * (Steve, 2026-10-27). Restated here because the mock cannot import the domain's `REFERRAL_REASON_LABEL`; the two
+ * must say the same, and `server.test.ts` pins the folded sentence.
+ */
+const REASON_NOTE_LABEL: Record<string, string> = {
+  Minor: "Applicant is a minor",
+  DomesticAbuse: "Domestic abuse considerations",
+  NonPublication: "Non-publication request",
+  DeclarantRequirementsNotMet: "Declarant requirements not met",
+  SeparatedOrEstranged: "Separated or estranged",
+  Other: "Other",
+  MinorTransgender: "Transgender",
+  MinorParentalConsent: "Have parental consent",
+  MinorNoParentalConsent: "Do not have parental consent",
+  MinorStepparentConsent: "Stepparent parental consent",
+  MinorNoStepparentConsent: "Do not have stepparent consent",
+  MinorCourtOrder: "Court Order",
+  MinorAged16Or17Consented: "16/17 year old applicant has consented",
+  MinorAged16Or17NotConsented: "16/17 year old applicant has not consented"
+};
+
+/**
+ * api's `ReferralNotes.described`: a minor's details folded into `Minor`, semicolons between reasons, and an unknown
+ * stored name quoted as it stands.
+ */
+function describedReasons(reasons: readonly string[]): string {
+  const label = (name: string) => (Object.hasOwn(REASON_NOTE_LABEL, name) ? REASON_NOTE_LABEL[name] : name);
+  const details = reasons.filter((name) => name.startsWith("Minor") && name !== "Minor" && Object.hasOwn(REASON_NOTE_LABEL, name));
+  const folded = reasons.includes("Minor") && details.length > 0;
+
+  return reasons
+    .filter((name) => !(folded && details.includes(name)))
+    .map((name) => (folded && name === "Minor" ? `${label(name)}: ${details.map(label).join(", ")}` : label(name)))
+    .join("; ");
+}
+
 function identifiesReferral(referral: MockReferral): string {
-  const reasons = referral.reasons.length > 0 ? referral.reasons.join(", ") : "no reasons recorded";
+  const reasons = referral.reasons.length > 0 ? describedReasons(referral.reasons) : "no reasons recorded";
 
   return `raised on ${NOTE_DAY.format(referral.createdOn)}, reasons: ${reasons}`;
 }
@@ -2663,13 +3302,33 @@ function identifiesReferral(referral: MockReferral): string {
  * The Gazette answer as Yes or No, or that it was never recorded.
  *
  * Spelled out and never abbreviated to the presence of a word, which is api's rule and its reason: publication
- * puts the applicant's former and new names in a public notice, so "not published" and "nothing recorded" must
+ * puts the applicant's former and new names in a public notice, so "no changes" and "nothing recorded" must
  * not read alike. Unreachable through the direction route, which stores both halves.
  */
-function gazetteAnswer(publish: boolean | null | undefined): string {
-  if (publish === null || publish === undefined) return "not recorded";
+function gazetteAnswer(changes: boolean | null | undefined): string {
+  if (changes === null || changes === undefined) return "not recorded";
 
-  return publish ? "Yes" : "No";
+  return changes ? "Yes" : "No";
+}
+
+/**
+ * api's directions rule (`ReferralSchemas.parseDirection`): changes to the standard publication need the text that
+ * says what they are. In api's words and on api's field, so a page's handling of the 400 is exercised as it will be
+ * against api. The mock takes only the new name, as api will once its one-release alias is removed.
+ */
+function directionsMissing(direction: { changesToStandardPublication: boolean; directionsText?: string }): unknown {
+  if (!direction.changesToStandardPublication || direction.directionsText?.trim()) return null;
+
+  return {
+    error: "Direction is not valid",
+    errors: [
+      {
+        field: "directionsText",
+        message:
+          "directionsText is required when there are changes to the standard publication in the Gazette: say whether to publish nothing, or what to publish"
+      }
+    ]
+  };
 }
 
 /**
@@ -2689,11 +3348,11 @@ function appendNote(record: MockCase, text: string, author: string): void {
  * A case's notes newest first — a sorted COPY, because the stored array is the chronology the case detail
  * publishes and reversing it in place would make one read's order depend on another having happened.
  *
- * **Two of the three note reads are newest-first and the third is not, which is api's shape rather than an
- * inconsistency here.** `GET …/notes` and a judge's `caseNotes` both come from
- * `NoteService.findNotes` — `findByDeedPollIdOrderByCreatedOnDesc` — while the `notes` on
- * `GET /caseworker/cases/{id}` come off the entity's `@OneToMany` with `@OrderBy("createdOn ASC")`, oldest
- * first. So `toDetail` deliberately does NOT call this: making all three newest-first would read as tidiness
+ * **One of the two note reads is newest-first and the other is not, which is api's shape rather than an
+ * inconsistency here.** `GET …/notes` comes from `NoteService.findNotes` — `findByDeedPollIdOrderByCreatedOnDesc` —
+ * while the `notes` on `GET /caseworker/cases/{id}` come off the entity's `@OneToMany` with
+ * `@OrderBy("createdOn ASC")`, oldest first. (A Master's referral carried a third, newest-first copy until
+ * 2026-10-27.) So `toDetail` deliberately does NOT call this: making both newest-first would read as tidiness
  * and be the drift this mock exists to prevent. (`referrals-admin-5`'s decision 2 asked for all three; api's
  * source says otherwise and api is the authority. The app's own grid sorts what it is given —
  * `buildNotesView` — so no page depends on either order.)
@@ -2731,9 +3390,35 @@ function referralConditionalErrors(body: { reasons: readonly string[]; notes?: s
   if (body.urgency === "Urgent" && !body.urgencyReason?.trim()) {
     errors.push({ field: "urgencyReason", message: "urgencyReason is required when urgency is Urgent" });
   }
+  // api's three rules on a minor's details, in its words. `Minor` alone is refused on a create only, as api.
+  const details = body.reasons.filter((reason) => reason.startsWith("Minor") && reason !== "Minor");
+  if (details.length === 0 && body.reasons.includes("Minor")) {
+    errors.push({
+      field: "reasons",
+      message: `reasons names Minor without saying what applies to the minor's application: name at least one of ${MOCK_MINOR_DETAILS.join(", ")}`
+    });
+  }
+  if (details.length > 0 && !body.reasons.includes("Minor")) {
+    errors.push({ field: "reasons", message: `reasons names a minor's detail (${details.join(", ")}) without Minor` });
+  }
+  for (const [first, second] of MOCK_CONTRADICTORY_MINOR_DETAILS) {
+    if (details.includes(first) && details.includes(second)) {
+      errors.push({ field: "reasons", message: `reasons cannot name both ${first} and ${second}` });
+    }
+  }
 
   return errors;
 }
+
+/** api's `ReferralReason::isMinorDetail` members, in declaration order, as its refusal names them. */
+const MOCK_MINOR_DETAILS = REFERRAL_REASON.filter((reason) => reason.startsWith("Minor") && reason !== "Minor");
+
+/** api's `ReferralSchemas.CONTRADICTORY_MINOR_DETAILS`. */
+const MOCK_CONTRADICTORY_MINOR_DETAILS = [
+  ["MinorParentalConsent", "MinorNoParentalConsent"],
+  ["MinorStepparentConsent", "MinorNoStepparentConsent"],
+  ["MinorAged16Or17Consented", "MinorAged16Or17NotConsented"]
+] as const;
 
 /**
  * The one slot api pre-populates, from the referral's direction. api's `EmailSlot.JUDGES_REASON`.
@@ -2971,8 +3656,8 @@ function renderEmail(record: MockCase, template: MockEmailTemplate, slots: Recor
 /**
  * Whether a judge may see one referral at all — api's `JudicialReferralService.visibleTo`.
  *
- * An `Open` referral is in the pool, so every judge may see it; a `Claimed` one is only its holder's, because
- * a claim is exclusive and two judges reading the same papers is the duplication the pool exists to prevent; a
+ * Since api D2 an `Open` referral is waiting for assignment and nobody's; a `Claimed` one is only its assigned
+ * Master's, once linked (an assignment to a Master who has never signed in is visible to nobody until linking); a
  * `Decided` one is only the judge's who directed it; and a `Closed` or `Withdrawn` one is nobody's.
  *
  * **The identity compared is the token's subject and never the display name** — api's `claimedById`/`decidedById`
@@ -2984,7 +3669,7 @@ function renderEmail(record: MockCase, template: MockEmailTemplate, slots: Recor
  * the collision where it does most harm.
  */
 function visibleToJudge(referral: MockReferral, subject: string): boolean {
-  if (referral.state === "Open") return true;
+  // Since api D2 an `Open` referral is waiting for assignment and visible to no judge.
   // `subject ===`, so a null owner is false rather than a match on two absent values.
   if (referral.state === "Claimed") return subject === referral.claimedById;
   if (referral.state === "Decided") return subject === referral.decidedById;
@@ -2993,49 +3678,20 @@ function visibleToJudge(referral: MockReferral, subject: string): boolean {
 }
 
 /**
- * The pool's order, from api's `POOL_ORDER`: urgent first, then the longest-waiting within each urgency band.
- *
- * Urgent-first is *descending* the urgency type, whose members are declared least-urgent first — Postgres
- * orders an enum by its declared order, so the rank is a position in `URGENCY` rather than an opinion about the
- * words, and an urgency added above `Urgent` later sorts above it for free.
- *
- * Oldest first within a band, where the case list's default is newest first, and the difference is the point: a
- * case list is a record being browsed and a work queue is a backlog being cleared.
- */
-function poolOrder(left: MockReferral, right: MockReferral): number {
-  const byUrgency = urgencyRank(right.urgency) - urgencyRank(left.urgency);
-
-  return byUrgency === 0 ? left.createdOn.getTime() - right.createdOn.getTime() : byUrgency;
-}
-
-function urgencyRank(urgency: MockReferral["urgency"]): number {
-  return urgency ? URGENCY.indexOf(urgency) : -1;
-}
-
-/**
- * The order a judge's own referrals are listed in, from api's `MINE_ORDER`: unfinished work first, then the pool's
- * own two keys within each state, then the id.
- *
- * **`Claimed` before `Decided` is ascending the lifecycle**, which is the same fact about Postgres that
- * `poolOrder` relies on rather than a second trick: `"ReferralState"` is declared `('Open', 'Claimed', 'Decided',
- * 'Closed', 'Withdrawn')`, and Postgres orders an enum by its declared order. Only two of the five can appear on
- * this list, so what it says is that a referral still waiting for a direction sorts above one the office is
- * already actioning — the point of the list is resuming outstanding work, and a page of finished directions above
- * it would have to be scrolled past.
- *
- * **Then the id, which the pool does not need and this does.** Two referrals in the same state, urgency and
- * instant are common here where they are not in a pool of one per case — a judge claims several in a sitting —
- * and without a final key the order between one page and the next is arbitrary, which is how a row appears twice
- * or not at all while a judge pages through. Arbitrary as an order and deterministic as a tie-break, which is
- * exactly what is wanted.
+ * The order a judge's own referrals are listed in, from api D2's `MINE_ORDER` (Steve, 2026-10-28, for the Master's
+ * grouped page): `Claimed` (undirected) before `Decided`; among the undirected only, urgent first; then the oldest
+ * `createdOn` first; then the id, so the order between one page and the next is deterministic.
  */
 function myReferralsOrder(left: MockReferral, right: MockReferral): number {
-  const byState = REFERRAL_STATE.indexOf(left.state) - REFERRAL_STATE.indexOf(right.state);
-  if (byState !== 0) return byState;
+  return stateKey(left) - stateKey(right) || urgentKey(left) - urgentKey(right) || sentAt(left) - sentAt(right) || rank(left.id, right.id);
+}
 
-  const byPool = poolOrder(left, right);
+function stateKey(referral: MockReferral): number {
+  return referral.state === "Claimed" ? 0 : 1;
+}
 
-  return byPool === 0 ? rank(left.id, right.id) : byPool;
+function urgentKey(referral: MockReferral): number {
+  return referral.state === "Claimed" && referral.urgency === "Urgent" ? 0 : 1;
 }
 
 /**
@@ -3046,10 +3702,59 @@ function myReferralsOrder(left: MockReferral, right: MockReferral): number {
  * `claimedById`/`decidedById` on no DTO, and a mock that leaked them would let a page key authorisation off a
  * subject api never sends.
  */
-function toWireReferral(referral: MockReferral): unknown {
-  const { claimedById, decidedById, ...published } = referral;
+/**
+ * One row of api F1's referral queue: the referral, what the checker compares from its case (names, type and
+ * nationality; no contact details), and for a sent one who has it. Built field by field, never a subject or an email.
+ */
+function wireQueueItem(record: MockCase, referral: MockReferral, processingMinutes: number): unknown {
+  return {
+    id: referral.id,
+    caseId: record.id,
+    displayReference: record.displayReference ?? null,
+    state: referral.state,
+    newForename: record.newForename ?? null,
+    newMiddleName: record.newMiddleName ?? null,
+    newSurname: record.newSurname ?? null,
+    oldForename: record.oldForename ?? null,
+    oldMiddleName: record.oldMiddleName ?? null,
+    oldSurname: record.oldSurname ?? null,
+    type: record.type ?? null,
+    nationality: record.nationality ?? null,
+    reasons: referral.reasons,
+    urgency: referral.urgency ?? null,
+    urgencyReason: referral.urgencyReason ?? null,
+    createdBy: referral.createdBy ?? null,
+    createdOn: iso(referral.createdOn),
+    assignedMaster: referral.assignedMasterId ? { id: referral.assignedMasterId, name: referral.claimedBy ?? null } : null,
+    assignedAt: iso(referral.assignedAt),
+    windowDate: referral.windowDate ?? null,
+    windowSlot: referral.windowSlot ?? null,
+    directionDueBy: iso(directionDueBy(referral, processingMinutes))
+  };
+}
 
-  return isoDates(published);
+function wireReferral(referral: MockReferral, processingMinutes: number): unknown {
+  const { claimedById, decidedById, assignedMasterId, ...published } = referral;
+
+  return {
+    ...isoDates(published),
+    assignedAt: iso(referral.assignedAt),
+    windowDate: referral.windowDate ?? null,
+    windowSlot: referral.windowSlot ?? null,
+    // The name it was assigned under, as api's `AssignedMasterResponse` carries it; never the subject or the email.
+    assignedMaster: assignedMasterId ? { id: assignedMasterId, name: referral.claimedBy ?? null } : null,
+    directionDueBy: iso(directionDueBy(referral, processingMinutes))
+  };
+}
+
+/**
+ * api's `DirectionDue.by`: while `Claimed`, the processing window's start (`assignedAt`, or `claimedAt` for a claim
+ * made before assignment) plus its length as set now; null in every other state.
+ */
+function directionDueBy(referral: MockReferral, processingMinutes: number): Date | null {
+  if (referral.state !== "Claimed") return null;
+  const started = referral.assignedAt ?? referral.claimedAt;
+  return started ? new Date(started.getTime() + processingMinutes * 60_000) : null;
 }
 
 /**
@@ -3059,7 +3764,7 @@ function toWireReferral(referral: MockReferral): unknown {
  * carrying the direction would show a judge the answer before they had read the papers, and one carrying the
  * applicant's names would make the pool a list of applications a judge has not been asked to see.
  */
-function toWireJudicialSummary(referral: MockReferral): unknown {
+function wireJudicialSummary(referral: MockReferral, processingMinutes: number): unknown {
   return {
     id: referral.id,
     state: referral.state,
@@ -3067,91 +3772,55 @@ function toWireJudicialSummary(referral: MockReferral): unknown {
     notes: referral.notes ?? null,
     urgency: referral.urgency ?? null,
     urgencyReason: referral.urgencyReason ?? null,
-    createdOn: iso(referral.createdOn)
+    createdOn: iso(referral.createdOn),
+    assignedAt: iso(referral.assignedAt),
+    directionDueBy: iso(directionDueBy(referral, processingMinutes))
   };
 }
 
 /**
- * One referral as the judge who may see it reads it: the referral, the application with its witnesses and
- * readable documents, and the application's timeline.
+ * One referral as the Master who may see it reads it: the referral and the application with its readable documents.
+ * No case notes since 2026-10-27 (Master Sullivan's feedback), as api.
  *
  * `application` is api's `JudicialApplicationView` written out field by field, and deliberately not a projection
- * of the case — no payment, refund or fee field, and no case id: api's own `NamespaceSeparationSecurityTest` asserts the two records are unrelated, because the
- * failure it guards against is a field added to the caseworker response silently appearing on a judge's screen.
+ * of the case: api's own `NamespaceSeparationSecurityTest` asserts the two records are unrelated, because the
+ * failure it guards against is a field added to the caseworker response silently appearing on a Master's screen.
  * Spreading the case here would be exactly that failure.
  */
-function toWireJudicialDetail(record: MockCase, referral: MockReferral): unknown {
+function wireJudicialDetail(record: MockCase, referral: MockReferral, processingMinutes: number): unknown {
   return {
-    ...(toWireJudicialSummary(referral) as object),
+    ...(wireJudicialSummary(referral, processingMinutes) as object),
     claimedBy: referral.claimedBy ?? null,
     claimedAt: iso(referral.claimedAt),
     decision: referral.decision ?? null,
     directionsText: referral.directionsText ?? null,
-    publishToGazette: referral.publishToGazette ?? null,
+    changesToStandardPublication: referral.changesToStandardPublication ?? null,
     decisionDate: iso(referral.decisionDate),
     decidedBy: referral.decidedBy ?? null,
     directionChangedAt: iso(referral.directionChangedAt),
-    application: toWireJudicialApplication(record),
-    // The same timeline the caseworker surface publishes, narrowed to the three fields a judge is shown: no
-    // id, because no judicial route accepts one, and no amendment audit trail. Newest first, because api builds
-    // it from `NoteService.findNotes` — the same read `GET …/notes` uses, not the case detail's association.
-    caseNotes: newestFirst(record.notes).map((note) => ({ note: note.note, createdBy: note.createdBy ?? null, createdOn: iso(note.createdOn) }))
+    application: toWireJudicialApplication(record)
   };
 }
+
+/** The two case types api's `DeedPollValidation.isMinor` names: the only applications whose parents a Master sees. */
+const MINOR_TYPES: ReadonlySet<string> = new Set(["Minor", "MinorTransgender"]);
 
 function toWireJudicialApplication(record: MockCase): unknown {
   return {
     displayReference: record.displayReference ?? null,
-    type: record.type ?? null,
-    state: record.state,
-    privacy: record.privacy ?? null,
-    urgency: record.urgency ?? null,
-    urgencyreason: record.urgencyreason ?? null,
-    inPerson: record.inPerson ?? null,
-    maritalStatus: record.maritalStatus ?? null,
-    oldForename: record.oldForename ?? null,
-    oldMiddleName: record.oldMiddleName ?? null,
-    oldSurname: record.oldSurname ?? null,
     newForename: record.newForename ?? null,
     newMiddleName: record.newMiddleName ?? null,
     newSurname: record.newSurname ?? null,
-    applicantBuildingNoName: record.applicantBuildingNoName ?? null,
-    applicantEmail: record.applicantEmail ?? null,
-    applicantTelephone: record.applicantTelephone ?? null,
-    applicantTownCity: record.applicantTownCity ?? null,
-    applicantPostcode: record.applicantPostcode ?? null,
-    representativeName: record.representativeName ?? null,
-    representativeBuildingNoName: record.representativeBuildingNoName ?? null,
-    representativeCompany: record.representativeCompany ?? null,
-    representativeEmail: record.representativeEmail ?? null,
-    representativeTelephone: record.representativeTelephone ?? null,
-    representativeTownCity: record.representativeTownCity ?? null,
-    representativePostcode: record.representativePostcode ?? null,
-    ageOfMinor: record.ageOfMinor ?? null,
-    ageOfMinorMonths: record.ageOfMinorMonths ?? null,
-    minorDateOfBirth: iso(record.minorDateOfBirth),
-    parents: record.parents ?? null,
+    oldForename: record.oldForename ?? null,
+    oldMiddleName: record.oldMiddleName ?? null,
+    oldSurname: record.oldSurname ?? null,
+    type: record.type ?? null,
     nationality: record.nationality ?? null,
     nationalitySection: record.nationalitySection ?? null,
     nationalitySectionOther: record.nationalitySectionOther ?? null,
-    dateOfDeclaration: iso(record.dateOfDeclaration),
-    dateOfApplication: iso(record.dateOfApplication),
-    dateReceived: iso(record.dateReceived),
-    awaitingFurtherDocsInfo: iso(record.awaitingFurtherDocsInfo),
-    referToMasterChoice: record.referToMasterChoice ?? null,
-    masterName: record.masterName ?? null,
-    masterDirections: record.masterDirections ?? null,
-    masterDecision: record.masterDecision ?? null,
-    masterDateOfDecision: iso(record.masterDateOfDecision),
-    dateDecisionDirectionsReceived: iso(record.dateDecisionDirectionsReceived),
-    referralNotes: record.referralNotes ?? null,
-    witnesses: record.witnesses.map((witness) => ({
-      witnessName: witness.witnessName ?? null,
-      witnessAddress: witness.witnessAddress ?? null,
-      witnessOccupation: witness.witnessOccupation ?? null,
-      declarant: witness.declarant
-    })),
-    // Only documents with a file, as api lists only readable ones: every row a judge sees can be opened.
+    // api sends the parents only on a minor's application, whatever the row holds.
+    parents: record.type && MINOR_TYPES.has(record.type) ? (record.parents ?? null) : null,
+    // Only documents with a file, as api lists only readable ones: every row a Master sees can be opened.
     documents: record.documents
       .filter((document) => document.bytes.length > 0)
       .map((document) => ({
@@ -3337,10 +4006,27 @@ type CaseState = NonNullable<WireSavedCase["state"]>;
  */
 type MockReferral = Omit<
   WireReferral,
-  "state" | "claimedAt" | "decisionDate" | "directionChangedAt" | "confirmationRequestedAt" | "confirmationReceivedAt" | "createdOn" | "modifiedOn"
+  | "state"
+  | "claimedAt"
+  | "decisionDate"
+  | "directionChangedAt"
+  | "confirmationRequestedAt"
+  | "confirmationReceivedAt"
+  | "createdOn"
+  | "modifiedOn"
+  | "assignedAt"
+  | "assignedMaster"
+  | "directionDueBy"
 > & {
   state: ReferralState;
   claimedAt: Date | null;
+  /**
+   * api D2's assignment: the Masters-list entry (published only as `assignedMaster`, with the name it was assigned
+   * under) and when, which starts the processing window. Optional so a referral seeded before assignment existed
+   * reads as api's pre-D2 claim. `windowDate`/`windowSlot` are the wire's own.
+   */
+  assignedMasterId?: string | null;
+  assignedAt?: Date | null;
   decisionDate: Date | null;
   /** Set by a change or a withdrawal of the direction and never cleared, as api's column is. */
   directionChangedAt: Date | null;
@@ -3376,6 +4062,9 @@ type MockReferral = Omit<
 };
 
 type ReferralState = NonNullable<WireReferral["state"]>;
+
+/** A Master as assignment reads one: the subject is stored on the referral and never published. */
+type Assignee = NonNullable<ReturnType<ReturnType<typeof createMasters>["assignee"]>>;
 
 /**
  * A saved query as the mock holds it: api's published fields with the dates still `Date`, minus the two

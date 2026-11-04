@@ -68,6 +68,7 @@ import {
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
 import { casePath } from "../../case-path.js";
+import { caseViewerScope, documentPaths } from "../../document-viewer/context.js";
 import { forLog } from "../../for-log.js";
 import { pathSegment } from "../../path-segment.js";
 
@@ -108,8 +109,8 @@ const en = {
   referralAwaitingConfirmation: "Awaiting the applicant's response",
   // The row's own notice that the judge changed or withdrew their direction, from api's `directionChangedAt`. The
   // same sentence as the referral page's, which is where the case note api wrote is one click nearer.
-  directionChangedFor: (changedOn: string) => `The judge changed this direction on ${changedOn}.`,
-  raiseReferral: "Refer this case to the judiciary",
+  directionChangedFor: (changedOn: string) => `The Master changed this direction on ${changedOn}.`,
+  raiseReferral: "Refer this case to a Master",
   viewReferralHint: "view this referral",
   // Decision 9: the previous system recorded no reasons, so a migrated referral has none and says which it is.
   migratedReferral: "Migrated from the previous system",
@@ -123,9 +124,11 @@ const en = {
   // `referralsUnavailable` says nothing was read, while this says a referral was read and could not be
   // understood.
   liveReferralMessages: {
-    withJudiciary: "This case is with the judiciary. Withdraw the open referral before raising another.",
+    // Plan Fa1: an `Open` referral waits for a Team leader or Delivery Manager to send it to a Master.
+    waitingForAssignment: "This case has a referral waiting to be sent to a Master. Withdraw it before raising another.",
+    withJudiciary: "This case is with a Master. Withdraw the open referral before raising another.",
     directionReceived:
-      "The judiciary has returned a direction on this case. Carry out the direction, make any case updates it requires, and mark the referral as actioned before raising another.",
+      "A Master has returned a direction on this case. Carry out the direction, make any case updates it requires, and mark the referral as actioned before raising another.",
     stateUnknown: "This case has a referral whose status could not be read, so no further referral can be raised yet. Try again shortly."
   },
   // The retired "Refer to Master" record, above the live history on the same panel. Its own heading and a
@@ -138,7 +141,7 @@ const en = {
   // The referrals read failed. Worded so it cannot be read as "this case has no referrals" — the whole point
   // of the degraded state is that the panel is not making a claim about the case. See the docblock.
   referralsUnavailable:
-    "Referral information could not be loaded, so this tab cannot say whether the case is with the judiciary. The rest of the case is shown as normal. Try again shortly.",
+    "Referral information could not be loaded, so this tab cannot say whether the case is with a Master. The rest of the case is shown as normal. Try again shortly.",
   // GOV.UK's own fallback for the warning icon, which is decorative and needs a text equivalent.
   warningIcon: "Warning",
   emailColumns: ["Email", "Created", "Status"],
@@ -184,19 +187,27 @@ const cy = { ...en };
 
 export const GET = async (req: Request, res: Response) => {
   const caller = callerFromRequest(req);
-  // Together, because no answer depends on another and the referrals and emails tabs are rendered on every
-  // case: the same shape `referrals/[referralId].ts` uses. `allSettled` rather than `all` so the failures can
-  // be told apart — under `all` any one of them rejects the handler, and only the case read is the page.
-  const [caseRead, referralsRead, emailsRead] = await Promise.allSettled([
-    findDeedPoll(req.params.id, caller),
+  // The rules hang off the case alone, so they start the moment it resolves rather than once the two panels'
+  // reads have settled too. A failed case read rejects this chain without asking for rules. The rules depend on
+  // the type, the migrated flag and the Gazette choice, and api answers that question rather than being asked
+  // for a case — hence a second call rather than a value carried on the case.
+  const caseRead = findDeedPoll(req.params.id, caller);
+  const rulesRead = caseRead.then((found) =>
+    getCaseFieldRules({ type: found.type, migrated: found.migratedRecord === true, publishToGazette: found.publishToLondonGazette !== false }, caller)
+  );
+  // `allSettled` rather than `all` so the failures can be told apart — under `all` any one of them rejects the
+  // handler, and only the case and its rules are the page. It also observes every promise started above.
+  const [caseResult, rulesResult, referralsRead, emailsRead] = await Promise.allSettled([
+    caseRead,
+    rulesRead,
     findReferrals(req.params.id, caller),
     findCaseEmails(req.params.id, caller)
   ]);
 
   // The case is what the page is for, so its failure is still the page's: `NotFoundError` reaches the 404
   // page through `src/errors.ts` exactly as it did before.
-  if (caseRead.status === "rejected") throw caseRead.reason;
-  const found = caseRead.value;
+  if (caseResult.status === "rejected") throw caseResult.reason;
+  const found = caseResult.value;
 
   // Logged only now the case is known to exist. A mistyped id 404s *both* calls — `findReferrals` answers
   // api's 404 rather than an empty list — so logging any earlier would file a referrals fault for every
@@ -211,6 +222,10 @@ export const GET = async (req: Request, res: Response) => {
   if (emailsRead.status === "rejected") {
     console.error(`emails unavailable: ${forLog(emailsRead.reason instanceof Error ? emailsRead.reason.message : String(emailsRead.reason))}`);
   }
+  // Fatal like the case, but only after the panels are logged: the case exists, so their failures are real ones,
+  // and in an api outage they are what tells a rules-endpoint fault from everything failing at once.
+  if (rulesResult.status === "rejected") throw rulesResult.reason;
+  const rules = rulesResult.value;
 
   const referrals = referralsRead.status === "fulfilled" ? referralsRead.value : null;
   const emails = emailsRead.status === "fulfilled" ? emailsRead.value : null;
@@ -220,13 +235,6 @@ export const GET = async (req: Request, res: Response) => {
   // gone from `FORM_TABS` — see `form-presentation.ts`. The record's own values now decide whether the
   // read-only snapshot renders, which is the right test for history.
   const presentation = buildPresentation({ type: found.type, privacy: found.privacy, state: found.state }, { isAdmin, isNew: false });
-
-  // A second call rather than a value carried on the case: the rules depend on the type, the migrated
-  // flag and the Gazette choice, and api answers that question rather than being asked for a case.
-  const rules = await getCaseFieldRules(
-    { type: found.type, migrated: found.migratedRecord === true, publishToGazette: found.publishToLondonGazette !== false },
-    caller
-  );
 
   // Resolved here as well as by the render interceptor, because the waiting sentence interpolates a date the
   // template does not have — the pattern `.claude/rules/frontend.md` gives for an `en` entry that is a function.
@@ -252,7 +260,12 @@ export const GET = async (req: Request, res: Response) => {
     tabs: buildDetailTabs({ ...found, referrals, emails: emails?.history ?? null } as unknown as Record<string, unknown>, rules, presentation),
     header: buildCaseHeader(found),
     notes: buildNotesView(found.notes),
-    documents: buildDocumentsView(found.documents),
+    // Each row opens the full-page viewer, which offers the original download itself. The path is built here
+    // with the viewer's own helpers, so the case page and the viewer cannot disagree on where a document lives.
+    documents: buildDocumentsView(found.documents).map((document) => ({
+      ...document,
+      viewHref: documentPaths(caseViewerScope(found.id), document.id).viewPath
+    })),
     referrals: referralsView,
     // Per row, so keyed by referral id: the sentence interpolates each row's date, and the template looks its row
     // up rather than calling content. A failed read has no rows and so no notices.

@@ -12,6 +12,7 @@ import { findDeedPoll, findReferral } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
+import { addPathFilters } from "../../path-filters.js";
 import { GET } from "./[id]/referrals/[referralId]/close.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -30,6 +31,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 const found = { id: "case-1", displayReference: "KBDP2026-00001", notes: [], witnesses: [], documents: [] };
 
@@ -45,7 +47,7 @@ const DECIDED = {
   claimedAt: new Date("2026-05-14T09:00:00Z"),
   decision: "Approved",
   directionsText: "Serve the notice on the second respondent.",
-  publishToGazette: true,
+  changesToStandardPublication: false,
   decisionDate: new Date("2026-05-15T10:30:00Z"),
   decidedBy: "A Judge",
   createdBy: "A Caseworker",
@@ -96,24 +98,24 @@ describe("mark-as-actioned confirmation template", () => {
   it("should show the direction being confirmed in full", async () => {
     const rendered = await page();
 
-    expect(rendered).toContain("Direction from the judiciary");
+    expect(rendered).toContain("Direction from the Master");
     expect(rendered).toContain("Approved");
     expect(rendered).toContain("Serve the notice on the second respondent.");
-    expect(rendered).toMatch(/Published in the Gazette[\s\S]*?Yes/);
+    expect(rendered).toMatch(/Changes to the standard publications in the Gazette[\s\S]*?No/);
     expect(rendered).toContain("A Judge");
     expect(rendered).toContain("15 May 2026 at 11:30am");
   });
 
   it("should say the Gazette answer was not recorded rather than printing No for a direction that gave none", async () => {
-    const rendered = await page({ ...DECIDED, publishToGazette: null });
+    const rendered = await page({ ...DECIDED, changesToStandardPublication: null });
 
-    expect(rendered).toMatch(/Published in the Gazette[\s\S]*?Not recorded/);
+    expect(rendered).toMatch(/Changes to the standard publications in the Gazette[\s\S]*?Not recorded/);
   });
 
   it("should distinguish a direction with no further directions from one that was never given", async () => {
     const rendered = await page({ ...DECIDED, directionsText: null });
 
-    expect(rendered).toContain("Direction from the judiciary");
+    expect(rendered).toContain("Direction from the Master");
     expect(rendered).toMatch(/Directions[\s\S]*?Not provided/);
   });
 
@@ -121,7 +123,7 @@ describe("mark-as-actioned confirmation template", () => {
     const rendered = await page();
 
     expect(rendered).toContain("By marking this referral as actioned you are confirming that:");
-    expect(rendered).toContain("you have carried out the judicial direction");
+    expect(rendered).toContain("you have carried out the Master’s direction");
     expect(rendered).toContain("you have made any updates the application needs, including any dates");
     expect(rendered).toContain("this referral will leave the list of returned directions waiting for action");
     expect(rendered.indexOf("confirming that:")).toBeLessThan(rendered.indexOf("<form"));

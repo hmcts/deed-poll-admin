@@ -115,7 +115,7 @@ export const DEED_POLL_STATE_LABEL: Record<DeedPollState, string> = {
   Received: "Received",
   ReadyForMaster: "Ready for Master",
   ReferredToMaster: "Referred to Master",
-  Enroled: "Enroled",
+  Enroled: "Enrolled",
   Returned: "Returned",
   AwaitingFurtherDocs: "Awaiting Further Docs/Info",
   AwaitingSignature: "Awaiting Signature",

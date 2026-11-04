@@ -37,6 +37,7 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Browser, expect, type Locator, type Page, test } from "@playwright/test";
 import { DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsTeamLeader, TEAM_LEADER_EMAIL, TEAM_LEADER_STORAGE_STATE } from "./idam-session.js";
+import { newMaster, sendToMaster } from "./masters.js";
 
 /** The mock api, which `playwright.config.ts` starts on 3200 beside the app on 3000. */
 const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
@@ -57,9 +58,6 @@ const TEMPLATE = "application-rejected";
  * calls to discover it — decisions 8 and 9.
  */
 const MASTER_REASON = "The evidence supplied does not establish the applicant's identity.";
-
-/** The judge whose direction refuses the application. Not a signed-in session — see `bearer`. */
-const SEED_JUDGE = "e2e.emailjudge@example.com";
 
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
 test.use({ storageState: TEAM_LEADER_STORAGE_STATE });
@@ -285,7 +283,7 @@ async function seedCase(request: APIRequestContext, fields: Record<string, unkno
 }
 
 /**
- * Refer the case, claim it as a judge and refuse it — which is what entitles the case to this email.
+ * Refer the case to a Master, and have their judge refuse it — which is what entitles the case to this email.
  *
  * Every step is checked: a refusal part-way leaves the referral in whatever state it reached, and the symptom is a
  * tab that still says no Master has refused the application, which reads as the feature being broken rather than
@@ -296,17 +294,21 @@ async function seedCase(request: APIRequestContext, fields: Record<string, unkno
  * empty default (flag 7 on the plan).
  */
 async function refuseApplication(request: APIRequestContext, caseId: string, reason: string): Promise<void> {
-  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor"] } });
+  // Raised into the queue and sent to a Master of its own, as the Referrals screen would (plan Fa1).
+  const master = await newMaster(request, "Emails");
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, {
+    data: { reasons: ["Minor", "MinorCourtOrder"] }
+  });
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;
+  await sendToMaster(request, referralId, master.id);
 
-  const judge = bearer(SEED_JUDGE);
-  const claimed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/claim`, { headers: judge });
-  expect(claimed.status(), await claimed.text()).toBe(200);
+  // The Master's linked judge, because api shows an assigned referral to nobody else.
+  const judge = bearer(master.judge);
 
   const directed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/direction`, {
     headers: judge,
-    data: { decision: "Rejected", publishToGazette: false, directionsText: reason }
+    data: { decision: "Rejected", changesToStandardPublication: true, directionsText: reason }
   });
   expect(directed.status(), await directed.text()).toBe(200);
 }
@@ -367,7 +369,16 @@ function createdRow(page: Page): Locator {
  * appear elsewhere on the same page.
  */
 function summaryRow(page: Page, key: string): Locator {
-  return page.locator(".govuk-summary-list__row", { hasText: key });
+  // An anchored match on the key cell: `hasText` alone is a case-insensitive substring, so "Status" would also
+  // answer to "Marital status" and to the application's own Status row.
+  const keyCell = page.locator(".govuk-summary-list__key").filter({ hasText: exactText(key) });
+
+  return page.locator(".govuk-summary-list__row").filter({ has: keyCell });
+}
+
+/** The whole of a cell's text, so a key never matches another key that merely contains it. */
+function exactText(text: string): RegExp {
+  return new RegExp(`^\\s*${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
 }
 
 /**
@@ -382,6 +393,7 @@ function summaryRow(page: Page, key: string): Locator {
  * a well-meaning wording change made in a template.
  */
 async function expectNoReceiptClaim(within: Locator): Promise<void> {
+  // biome-ignore lint/performance/useDomNodeTextContent: Check the rendered wording through Playwright, excluding hidden content.
   const text = (await within.innerText()).toLowerCase();
 
   expect(text.match(/delivered|viewed|opened|downloaded/g) ?? []).toEqual([]);

@@ -47,6 +47,9 @@
     so one count failing says nothing about the other: the pair of them failing is two warnings, which is the
     honest rendering of two unanswered questions.
   #}
+  {% if waitingForAssignmentFailed %}
+    {{ govukWarningText({ text: waitingForAssignmentUnavailable, iconFallbackText: warningIcon }) }}
+  {% endif %}
   {% if awaitingConfirmationFailed %}
     {{ govukWarningText({ text: awaitingConfirmationUnavailable, iconFallbackText: warningIcon }) }}
   {% endif %}
@@ -56,12 +59,18 @@
     notification banner on a page, and two stacked "Important" banners would be two of them; each `if` is still
     independent, so a count that read zero or failed removes its own paragraph and leaves the other's alone.
   #}
-  {% if returnedForAction or awaitingConfirmation %}
+  {% if returnedForAction or waitingForAssignment or awaitingConfirmation %}
     {% set worklistHtml %}
       {% if returnedForAction %}
         <p class="govuk-notification-banner__heading">{{ returnedForAction }}</p>
         <p class="govuk-body">
           <a class="govuk-notification-banner__link" href="{{ returnedForActionHref }}">{{ returnedForActionLink }}</a>
+        </p>
+      {% endif %}
+      {% if waitingForAssignment %}
+        <p class="govuk-notification-banner__heading">{{ waitingForAssignment }}</p>
+        <p class="govuk-body">
+          <a class="govuk-notification-banner__link" href="{{ waitingForAssignmentHref }}">{{ waitingForAssignmentLinkText }}</a>
         </p>
       {% endif %}
       {% if awaitingConfirmation %}
@@ -83,6 +92,14 @@
       <p class="govuk-body">{{ gazetteCount }}</p>
     {% endif %}
     <p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette">{{ gazetteLink }}</a></p>
+  {% endif %}
+
+  {% if showReferrals %}
+    <p class="govuk-body"><a class="govuk-link" href="/deed-polls/referrals">{{ referralsLink }}</a></p>
+  {% endif %}
+
+  {% if showSettings %}
+    <p class="govuk-body"><a class="govuk-link" href="/deed-polls/settings">{{ settingsLink }}</a></p>
   {% endif %}
 
   {% if errorSummary and errorSummary.length > 0 %}
@@ -378,7 +395,7 @@
   {% else %}
     {% set rows = [] %}
     {% for c in cases %}
-      {% set referenceCell %}<a class="govuk-link" href="/deed-polls/{{ c.id }}">{{ c.reference }}</a>{% endset %}
+      {% set referenceCell %}<a class="govuk-link" href="{{ c.id | casePath }}">{{ c.reference }}</a>{% endset %}
       {# The tag is a visual reinforcement of the text, never the only carrier of it. #}
       {% set privacyCell %}
         {% if c.isPrivate %}{{ govukTag({ text: c.privacy, classes: "govuk-tag--red" }) }}{% else %}{{ c.privacy }}{% endif %}

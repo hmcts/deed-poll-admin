@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getGazetteSettings, updateGazetteSettings } from "../api/client.js";
+import { GAZETTE_RECIPIENT_EMAIL_PATTERN } from "../api/wire.js";
 import { type RunningMockApi, startMockApi } from "./server.js";
 
 const DELIVERY_MANAGER = token(["caseworker-deedpoll-delivery-manager"]);
@@ -56,6 +57,22 @@ describe("Gazette recipient settings adapter and mock", () => {
       error: { kind: "validation", fieldErrors: [{ field: "revision" }] }
     });
     expect(await getGazetteSettings(config())).toMatchObject({ ok: true, data: { revision: 0 } });
+  });
+
+  it("should retain the exact recipient error message without changing existing settings", async () => {
+    await updateGazetteSettings({ recipientEmail: "lg@example.com", revision: 0 }, config());
+
+    const result = await updateGazetteSettings({ recipientEmail: "a@b\n.co", revision: 1 }, config());
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        kind: "validation",
+        status: 400,
+        fieldErrors: [{ field: "recipientEmail", message: `Invalid string: must match pattern /${GAZETTE_RECIPIENT_EMAIL_PATTERN}/` }]
+      }
+    });
+    expect(await getGazetteSettings(config())).toMatchObject({ ok: true, data: { recipientEmail: "lg@example.com", revision: 1 } });
   });
 
   it.each([[], ["caseworker-deedpoll"], ["caseworker-deedpoll-judicial"]])("should refuse non-Delivery-Manager roles %j", async (...roles) => {

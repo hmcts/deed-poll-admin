@@ -31,10 +31,17 @@ const JUDGE = "judge@example.com";
 const JUDGE_NAME = "HHJ Solomon";
 const JUDGE_SUBJECT = "solomon-subject";
 
+/** The Delivery Manager who keeps the Masters list, which every assignment below needs an entry on. */
+const DELIVERY_MANAGER = {
+  authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: "manager", roles: ["caseworker-deedpoll-delivery-manager"] }), "utf8").toString("base64url")}.signature`
+};
+
 /** When a waiting case was returned, so its state and its dates can be asserted as unchanged by a recording. */
 const RETURNED_ON = new Date("2026-03-20T00:00:00Z");
 
 let mock: RunningMockApi;
+/** Where `assignTo` last moved the mock's clock, so a later move is made from inside that window. */
+let windowOffsetMinutes = 0;
 
 beforeAll(async () => {
   mock = await startMockApi();
@@ -117,7 +124,7 @@ describe("POST /__mock/cases", () => {
     const seeded = await response.json();
     expect(seeded.newForename).toBe("Jo");
     expect(seeded.state).toBe("Enroled");
-    expect(seeded.displayReference).toBe(null);
+    expect(seeded.displayReference).toBeNull();
   });
 
   it("should seed a case with children, so a page can be tested against a populated one", async () => {
@@ -221,7 +228,7 @@ describe("POST /__mock/referrals/{id}/confirmation-request", () => {
     const response = await post(`/__mock/referrals/${referralId}/confirmation-request`, { confirmationRequestedAt: "whenever" });
 
     expect(response.status).toBe(400);
-    expect((await get(`/caseworker/cases/${caseId}`)).awaitingConfirmationSince).toBe(null);
+    expect((await get(`/caseworker/cases/${caseId}`)).awaitingConfirmationSince).toBeNull();
   });
 });
 
@@ -414,6 +421,34 @@ describe("the two-witness enrolment gate", () => {
   });
 });
 
+describe("the update's write-path gates", () => {
+  it("should clear the minor-only fields when an update leaves the case a type that hides them", async () => {
+    const created = await (
+      await post("/caseworker/cases", { dateReceived: "2026-03-10", type: "Minor", parents: "Synthetic Parents", ageOfMinor: 9, ageOfMinorMonths: 4 })
+    ).json();
+
+    const updated = await (await patch(`/caseworker/cases/${created.id}`, { type: "Adult" })).json();
+
+    expect(updated).toMatchObject({ parents: null, ageOfMinor: null, ageOfMinorMonths: null, minorDateOfBirth: null });
+  });
+
+  it("should keep the minor-only fields on a Minor case", async () => {
+    const created = await (await post("/caseworker/cases", { dateReceived: "2026-03-10", type: "Minor", parents: "Synthetic Parents" })).json();
+
+    const updated = await (await patch(`/caseworker/cases/${created.id}`, { newSurname: "Amended" })).json();
+
+    expect(updated.parents).toBe("Synthetic Parents");
+  });
+
+  it("should clear the Gazette notice date when the case is not published", async () => {
+    const created = await (await post("/caseworker/cases", { dateReceived: "2026-03-10", dateNoticeSentToLondonGazette: "2026-03-12" })).json();
+
+    const updated = await (await patch(`/caseworker/cases/${created.id}`, { publishToLondonGazette: false })).json();
+
+    expect(updated.dateNoticeSentToLondonGazette).toBeNull();
+  });
+});
+
 describe("the witness routes", () => {
   const WITNESS = { witnessName: "Alex Witness", witnessAddress: "1 Test Road", witnessOccupation: "Baker", declarant: false };
 
@@ -437,7 +472,7 @@ describe("the witness routes", () => {
 
     expect(response.status).toBe(204);
     expect(await response.text()).toBe("");
-    expect((await get(`/caseworker/cases/${seeded.id}/witnesses`)).length).toBe(0);
+    expect(await get(`/caseworker/cases/${seeded.id}/witnesses`)).toHaveLength(0);
   });
 
   it("should delete without asking for a role, because a 403 is not a state this mock models", async () => {
@@ -921,14 +956,18 @@ describe("the referral routes", () => {
   it("should raise a referral Open and unclaimed, attributing it to the token's subject", async () => {
     const seeded = mock.seed(null);
 
-    const response = await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor", "Other"], notes: "  Why  " }, as("caseworker@example.com"));
+    const response = await post(
+      `/caseworker/cases/${seeded.id}/referrals`,
+      { reasons: ["Minor", "MinorCourtOrder", "Other"], notes: "  Why  " },
+      as("caseworker@example.com")
+    );
 
     expect(response.status).toBe(201);
     expect(await response.json()).toMatchObject({
       state: "Open",
-      reasons: ["Minor", "Other"],
+      reasons: ["Minor", "MinorCourtOrder", "Other"],
       notes: "Why",
-      // Defaulted rather than stored as none, so the pool's first sort key is never blank.
+      // Defaulted rather than stored as none, so the Master's list's urgency key is never blank.
       urgency: "Normal",
       migrated: false,
       claimedBy: null,
@@ -950,7 +989,7 @@ describe("the referral routes", () => {
   it("should refuse a second referral with 409 while the first is still in play", async () => {
     const { caseId } = await referredCase();
 
-    const response = await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor"] });
+    const response = await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor", "MinorCourtOrder"] });
 
     // 409 and not 400: nothing about the body is wrong, and the same request succeeds unchanged once the
     // live referral is closed or withdrawn.
@@ -961,12 +1000,12 @@ describe("the referral routes", () => {
     const { caseId, referralId } = await referredCase();
     await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
 
-    const response = await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor"] });
+    const response = await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor", "MinorCourtOrder"] });
 
     expect(response.status).toBe(201);
   });
 
-  it("should withdraw a claimed referral, because the judiciary holding it does not make it final", async () => {
+  it("should withdraw an assigned referral, because a Master holding it does not make it final", async () => {
     const { caseId, referralId } = await claimedReferral("judge@example.com");
 
     const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
@@ -1007,7 +1046,7 @@ describe("the referral routes", () => {
     // withdrawal guard read correctly and quietly allowed a second referral on a case awaiting action.
     const { caseId } = await decidedReferral("judge@example.com");
 
-    const response = await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor"] });
+    const response = await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor", "MinorCourtOrder"] });
 
     expect(response.status).toBe(409);
   });
@@ -1016,7 +1055,7 @@ describe("the referral routes", () => {
     const { caseId, referralId } = await decidedReferral("judge@example.com");
     await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`);
 
-    const response = await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor"] });
+    const response = await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor", "MinorCourtOrder"] });
 
     expect(response.status).toBe(201);
     expect(await currentReferralState(caseId)).toBe("Open");
@@ -1032,7 +1071,7 @@ describe("the referral routes", () => {
   });
 
   it.each(["Open", "Withdrawn"])("should refuse a closure with 409 while the referral is %s", async (state) => {
-    // Closing an Open referral would take it out of the pool with no direction on it, and closing a
+    // Closing an Open referral would end it with no direction on it, and closing a
     // Withdrawn one would relabel a referral that was abandoned as one that was actioned.
     const { caseId, referralId } = await referredCase();
     if (state === "Withdrawn") await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
@@ -1048,7 +1087,7 @@ describe("the referral routes", () => {
     const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ state: "Closed", decision: "Approved", decidedBy: "judge@example.com", publishToGazette: true });
+    expect(await response.json()).toMatchObject({ state: "Closed", decision: "Approved", decidedBy: "judge@example.com", changesToStandardPublication: false });
   });
 
   it("should demand notes when Other is among the reasons, addressing the refusal to the field", async () => {
@@ -1063,7 +1102,7 @@ describe("the referral routes", () => {
   it("should demand an urgencyReason when the urgency is Urgent", async () => {
     const seeded = mock.seed(null);
 
-    const response = await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor"], urgency: "Urgent" });
+    const response = await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor", "MinorCourtOrder"], urgency: "Urgent" });
 
     expect(response.status).toBe(400);
     expect((await response.json()).errors[0].field).toBe("urgencyReason");
@@ -1112,10 +1151,10 @@ describe("the case's currentReferralState", () => {
     const judge = "judge@example.com";
     const seen: (string | null)[] = [await currentReferralState(caseId)];
 
-    await post(`/judicial/referrals/${referralId}/claim`, undefined, as(judge));
+    await assignTo(judge, referralId);
     seen.push(await currentReferralState(caseId));
 
-    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(judge));
+    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, as(judge));
     seen.push(await currentReferralState(caseId));
 
     await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`);
@@ -1316,7 +1355,7 @@ describe("the case's awaitingConfirmationSince, and the worklist it feeds", () =
     await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Confirmed", note: "Replied by email" }, as("Ada Caseworker"));
 
     const [latest] = await notesOn(caseId);
-    expect(latest.note).toContain("Applicant's confirmation recorded for referral raised on 1 March 2026, reasons: Minor");
+    expect(latest.note).toContain("Applicant's confirmation recorded for referral raised on 1 March 2026, reasons: Applicant is a minor");
     expect(latest.note).toContain("Asked on 21 March 2026");
     // The member alone does not say whether they wanted the deed enrolled or the fee back, so api spells it out.
     expect(latest.note).toContain("Answer: Confirmed -- the applicant wants the deed enrolled, knowing it will be published in the London Gazette");
@@ -1386,7 +1425,7 @@ describe("the case's awaitingConfirmationSince, and the worklist it feeds", () =
     const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Confirmed", note: "x".repeat(1001) });
 
     expect(response.status).toBe(400);
-    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).confirmationOutcome).toBe(null);
+    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).confirmationOutcome).toBeNull();
   });
 
   it("should answer 404 for a referral recorded through the wrong case, and record nothing", async () => {
@@ -1416,40 +1455,67 @@ describe("the case's awaitingConfirmationSince, and the worklist it feeds", () =
   });
 });
 
+describe("a minor's details on a raised referral", () => {
+  it("should accept the details beside Minor", async () => {
+    const withDetails = await post(`/caseworker/cases/${mock.seed({}).id}/referrals`, { reasons: ["Minor", "MinorTransgender", "MinorCourtOrder"] });
+
+    expect(withDetails.status).toBe(201);
+    expect((await withDetails.json()).reasons).toEqual(["Minor", "MinorTransgender", "MinorCourtOrder"]);
+  });
+
+  it("should refuse Minor alone, in api's words, since its contract step", async () => {
+    const response = await post(`/caseworker/cases/${mock.seed({}).id}/referrals`, { reasons: ["Minor"] });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors).toEqual([
+      {
+        field: "reasons",
+        message:
+          "reasons names Minor without saying what applies to the minor's application: name at least one of MinorTransgender, MinorParentalConsent, " +
+          "MinorNoParentalConsent, MinorStepparentConsent, MinorNoStepparentConsent, MinorCourtOrder, MinorAged16Or17Consented, MinorAged16Or17NotConsented"
+      }
+    ]);
+  });
+
+  it("should write the raise note in the screens' words, a minor's details folded into Applicant is a minor", async () => {
+    const caseId = mock.seed({}).id;
+
+    await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor", "MinorTransgender", "Other", "MinorParentalConsent"], notes: "See file" });
+
+    expect((await notesOn(caseId))[0].note).toBe(
+      "Referral raised, waiting to be sent to a Master. Reasons: Applicant is a minor: Transgender, Have parental consent; Other.\nNotes: See file"
+    );
+  });
+
+  it("should refuse a detail without Minor, in api's words", async () => {
+    const response = await post(`/caseworker/cases/${mock.seed({}).id}/referrals`, { reasons: ["DomesticAbuse", "MinorCourtOrder"] });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors).toEqual([{ field: "reasons", message: "reasons names a minor's detail (MinorCourtOrder) without Minor" }]);
+  });
+
+  it("should refuse both halves of a consent pair", async () => {
+    const response = await post(`/caseworker/cases/${mock.seed({}).id}/referrals`, {
+      reasons: ["Minor", "MinorStepparentConsent", "MinorNoStepparentConsent"]
+    });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors).toEqual([
+      { field: "reasons", message: "reasons cannot name both MinorStepparentConsent and MinorNoStepparentConsent" }
+    ]);
+  });
+});
+
 describe("the judicial referral routes", () => {
-  it("should offer only Open referrals in the pool, since a claimed one is its holder's", async () => {
-    const { referralId } = await referredCase();
+  it("should answer the deprecated pool with an empty page, whatever is waiting or assigned", async () => {
+    // api D2: referrals are assigned by the office, so the former pool is always empty, with a total of 0 — even with
+    // a referral waiting for assignment and another assigned to this very judge.
+    await referredCase();
     await claimedReferral("judge@example.com");
 
-    const pool = await get("/judicial/referrals");
+    const pool = await get("/judicial/referrals", as("judge@example.com"));
 
-    expect(pool.referrals.map((referral: { id: string }) => referral.id)).toEqual([referralId]);
-    expect(pool).toMatchObject({ page: 1, size: 10, total: 1, totalPages: 1 });
-  });
-
-  it("should order the pool urgent first, then longest-waiting within each band", async () => {
-    // Seeded with chosen dates rather than created over HTTP: three creates in the same millisecond would
-    // leave the order to `sort`'s stability, and a test that passes on insertion order pins nothing.
-    mock.seed({ referrals: [referral({ id: "old-normal", createdOn: new Date("2026-03-01T09:00:00") })] });
-    mock.seed({ referrals: [referral({ id: "new-normal", createdOn: new Date("2026-03-05T09:00:00") })] });
-    mock.seed({ referrals: [referral({ id: "urgent", urgency: "Urgent", createdOn: new Date("2026-03-06T09:00:00") })] });
-
-    const pool = await get("/judicial/referrals");
-
-    // Insertion order, or newest-first, would teach a page the wrong thing: the point of the pool is that the
-    // longest-waiting urgent referral is the next one to read.
-    expect(pool.referrals.map((row: { id: string }) => row.id)).toEqual(["urgent", "old-normal", "new-normal"]);
-  });
-
-  it("should page the pool ten at a time, and answer an empty page past the end rather than refusing it", async () => {
-    for (const _ of Array.from({ length: 11 })) await referredCase();
-
-    const first = await get("/judicial/referrals");
-    const past = await get("/judicial/referrals?page=9");
-
-    expect(first.referrals).toHaveLength(10);
-    expect(first).toMatchObject({ total: 11, totalPages: 2 });
-    expect(past.referrals).toEqual([]);
+    expect(pool).toEqual({ referrals: [], page: 1, size: 10, total: 0, totalPages: 0 });
   });
 
   it("should refuse a page or a size that is not a whole number of one or more", async () => {
@@ -1460,7 +1526,7 @@ describe("the judicial referral routes", () => {
     }
   });
 
-  it("should answer a referral with the application view and the timeline, and no payment, refund or fee field", async () => {
+  it("should answer a referral with the narrow application view, and no notes, contact, payment, refund or fee field", async () => {
     const seeded = mock.seed({
       displayReference: "KBDP2026-00001",
       type: "Adult",
@@ -1474,35 +1540,49 @@ describe("the judicial referral routes", () => {
       onlineApplicationReference: "ONLINE-1"
     });
     await post(`/caseworker/cases/${seeded.id}/notes`, { note: "Chased the declarant" });
-    const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor"] })).json();
+    const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor", "MinorCourtOrder"] })).json();
+    await assignTo("judge@example.com", created.id);
 
     const detail = await (await fetch(`${mock.url}/judicial/referrals/${created.id}`, { headers: as("judge@example.com") })).json();
 
     // Exactly api's `JudicialApplicationView`, so the wire schema parses it and nothing else rides along.
     expect(Object.keys(detail.application).sort()).toEqual(Object.keys(WIRE_SCHEMAS.JudicialApplicationView.shape).sort());
-    expect(detail.application).toMatchObject({ displayReference: "KBDP2026-00001", newForename: "Jo", privacy: "Private", applicantEmail: "jo@example.com" });
+    expect(detail.application).toMatchObject({ displayReference: "KBDP2026-00001", newForename: "Jo" });
     expect(WIRE_SCHEMAS.JudicialReferralDetail.safeParse(detail).success).toBe(true);
-    for (const leaked of ["FEE-1", "REF-1", "ONLINE-1"]) expect(JSON.stringify(detail)).not.toContain(leaked);
-    // Newest first, so the note the raise wrote leads and the caseworker's own follows — the timeline reaches a
-    // judge unfiltered, which is asserted properly in "the case notes a referral writes as it moves".
-    expect(detail.caseNotes).toEqual([
-      { note: expect.stringContaining("Referred to the judiciary"), createdBy: MOCK_CASEWORKER, createdOn: expect.any(String) },
-      { note: "Chased the declarant", createdBy: MOCK_CASEWORKER, createdOn: expect.any(String) }
-    ]);
+    for (const leaked of ["FEE-1", "REF-1", "ONLINE-1", "jo@example.com", "Private", "Chased the declarant"]) {
+      expect(JSON.stringify(detail)).not.toContain(leaked);
+    }
+    expect(detail).not.toHaveProperty("caseNotes");
     // No case id anywhere on the response: a judge must not be able to name an application.
     expect(JSON.stringify(detail)).not.toContain(seeded.id);
   });
 
-  it("should claim a referral out of the pool, recording the holder from the token", async () => {
-    const { referralId } = await referredCase();
+  it.each([
+    ["Minor", "Jane and Paul Bloggs"],
+    ["MinorTransgender", "Jane and Paul Bloggs"],
+    ["Adult", null],
+    ["AdultTransgender", null],
+    ["DeedOfRelinquishment", null]
+  ] as const)("should send a %s application's parents as %s, as api's minor rule does", async (type, parents) => {
+    const seeded = mock.seed({ type, parents: "Jane and Paul Bloggs" });
+    const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor", "MinorCourtOrder"] })).json();
+    await assignTo("judge@example.com", created.id);
+
+    const detail = await (await fetch(`${mock.url}/judicial/referrals/${created.id}`, { headers: as("judge@example.com") })).json();
+
+    expect(detail.application.parents).toBe(parents);
+  });
+
+  it("should answer the deprecated claim of a referral waiting for assignment with 404, since no judge may see it", async () => {
+    const { caseId, referralId } = await referredCase();
 
     const response = await post(`/judicial/referrals/${referralId}/claim`, undefined, as("judge@example.com"));
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ state: "Claimed", claimedBy: "judge@example.com", claimedAt: expect.any(String) });
+    expect(response.status).toBe(404);
+    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).state).toBe("Open");
   });
 
-  it("should refuse a second claim with 409, even by the judge already holding it", async () => {
+  it("should refuse the deprecated claim with 409 for a referral already assigned to the judge", async () => {
     const { referralId } = await claimedReferral("judge@example.com");
 
     const response = await post(`/judicial/referrals/${referralId}/claim`, undefined, as("judge@example.com"));
@@ -1515,7 +1595,7 @@ describe("the judicial referral routes", () => {
 
     const response = await post(
       `/judicial/referrals/${referralId}/direction`,
-      { decision: "Rejected", publishToGazette: false, directionsText: "  Not satisfied  ", decidedBy: "somebody else" },
+      { decision: "Rejected", changesToStandardPublication: true, directionsText: "  Not satisfied  ", decidedBy: "somebody else" },
       as("judge@example.com")
     );
 
@@ -1523,7 +1603,7 @@ describe("the judicial referral routes", () => {
     expect(await response.json()).toMatchObject({
       state: "Decided",
       decision: "Rejected",
-      publishToGazette: false,
+      changesToStandardPublication: true,
       directionsText: "Not satisfied",
       // From the token and the clock, never from the payload — which is why the body above could not claim it.
       decidedBy: "judge@example.com",
@@ -1531,20 +1611,41 @@ describe("the judicial referral routes", () => {
     });
   });
 
-  it("should refuse a direction on a referral nobody holds with 409, because the judge can see it", async () => {
-    // Open, so visible to every judge: the refusal is one they are looking at and can act on, which is why it
-    // is a conflict rather than the 404 an invisible referral gets.
+  it("should answer 404 for a direction on a referral waiting for assignment, since no judge may see it", async () => {
+    // api D2: `Open` is visible to no judge, so this is the 404 an unknown id gets rather than a conflict.
     const { referralId } = await referredCase();
 
-    const response = await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as("judge@example.com"));
+    const response = await post(
+      `/judicial/referrals/${referralId}/direction`,
+      { decision: "Approved", changesToStandardPublication: false },
+      as("judge@example.com")
+    );
+
+    expect(response.status).toBe(404);
+  });
+
+  it("should refuse a second direction with 409, because the judge who gave the first can still see it", async () => {
+    // Visible, because they directed it, and no longer waiting for a direction: a state they can act on (change or
+    // withdraw it), which is why it is a conflict rather than the 404 an invisible referral gets.
+    const { referralId } = await decidedReferral("judge@example.com");
+
+    const response = await post(
+      `/judicial/referrals/${referralId}/direction`,
+      { decision: "Approved", changesToStandardPublication: false },
+      as("judge@example.com")
+    );
 
     expect(response.status).toBe(409);
   });
 
-  it("should answer 404 rather than 409 for a direction on another judge's claim, so neither learns of the other", async () => {
+  it("should answer 404 rather than 409 for a direction on another judge's assignment, so neither learns of the other", async () => {
     const { referralId } = await claimedReferral("another@example.com");
 
-    const response = await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as("judge@example.com"));
+    const response = await post(
+      `/judicial/referrals/${referralId}/direction`,
+      { decision: "Approved", changesToStandardPublication: false },
+      as("judge@example.com")
+    );
 
     expect(response.status).toBe(404);
   });
@@ -1555,11 +1656,55 @@ describe("the judicial referral routes", () => {
     const response = await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved" }, as("judge@example.com"));
 
     expect(response.status).toBe(400);
-    expect((await response.json()).errors[0].field).toBe("publishToGazette");
+    expect((await response.json()).errors[0].field).toBe("changesToStandardPublication");
   });
 
   it.each([
-    ["claimed by another judge", "claim"],
+    ["absent", undefined],
+    ["blank", "   "]
+  ])("should refuse changes to the standard publication with %s directions, as api's rule does, and record nothing", async (_, directionsText) => {
+    const { caseId, referralId } = await claimedReferral(JUDGE);
+
+    const response = await post(
+      `/judicial/referrals/${referralId}/direction`,
+      { decision: "Approved", changesToStandardPublication: true, directionsText },
+      as(JUDGE)
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors).toEqual([{ field: "directionsText", message: expect.stringContaining("changes to the standard publication") }]);
+    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).state).toBe("Claimed");
+  });
+
+  it("should refuse a change to the standard publication with no directions on a revision too", async () => {
+    const { referralId } = await decidedReferral(JUDGE);
+
+    const response = await change("PUT", `/judicial/referrals/${referralId}/direction`, JUDGE, { decision: "Approved", changesToStandardPublication: true });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors[0].field).toBe("directionsText");
+  });
+
+  it("should no longer publish api's retired publishToGazette alias on either surface", async () => {
+    const { caseId, referralId } = await claimedReferral(JUDGE);
+
+    const response = await post(
+      `/judicial/referrals/${referralId}/direction`,
+      { decision: "Approved", changesToStandardPublication: true, directionsText: "Publish the last name only" },
+      as(JUDGE)
+    );
+
+    const judicial = await response.json();
+    const caseworker = await get(`/caseworker/cases/${caseId}/referrals/${referralId}`);
+    expect(judicial).toMatchObject({ changesToStandardPublication: true });
+    expect(caseworker).toMatchObject({ changesToStandardPublication: true });
+    expect(judicial).not.toHaveProperty("publishToGazette");
+    expect(caseworker).not.toHaveProperty("publishToGazette");
+  });
+
+  it.each([
+    ["assigned to another judge", "claim"],
+    ["waiting for assignment", "open"],
     ["withdrawn", "withdraw"],
     ["closed", "close"]
   ])("should answer 404 for a referral that is %s, indistinguishably from one that never existed", async (_, how) => {
@@ -1593,7 +1738,7 @@ describe("the judicial referral routes", () => {
     expect(response.status).toBe(404);
   });
 
-  it("should refuse a method the pool has no route for", async () => {
+  it("should refuse a method the former pool has no route for", async () => {
     expect((await fetch(`${mock.url}/judicial/referrals`, { method: "PUT" })).status).toBe(405);
   });
 
@@ -1616,10 +1761,13 @@ describe("changing and withdrawing a direction", () => {
     ["changing", "PUT", "direction"],
     ["withdrawing", "POST", "direction/withdraw"]
   ])("should refuse %s a direction on a referral the judge can see but did not direct with 409", async (_, method, action) => {
+    // Since api D2 the only such referral is the judge's own undirected assignment: one waiting for assignment is
+    // visible to nobody, so it is the 404 below rather than this conflict.
     const open = await referredCase();
     const claimed = await claimedReferral(JUDGE);
+    expect((await change(method, `/judicial/referrals/${open.referralId}/${action}`, JUDGE)).status).toBe(404);
 
-    for (const { referralId } of [open, claimed]) {
+    for (const { referralId } of [claimed]) {
       const response = await change(method, `/judicial/referrals/${referralId}/${action}`, JUDGE);
 
       expect(response.status, referralId).toBe(409);
@@ -1646,16 +1794,24 @@ describe("changing and withdrawing a direction", () => {
 
     const response = await change("PUT", `/judicial/referrals/${referralId}/direction`, JUDGE, {
       decision: "Rejected",
-      publishToGazette: false,
+      changesToStandardPublication: true,
       directionsText: "  On reflection, no  "
     });
 
     expect(response.status).toBe(200);
     const detail = await response.json();
-    expect(detail).toMatchObject({ state: "Decided", decision: "Rejected", publishToGazette: false, directionsText: "On reflection, no", decidedBy: JUDGE });
+    expect(detail).toMatchObject({
+      state: "Decided",
+      decision: "Rejected",
+      changesToStandardPublication: true,
+      directionsText: "On reflection, no",
+      decidedBy: JUDGE
+    });
     expect(detail.directionChangedAt).toEqual(expect.any(String));
     expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).directionChangedAt).toBe(detail.directionChangedAt);
-    expect((await notesOn(caseId))[0].note).toMatch(/^Judicial direction revised for referral .*\. Decision: Rejected\. Publish to the London Gazette: No\./);
+    expect((await notesOn(caseId))[0].note).toMatch(
+      /^Master’s direction revised for referral .*\. Decision: Rejected\. Changes to standard publication in the Gazette: Yes\./
+    );
   });
 
   it("should refuse a change the wire schema rejects, as the first direction is refused", async () => {
@@ -1664,10 +1820,10 @@ describe("changing and withdrawing a direction", () => {
     const response = await change("PUT", `/judicial/referrals/${referralId}/direction`, JUDGE, { decision: "Approved" });
 
     expect(response.status).toBe(400);
-    expect((await response.json()).errors[0].field).toBe("publishToGazette");
+    expect((await response.json()).errors[0].field).toBe("changesToStandardPublication");
   });
 
-  it("should withdraw a direction back to the same judge's claim, cleared, so they can direct again", async () => {
+  it("should withdraw a direction back to the same judge's assignment, cleared, so they can direct again", async () => {
     const { caseId, referralId } = await decidedReferral(JUDGE);
 
     const withdrawn = await change("POST", `/judicial/referrals/${referralId}/direction/withdraw`, JUDGE);
@@ -1679,16 +1835,20 @@ describe("changing and withdrawing a direction", () => {
       claimedBy: JUDGE,
       decision: null,
       directionsText: null,
-      publishToGazette: null,
+      changesToStandardPublication: null,
       decisionDate: null,
       decidedBy: null
     });
     expect(detail.directionChangedAt).toEqual(expect.any(String));
     // Composed before the clear, so it names the direction that stopped being the answer.
-    expect((await notesOn(caseId))[0].note).toMatch(/^Judicial direction withdrawn for referral .*\. The withdrawn decision was: Approved\./);
+    expect((await notesOn(caseId))[0].note).toMatch(/^Master’s direction withdrawn for referral .*\. The withdrawn decision was: Approved\./);
     expect(await currentReferralState(caseId)).toBe("Claimed");
 
-    const again = await post(`/judicial/referrals/${referralId}/direction`, { decision: "Rejected", publishToGazette: false }, as(JUDGE));
+    const again = await post(
+      `/judicial/referrals/${referralId}/direction`,
+      { decision: "Rejected", changesToStandardPublication: true, directionsText: "Do not publish" },
+      as(JUDGE)
+    );
 
     expect(again.status).toBe(200);
     // Never cleared by directing again: it is a fact about the referral's history.
@@ -1703,13 +1863,14 @@ describe("changing and withdrawing a direction", () => {
   });
 });
 
-describe("a judge's view of the application's witnesses and documents", () => {
-  it("should list the witnesses without ids, and only the documents that have a file", async () => {
+describe("a Master's view of the application's documents", () => {
+  it("should list only the documents that have a file, and none of the witnesses", async () => {
     const { referralId, readable } = judicialCaseWithDocuments();
 
     const application = (await get(`/judicial/referrals/${referralId}`, as(JUDGE))).application;
 
-    expect(application.witnesses).toEqual([{ witnessName: "A Witness", witnessAddress: "1 Road", witnessOccupation: "Baker", declarant: true }]);
+    // The case has a witness; a Master is sent none (Master Sullivan's feedback, 2026-10-27).
+    expect(application).not.toHaveProperty("witnesses");
     expect(application.documents).toEqual([
       {
         id: readable,
@@ -1752,7 +1913,7 @@ describe("a judge's view of the application's witnesses and documents", () => {
   });
 
   it.each([
-    ["Open", {}, 200],
+    ["Open", { state: "Open", claimedBy: null, claimedById: null }, 404],
     ["Claimed by this judge", { state: "Claimed", claimedById: JUDGE }, 200],
     ["Decided by this judge", { state: "Decided", decidedById: JUDGE }, 200],
     ["Closed", { state: "Closed", decidedById: JUDGE }, 404],
@@ -1772,7 +1933,7 @@ describe("a judge's own referrals", () => {
   it("should list the referrals this judge holds and has directed, and nothing else", async () => {
     const claimed = await claimedReferral(JUDGE);
     const decided = await decidedReferral(JUDGE);
-    // The three exclusions, one per reason: the pool's, another judge's, and one the office has finished with.
+    // The three exclusions, one per reason: waiting for assignment, another judge's, and one the office has finished with.
     const open = await referredCase();
     const another = await claimedReferral("another@example.com");
     const closed = await decidedReferral(JUDGE);
@@ -1802,22 +1963,24 @@ describe("a judge's own referrals", () => {
     expect(mine).toEqual({ referrals: [], page: 1, size: 10, total: 0, totalPages: 0 });
   });
 
-  it("should carry the pool's narrow row and no application field, since it is the same summary", async () => {
+  it("should carry the narrow summary row and no application field", async () => {
     const seeded = mock.seed({ displayReference: "KBDP2026-00002", newForename: "Jo", newSurname: "Bloggs" });
-    const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor"] })).json();
-    await post(`/judicial/referrals/${created.id}/claim`, undefined, as(JUDGE));
+    const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor", "MinorCourtOrder"] })).json();
+    await assignTo(JUDGE, created.id);
 
     const [row] = (await get("/judicial/referrals/mine", as(JUDGE))).referrals;
 
     // Exactly `JudicialReferralSummary`: no application, no direction, and no holder — a list that grew any of
     // them would be showing a judge the answer, or another judge's identity, before they opened the papers.
-    expect(Object.keys(row).sort()).toEqual(["createdOn", "id", "notes", "reasons", "state", "urgency", "urgencyReason"].sort());
+    expect(Object.keys(row).sort()).toEqual(
+      ["assignedAt", "createdOn", "directionDueBy", "id", "notes", "reasons", "state", "urgency", "urgencyReason"].sort()
+    );
     expect(row).toMatchObject({ id: created.id, state: "Claimed" });
     expect(JSON.stringify(row)).not.toContain(seeded.id);
     expect(JSON.stringify(row)).not.toContain("Bloggs");
   });
 
-  it("should order unfinished work first, then urgent, then longest-waiting, then by id", async () => {
+  it("should order undirected work first, urgent first among it only, then longest-waiting, then by id", async () => {
     // Seeded rather than claimed over HTTP: five claims in the same millisecond would leave every key but the
     // state to `sort`'s stability, and a test that passes on insertion order pins nothing.
     // `claimedById` is the same string as `claimedBy` because `as(JUDGE)` forwards a token with only a `sub`; the
@@ -1829,16 +1992,27 @@ describe("a judge's own referrals", () => {
     mock.seed({ referrals: [referral({ id: "b-old-normal", ...mineOwned, state: "Claimed", createdOn: new Date("2026-03-01T09:00:00") })] });
     mock.seed({ referrals: [referral({ id: "a-old-normal", ...mineOwned, state: "Claimed", createdOn: new Date("2026-03-01T09:00:00") })] });
     mock.seed({ referrals: [referral({ id: "e-urgent", ...mineOwned, state: "Claimed", urgency: "Urgent", createdOn: new Date("2026-03-06T09:00:00") })] });
+    // api D2's `MINE_ORDER` ignores urgency once directed: the Master's page groups directed referrals by day only.
+    mock.seed({ referrals: [referral({ id: "f-decided-urgent", ...decided, urgency: "Urgent", createdOn: new Date("2026-03-06T09:00:00") })] });
 
     const mine = await get("/judicial/referrals/mine", as(JUDGE));
 
     // Claimed above Decided, because the point of the list is resuming work rather than re-reading finished
     // directions; and the two March 1st claims tie on every other key, so the id is what separates them — without
     // it their order between one page and the next is arbitrary, which is how a row appears twice or not at all.
-    expect(mine.referrals.map((row: { id: string }) => row.id)).toEqual(["e-urgent", "a-old-normal", "b-old-normal", "c-new-normal", "d-decided"]);
+    expect(mine.referrals.map((row: { id: string }) => row.id)).toEqual([
+      "e-urgent",
+      "a-old-normal",
+      "b-old-normal",
+      "c-new-normal",
+      "d-decided",
+      "f-decided-urgent"
+    ]);
   });
 
   it("should page ten at a time, and answer an empty page past the end rather than refusing it", async () => {
+    // Eleven sends in one window, over api's default cap of ten across all Masters.
+    await setWindowCap(20);
     for (const _ of Array.from({ length: 11 })) await claimedReferral(JUDGE);
 
     const first = await get("/judicial/referrals/mine", as(JUDGE));
@@ -1863,14 +2037,16 @@ describe("a judge's own referrals", () => {
     // The defect api's `V14__referral_owner_subjects.sql` fixed, and the reason this mock holds a subject beside
     // the attribution: keyed on the name, this judge's list would ENUMERATE their namesake's work — worse than the
     // individual read, which at least needed an id.
-    const theirs = await referredCase();
-    await post(`/judicial/referrals/${theirs.referralId}/claim`, undefined, asPerson("HHJ Smith", "smith.two@example.com"));
-    const ours = await referredCase();
-    await post(`/judicial/referrals/${ours.referralId}/claim`, undefined, asPerson("HHJ Smith", "smith.one@example.com"));
+    // Two Masters-list entries under one name, each linked to its own subject.
+    const theirs = await claimedReferral("smith.two@example.com", "HHJ Smith");
+    const ours = await claimedReferral("smith.one@example.com", "HHJ Smith");
 
     const mine = await get("/judicial/referrals/mine", asPerson("HHJ Smith", "smith.one@example.com"));
 
     expect(mine.referrals.map((row: { id: string }) => row.id)).toEqual([ours.referralId]);
+    expect((await get("/judicial/referrals/mine", asPerson("HHJ Smith", "smith.two@example.com"))).referrals.map((row: { id: string }) => row.id)).toEqual([
+      theirs.referralId
+    ]);
     // And the attribution is still the shared name, which is what makes the isolation a fact about the subject
     // rather than about the mock having stopped using names at all.
     expect(await get(`/caseworker/cases/${ours.caseId}/referrals/${ours.referralId}`)).toMatchObject({ claimedBy: "HHJ Smith" });
@@ -1885,28 +2061,22 @@ describe("a judge's own referrals", () => {
     expect((await get("/judicial/referrals/mine", as(JUDGE))).referrals).toEqual([]);
   });
 
-  it("should drop a lapsed claim and hand it back to the pool, because the state decides and not the holder columns", async () => {
-    // **The one referral transition this mock does not model, covered by its result rather than by a timer.** api's
-    // inactivity sweep is a two-hour window on its own clock (see the file's docblock), and what it leaves behind is
-    // an `Open` row still carrying the attribution of the judge who let it lapse. That row is seeded here directly,
-    // because no request can produce it.
-    //
-    // Both halves matter: it is off the list of the judge who held it, and it is every judge's again. Keyed on
-    // `claimedBy`/`claimedById` instead of on the state, a lapsed claim would sit on its old holder's list for good
-    // — the same row on two lists, one of which cannot act on it.
-    const lapsed = referral({ id: "lapsed-claim", state: "Open", claimedBy: JUDGE, claimedById: JUDGE, claimedAt: new Date("2026-03-01T09:05:00") });
-    mock.seed({ referrals: [lapsed] });
+  it("should drop an overdue assignment from the Master's list, returning it to the office, once the processing window passes", async () => {
+    // api D2's `unassignOverdue`, which its `mine` runs before the query: the mock's clock moves eight days on, past
+    // the seven-day processing window, and the list read is what notices. The state decides, not the holder columns:
+    // the referral is `Open` again and nobody's, rather than sitting on its old Master's list.
+    const { caseId, referralId } = await claimedReferral(JUDGE);
+    await post("/__mock/clock", { offsetMinutes: windowOffsetMinutes + 8 * 1440 });
 
     const mine = await get("/judicial/referrals/mine", as(JUDGE));
-    const pool = await get("/judicial/referrals");
 
     expect(mine.referrals).toEqual([]);
-    expect(pool.referrals.map((row: { id: string }) => row.id)).toEqual(["lapsed-claim"]);
-    expect((await fetch(`${mock.url}/judicial/referrals/lapsed-claim`, { headers: as("another@example.com") })).status).toBe(200);
+    expect(await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).toMatchObject({ state: "Open", claimedBy: null, assignedMaster: null });
+    expect((await fetch(`${mock.url}/judicial/referrals/${referralId}`, { headers: as(JUDGE) })).status).toBe(404);
   });
 
   it.each([
-    ["a claim adds the referral", async () => (await claimedReferral(JUDGE)).referralId, true],
+    ["an assignment adds the referral", async () => (await claimedReferral(JUDGE)).referralId, true],
     [
       "a direction keeps it, in its new state",
       async () => {
@@ -1940,8 +2110,8 @@ describe("a judge's own referrals", () => {
       "a refused write changes nothing",
       async () => {
         const claimed = await claimedReferral(JUDGE);
-        // 409 both times: the referral is already claimed, and a withdrawal of a claimed one is permitted so the
-        // second call has to be one that is not — a closure before a direction.
+        // 409 both times: the deprecated claim of a referral already assigned to this judge, and — a withdrawal of an
+        // assigned one being permitted — a closure before a direction.
         expect((await post(`/judicial/referrals/${claimed.referralId}/claim`, undefined, as(JUDGE))).status).toBe(409);
         expect((await post(`/caseworker/cases/${claimed.caseId}/referrals/${claimed.referralId}/closure`, undefined)).status).toBe(409);
 
@@ -1990,9 +2160,8 @@ describe("a judge's own referrals", () => {
     // Driven as a person whose subject is not their name, because that is the only arrangement in which the
     // subject's absence is observable: with the two equal, a body carrying the attribution carries the subject too.
     const holder = asPerson(JUDGE_NAME, JUDGE_SUBJECT);
-    const { caseId, referralId } = await referredCase();
-    await post(`/judicial/referrals/${referralId}/claim`, undefined, holder);
-    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, holder);
+    const { caseId, referralId } = await claimedReferral(JUDGE_SUBJECT, JUDGE_NAME);
+    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, holder);
 
     const caseworkerView = await get(`/caseworker/cases/${caseId}/referrals/${referralId}`);
     const judicialView = await get(`/judicial/referrals/${referralId}`, holder);
@@ -2023,16 +2192,16 @@ describe("the case notes a referral writes as it moves", () => {
   const OFFICE = "office@example.com";
 
   it("should write one note per successful transition, attributed to whoever made it", async () => {
-    const { caseId, referralId } = await referredCase({ reasons: ["Minor"] }, CASEWORKER);
+    const { caseId, referralId } = await referredCase({ reasons: ["Minor", "MinorCourtOrder"] }, CASEWORKER);
 
-    await post(`/judicial/referrals/${referralId}/claim`, undefined, as(JUDGE));
-    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(JUDGE));
+    await assignTo(JUDGE, referralId, JUDGE, CASEWORKER);
+    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, as(JUDGE));
     await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`, undefined, as(OFFICE));
 
     const notes = await notesOn(caseId);
-    // Four transitions, four notes — and the closure's author is the caseworker who actioned the direction
-    // rather than the judge who gave it, which is the one attribution easy to get wrong.
-    expect(notes.map((note) => note.createdBy)).toEqual([OFFICE, JUDGE, JUDGE, CASEWORKER]);
+    // Four transitions, four notes — the assignment's is the caseworker who assigned it, and the closure's the
+    // caseworker who actioned the direction rather than the judge who gave it, the attribution easiest to get wrong.
+    expect(notes.map((note) => note.createdBy)).toEqual([OFFICE, JUDGE, CASEWORKER, CASEWORKER]);
     // Both audit columns stamped on create, with the same instant: that is what makes the grid's "Not edited"
     // true of a note nobody has touched.
     expect(notes.every((note) => note.createdOn === note.modifiedOn && note.modifiedBy === note.createdBy)).toBe(true);
@@ -2042,37 +2211,37 @@ describe("the case notes a referral writes as it moves", () => {
     expect(notes.every((note) => note.createdOn >= referral.createdOn)).toBe(true);
   });
 
-  it("should expose the raise, claim, direction and closure as one timeline, newest first", async () => {
+  it("should expose the raise, assignment, direction and closure as one timeline, newest first", async () => {
     // The whole sequence in one test, because the order is the point: a caseworker opening the Notes tab on a
     // case that has been to the judiciary and back reads what happened, latest first.
-    const { caseId, referralId } = await referredCase({ reasons: ["Minor"] });
-    await post(`/judicial/referrals/${referralId}/claim`, undefined, as(JUDGE));
-    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(JUDGE));
+    const { caseId, referralId } = await referredCase({ reasons: ["Minor", "MinorCourtOrder"] });
+    await assignTo(JUDGE, referralId);
+    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, as(JUDGE));
     await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`);
 
     const notes = await notesOn(caseId);
 
     const raised = await raisedOn(caseId, referralId);
     expect(notes.map((note) => note.note)).toEqual([
-      `Judicial direction for referral raised on ${raised}, reasons: Minor, marked as actioned.`,
-      `Judicial direction recorded for referral raised on ${raised}, reasons: Minor.` +
-        " Decision: Approved. Publish to the London Gazette: Yes. See the referral for the full direction.",
-      `Referral raised on ${raised}, reasons: Minor, claimed by the judiciary.`,
-      "Referred to the judiciary. Reasons: Minor."
+      `Master’s direction for referral raised on ${raised}, reasons: Applicant is a minor: Court Order, marked as actioned.`,
+      `Master’s direction recorded for referral raised on ${raised}, reasons: Applicant is a minor: Court Order.` +
+        " Decision: Approved. Changes to standard publication in the Gazette: No. See the referral for the full direction.",
+      `Referral raised on ${raised}, reasons: Applicant is a minor: Court Order, sent to ${JUDGE} by the office.`,
+      "Referral raised, waiting to be sent to a Master. Reasons: Applicant is a minor: Court Order."
     ]);
   });
 
   it("should record a withdrawal beside the raise, naming which referral it was", async () => {
     // The pre-direction branch, where a case's timeline has to say the referral left and came back with nothing
     // in between — and name the referral, because a case may carry several over its life.
-    const { caseId, referralId } = await referredCase({ reasons: ["Minor", "DomesticAbuse"] });
+    const { caseId, referralId } = await referredCase({ reasons: ["Minor", "MinorCourtOrder", "DomesticAbuse"] });
 
     await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
 
     const raised = await raisedOn(caseId, referralId);
     expect((await notesOn(caseId)).map((note) => note.note)).toEqual([
-      `Referral to the judiciary withdrawn. It was raised on ${raised}, reasons: Minor, DomesticAbuse.`,
-      "Referred to the judiciary. Reasons: Minor, DomesticAbuse."
+      `Referral to a Master withdrawn. It was raised on ${raised}, reasons: Applicant is a minor: Court Order; Domestic abuse considerations.`,
+      "Referral raised, waiting to be sent to a Master. Reasons: Applicant is a minor: Court Order; Domestic abuse considerations."
     ]);
   });
 
@@ -2089,7 +2258,9 @@ describe("the case notes a referral writes as it moves", () => {
     // A line each rather than run into the sentence before with a full stop the composer would have to add:
     // theirs is prose they wrote, and one already ending in a stop would read as "Friday..".
     const [raised] = await notesOn(seeded.id);
-    expect(raised.note).toBe("Referred to the judiciary. Reasons: Other.\nMarked urgent: Hearing on Friday.\nNotes: Unusual circumstances");
+    expect(raised.note).toBe(
+      "Referral raised, waiting to be sent to a Master. Reasons: Other.\nMarked urgent: Hearing on Friday.\nNotes: Unusual circumstances"
+    );
   });
 
   it("should point at the referral for the full direction rather than copying it into the note", async () => {
@@ -2098,13 +2269,17 @@ describe("the case notes a referral writes as it moves", () => {
     const { caseId, referralId } = await claimedReferral(JUDGE);
     const directions = "The applicant must file the missing evidence. ".repeat(80);
 
-    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Rejected", publishToGazette: false, directionsText: directions }, as(JUDGE));
+    await post(
+      `/judicial/referrals/${referralId}/direction`,
+      { decision: "Rejected", changesToStandardPublication: true, directionsText: directions },
+      as(JUDGE)
+    );
 
     const [directed] = await notesOn(caseId);
     expect(directed.note).toContain("Decision: Rejected.");
     // Spelled out, never abbreviated to the presence of a word: publication names the applicant in a public
     // notice, so "not published" and "nothing recorded" must not read alike.
-    expect(directed.note).toContain("Publish to the London Gazette: No.");
+    expect(directed.note).toContain("Changes to standard publication in the Gazette: Yes.");
     expect(directed.note).toContain("See the referral for the full direction.");
     expect(directed.note).not.toContain("must file the missing evidence");
     expect(directed.note.length).toBeLessThanOrEqual(2000);
@@ -2112,13 +2287,15 @@ describe("the case notes a referral writes as it moves", () => {
     expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).directionsText).toBe(directions.trim());
   });
 
-  it("should write nothing for a refused withdrawal, claim or direction, so the timeline claims only what happened", async () => {
+  it("should write nothing for a refused withdrawal, deprecated claim or direction, so the timeline says only what happened", async () => {
     const { caseId, referralId } = await decidedReferral(JUDGE);
     const before = await notesOn(caseId);
 
     expect((await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`)).status).toBe(409);
     expect((await post(`/judicial/referrals/${referralId}/claim`, undefined, as(JUDGE))).status).toBe(409);
-    expect((await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(JUDGE))).status).toBe(409);
+    expect((await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, as(JUDGE))).status).toBe(
+      409
+    );
 
     expect(await notesOn(caseId)).toEqual(before);
   });
@@ -2129,7 +2306,7 @@ describe("the case notes a referral writes as it moves", () => {
 
     // Open, so there is no direction to have actioned; and a second referral while the first is in play.
     expect((await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`)).status).toBe(409);
-    expect((await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor"] })).status).toBe(409);
+    expect((await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor", "MinorCourtOrder"] })).status).toBe(409);
     // A body the schema refuses, on a case with no live referral at all: the note must not be written before
     // the referral it describes.
     const other = mock.seed(null);
@@ -2139,17 +2316,17 @@ describe("the case notes a referral writes as it moves", () => {
     expect(await notesOn(other.id)).toEqual([]);
   });
 
-  it("should show a judge the same generated events as the caseworker, and leave the stored order alone", async () => {
-    const { caseId, referralId } = await referredCase();
-    await post(`/judicial/referrals/${referralId}/claim`, undefined, as(JUDGE));
+  it("should write the generated events to the caseworker's timeline only, and leave the stored order alone", async () => {
+    const { caseId, referralId } = await claimedReferral(JUDGE);
 
     const judicial = await (await fetch(`${mock.url}/judicial/referrals/${referralId}`, { headers: as(JUDGE) })).json();
     const listed = await notesOn(caseId);
     const detail = await get(`/caseworker/cases/${caseId}`);
 
-    // No filter by origin, author or anything else on the judicial projection: a note a referral wrote reaches
-    // a judge by construction, which is what makes the two timelines one.
-    expect(judicial.caseNotes).toEqual(listed.map((note) => ({ note: note.note, createdBy: note.createdBy, createdOn: note.createdOn })));
+    // The raise and the assignment each wrote a note, and a Master is sent neither: no timeline on the judicial
+    // projection since 2026-10-27.
+    expect(listed).toHaveLength(2);
+    expect(judicial).not.toHaveProperty("caseNotes");
     // The case detail publishes the stored array, which api orders ascending — the same notes the other way
     // round rather than a second timeline. Sorting in place would have made this the same order as above.
     expect(detail.notes.map((note: { note: string }) => note.note)).toEqual([...listed].reverse().map((note) => note.note));
@@ -2168,19 +2345,26 @@ describe("the case notes a referral writes as it moves", () => {
 
     expect(patched.status).toBe(200);
     expect((await notesOn(caseId)).map((note) => note.note)).toEqual([
-      expect.stringContaining("Referral to the judiciary withdrawn"),
+      expect.stringContaining("Referral to a Master withdrawn"),
       "Declarant called back",
-      "Referred to the judiciary. Reasons: Minor."
+      "Referral raised, waiting to be sent to a Master. Reasons: Applicant is a minor: Court Order."
     ]);
   });
 
-  it("should write no lapse note, because the inactivity sweep is not modelled here", async () => {
-    // The sixth of api's lifecycle notes, and the one no page can drive: the sweep is a window on api's clock.
-    // Asserted so the gap is a recorded limitation rather than something a reader has to infer from its absence.
+  it("should write api's returned-to-the-queue note when the processing window releases a referral", async () => {
+    // api F1's `ReferralNotes.returnedToQueue`, attributed to the service account because no person did it.
     const { caseId, referralId } = await claimedReferral(JUDGE);
+    await post("/__mock/clock", { offsetMinutes: windowOffsetMinutes + 8 * 1440 });
 
-    expect((await notesOn(caseId)).some((note) => note.note.includes("lapsed"))).toBe(false);
-    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).state).toBe("Claimed");
+    expect(await (await post("/__mock/referrals/unassign-overdue")).json()).toEqual({ released: 1 });
+
+    const raised = await raisedOn(caseId, referralId);
+    const [released] = await notesOn(caseId);
+    expect(released).toMatchObject({
+      note: `Referral raised on ${raised}, reasons: Applicant is a minor: Court Order, returned to the queue to be sent again: no direction from ${JUDGE} within 7 days.`,
+      createdBy: "# svc_HMCTS_LCPT_Dev"
+    });
+    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).state).toBe("Open");
   });
 });
 
@@ -2499,7 +2683,7 @@ async function get(path: string, headers: Record<string, string> = {}): Promise<
 /**
  * The headers that make a request one person's.
  *
- * The mock reads a name out of the token and no roles, so this is what tells a judge's claim from another
+ * The mock reads a name out of the token and no roles, so this is what tells a judge's referral from another
  * judge's — and the `caseworker-deedpoll-judicial` role gate is api's rather than something to arrange here.
  */
 function as(subject: string): Record<string, string> {
@@ -2518,7 +2702,10 @@ function asPerson(name: string, subject: string): Record<string, string> {
 }
 
 /** A seeded case carrying one referral raised over HTTP, which is where every referral journey starts. */
-async function referredCase(body: Record<string, unknown> = { reasons: ["Minor"] }, raisedBy?: string): Promise<{ caseId: string; referralId: string }> {
+async function referredCase(
+  body: Record<string, unknown> = { reasons: ["Minor", "MinorCourtOrder"] },
+  raisedBy?: string
+): Promise<{ caseId: string; referralId: string }> {
   const seeded = mock.seed(null);
   const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, body, raisedBy === undefined ? {} : as(raisedBy))).json();
 
@@ -2543,24 +2730,81 @@ async function raisedOn(caseId: string, referralId: string): Promise<string> {
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${referral.createdOn}Z`));
 }
 
-/** The same, claimed by one judge — the state every judicial write but the claim starts from. */
-async function claimedReferral(judge: string): Promise<{ caseId: string; referralId: string }> {
+/**
+ * The same, sent to one judge's Masters-list entry — the state every judicial write starts from since api D2,
+ * where a judge holds a referral only because a caseworker assigned it to them.
+ */
+async function claimedReferral(judge: string, name = judge): Promise<{ caseId: string; referralId: string }> {
   const referred = await referredCase();
-  await post(`/judicial/referrals/${referred.referralId}/claim`, undefined, as(judge));
+  await assignTo(judge, referred.referralId, name);
 
   return referred;
+}
+
+/**
+ * The Masters-list entry for the judge whose subject is `subject`, created on first use and linked by that judge's
+ * first judicial request, as api's `MasterLinking` links an entry by the email IDAM gives for them.
+ *
+ * Named `name`, which is what an assignment writes into `claimedBy` — so a test reading the holder's name sees the
+ * judge's display name, as it did when the judge claimed the referral themselves.
+ */
+async function masterFor(subject: string, name = subject): Promise<string> {
+  const email = `${subject.toLowerCase().replace(/[^a-z0-9]/g, "-")}@masters.test`;
+  const listed = await get("/caseworker/masters", DELIVERY_MANAGER);
+  const known = (listed.masters as { id: string; email: string }[]).find((entry) => entry.email === email);
+  if (known) return known.id;
+  const created = await (await post("/caseworker/masters", { name, email }, DELIVERY_MANAGER)).json();
+  await get("/judicial/referrals/mine", bearer({ sub: subject, email, roles: ["caseworker-deedpoll-judicial"] }));
+
+  return created.id;
+}
+
+/**
+ * The referral sent to `subject`'s Masters-list entry from the queue (api F1), by a Team leader whose subject is
+ * `sender`, with the mock's clock moved just inside the next morning window first. That move is kept in
+ * `windowOffsetMinutes`, so a test moving the clock on afterwards moves it from there.
+ */
+async function assignTo(subject: string, referralId: string, name = subject, sender = "office-lead"): Promise<Response> {
+  const masterId = await masterFor(subject, name);
+  windowOffsetMinutes = (await (await post("/__mock/clock", { window: "open" })).json()).offsetMinutes;
+
+  return fetch(`${mock.url}/caseworker/referral-queue/sends`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...bearer({ sub: sender, roles: ["caseworker-deedpoll-team-leader"] }) },
+    body: JSON.stringify({ allocations: [{ referralId, masterId }] })
+  });
+}
+
+/** api's cap per referral window across all Masters, raised for a test that sends more than the default ten at once. */
+async function setWindowCap(cap: number): Promise<void> {
+  const settings = await get("/caseworker/process-settings", DELIVERY_MANAGER);
+  await fetch(`${mock.url}/caseworker/process-settings`, {
+    method: "PUT",
+    headers: { "content-type": "application/json", ...DELIVERY_MANAGER },
+    body: JSON.stringify({ referralClaimExpiryMinutes: settings.referralClaimExpiryMinutes, windowCap: cap, revision: settings.revision })
+  });
+}
+
+/** A bearer token carrying exactly these claims, for the Delivery Manager and a linking judge. */
+function bearer(claims: Record<string, unknown>): Record<string, string> {
+  return { authorization: `Bearer x.${Buffer.from(JSON.stringify(claims), "utf8").toString("base64url")}.signature` };
 }
 
 /** The same again, directed — the only state a caseworker may close from. */
 async function decidedReferral(judge: string): Promise<{ caseId: string; referralId: string }> {
   const claimed = await claimedReferral(judge);
-  await post(`/judicial/referrals/${claimed.referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(judge));
+  await post(`/judicial/referrals/${claimed.referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, as(judge));
 
   return claimed;
 }
 
 /** A judicial write by `judge`, with a JSON body only when there is one — withdraw takes none. */
-function change(method: string, path: string, judge: string, body: unknown = { decision: "Rejected", publishToGazette: false }): Promise<Response> {
+function change(
+  method: string,
+  path: string,
+  judge: string,
+  body: unknown = { decision: "Rejected", changesToStandardPublication: true, directionsText: "Do not publish" }
+): Promise<Response> {
   return fetch(`${mock.url}${path}`, {
     method,
     headers: { "content-type": "application/json", ...as(judge) },
@@ -2573,7 +2817,8 @@ function change(method: string, path: string, judge: string, body: unknown = { d
  * keeps but never lists to a judge.
  */
 function judicialCaseWithDocuments(overrides: Partial<MockCase["referrals"][number]> = {}): { referralId: string; readable: string; unreadable: string } {
-  const held = referral(overrides);
+  // Held by `JUDGE` unless told otherwise, because since api D2 a referral waiting for assignment is no judge's.
+  const held = referral({ state: "Claimed", claimedBy: JUDGE, claimedById: JUDGE, ...overrides });
   const document = (id: string, bytes: string) => ({
     id,
     name: "Birth certificate",
@@ -2631,7 +2876,7 @@ function awaitingConfirmation(asked: Date, overrides: Partial<MockCase["referral
  * A seeded case whose referral a Master has refused, with an applicant to write to.
  *
  * Seeded rather than driven through the judicial surface, which is what `client.test.ts` does: these tests are
- * about the email rules, and arranging a claim and a direction per test would put three round trips in front of
+ * about the email rules, and arranging an assignment and a direction per test would put three round trips in front of
  * every assertion. The refusal itself is what makes the email applicable, so the state is the arrangement.
  */
 /**
@@ -2683,7 +2928,7 @@ function referral(overrides: Partial<MockCase["referrals"][number]> = {}): MockC
     claimedAt: null,
     decision: null,
     directionsText: null,
-    publishToGazette: null,
+    changesToStandardPublication: null,
     decisionDate: null,
     decidedBy: null,
     decidedById: null,

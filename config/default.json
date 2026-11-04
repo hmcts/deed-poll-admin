@@ -26,10 +26,6 @@
     },
     "uploadInFlight": 4
   },
-  "gtm": {
-    "containerId": "GTM-XXXXXX",
-    "enabled": false
-  },
   "dynatrace": {
     "url": "https://your-dynatrace-url.com",
     "enabled": false
@@ -45,5 +41,8 @@
     "clientSecret": "",
     "redirectUri": "http://localhost:3000/oauth2/callback",
     "scope": "openid profile roles offline_access"
+  },
+  "externalLinks": {
+    "xuiStaffAdmin": "https://manage-case.aat.platform.hmcts.net/staff"
   }
 }

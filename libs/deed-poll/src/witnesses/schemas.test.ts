@@ -34,11 +34,22 @@ describe("createWitnessSchema", () => {
     expect(createWitnessSchema.safeParse({ ...valid, witnessOccupation: "a".repeat(101) }).success).toBe(false);
   });
 
-  // No minimum anywhere, which is api's rule rather than an oversight here — `WitnessSchemas` caps and
-  // does not require, and api stores `""`. Pinned so a well-meant `.min(1)` cannot be added without a
-  // matching change at api's end.
-  it("accepts a blank field, because the source has caps and no minimum", () => {
-    expect(createWitnessSchema.safeParse({ ...valid, witnessName: "", witnessAddress: "", witnessOccupation: "" }).success).toBe(true);
+  // A blank witness counted towards the enrolment-witness threshold while telling nobody who witnessed
+  // anything (review finding R15). Whitespace alone is blank, because it is trimmed first.
+  it.each(["witnessName", "witnessAddress", "witnessOccupation"])("refuses a blank or whitespace-only %s", (field) => {
+    expect(createWitnessSchema.safeParse({ ...valid, [field]: "" }).success).toBe(false);
+    expect(createWitnessSchema.safeParse({ ...valid, [field]: " \t\n " }).success).toBe(false);
+  });
+
+  it("sends the trimmed values", () => {
+    expect(createWitnessSchema.parse({ ...valid, witnessName: "  Sam Doe  ", witnessAddress: "\t1 High St\n", witnessOccupation: " Teacher" })).toEqual(valid);
+  });
+
+  // Measured after trimming, so padding a value that fits does not refuse it.
+  it("measures the maximum after trimming", () => {
+    expect(createWitnessSchema.safeParse({ ...valid, witnessName: ` ${"a".repeat(100)} ` }).success).toBe(true);
+    expect(createWitnessSchema.safeParse({ ...valid, witnessAddress: ` ${"a".repeat(250)} ` }).success).toBe(true);
+    expect(createWitnessSchema.safeParse({ ...valid, witnessOccupation: ` ${"a".repeat(100)} ` }).success).toBe(true);
   });
 
   it("requires declarant to be a boolean, not a truthy string", () => {
@@ -62,6 +73,15 @@ describe("updateWitnessSchema", () => {
   it("still refuses a truthy string for declarant when the patch does carry it", () => {
     expect(updateWitnessSchema.safeParse({ declarant: "true" }).success).toBe(false);
     expect(updateWitnessSchema.parse({ declarant: false })).toEqual({ declarant: false });
+  });
+
+  it("refuses a blank present field and trims a padded one", () => {
+    expect(updateWitnessSchema.safeParse({ witnessName: "   " }).success).toBe(false);
+    expect(updateWitnessSchema.parse({ witnessAddress: " 2 Low St " })).toEqual({ witnessAddress: "2 Low St" });
+  });
+
+  it("leaves an omitted field out of the patch, so it is unchanged at api", () => {
+    expect(updateWitnessSchema.parse({ declarant: true })).toEqual({ declarant: true });
   });
 
   it("still enforces lengths on present fields", () => {

@@ -28,12 +28,12 @@ describe("configureCookieManager", () => {
   });
 
   describe("middleware behavior", () => {
-    it("should set up middleware and routes", async () => {
+    it("should set up middleware and routes", () => {
       const useSpy = vi.spyOn(app, "use");
       const postSpy = vi.spyOn(app, "post");
       const getSpy = vi.spyOn(app, "get");
 
-      await configureCookieManager(app, {
+      configureCookieManager(app, {
         categories: { analytics: ["_ga"] }
       });
 
@@ -49,10 +49,10 @@ describe("configureCookieManager", () => {
       expect(getSpy).toHaveBeenCalledWith("/cookies", expect.any(Function));
     });
 
-    it("should use custom preferences path", async () => {
+    it("should use custom preferences path", () => {
       const getSpy = vi.spyOn(app, "get");
 
-      await configureCookieManager(app, {
+      configureCookieManager(app, {
         categories: { analytics: ["_ga"] },
         preferencesPath: "/custom-cookies"
       });
@@ -62,10 +62,10 @@ describe("configureCookieManager", () => {
   });
 
   describe("middleware state management", () => {
-    it("should set cookieManager state in res.locals", async () => {
+    it("should set cookieManager state in res.locals", () => {
       const useSpy = vi.spyOn(app, "use");
 
-      await configureCookieManager(app, {
+      configureCookieManager(app, {
         categories: { analytics: ["_ga"] }
       });
 
@@ -86,10 +86,10 @@ describe("configureCookieManager", () => {
       expect(next).toHaveBeenCalled();
     });
 
-    it("should not show banner on /cookies page", async () => {
+    it("should not show banner on /cookies page", () => {
       const useSpy = vi.spyOn(app, "use");
 
-      await configureCookieManager(app, {
+      configureCookieManager(app, {
         categories: { analytics: ["_ga"] }
       });
 
@@ -101,10 +101,10 @@ describe("configureCookieManager", () => {
       expect(res.locals?.cookieManager?.showBanner).toBe(false);
     });
 
-    it("should not show banner when cookies have been accepted", async () => {
+    it("should not show banner when cookies have been accepted", () => {
       const useSpy = vi.spyOn(app, "use");
 
-      await configureCookieManager(app, {
+      configureCookieManager(app, {
         categories: { analytics: ["_ga"] }
       });
 
@@ -118,10 +118,10 @@ describe("configureCookieManager", () => {
       expect(res.locals?.cookieManager?.cookiePreferences).toEqual({ analytics: true });
     });
 
-    it("should not show banner when banner has been seen", async () => {
+    it("should not show banner when banner has been seen", () => {
       const useSpy = vi.spyOn(app, "use");
 
-      await configureCookieManager(app, {
+      configureCookieManager(app, {
         categories: { analytics: ["_ga"] }
       });
 
@@ -133,10 +133,10 @@ describe("configureCookieManager", () => {
       expect(res.locals?.cookieManager?.showBanner).toBe(false);
     });
 
-    it("should handle malformed cookie values", async () => {
+    it("should handle malformed cookie values", () => {
       const useSpy = vi.spyOn(app, "use");
 
-      await configureCookieManager(app, {
+      configureCookieManager(app, {
         categories: { analytics: ["_ga"] }
       });
 
@@ -150,10 +150,10 @@ describe("configureCookieManager", () => {
   });
 
   describe("save preferences handler", () => {
-    it("should save selected preferences", async () => {
+    it("should save selected preferences", () => {
       const postSpy = vi.spyOn(app, "post");
 
-      await configureCookieManager(app, {
+      configureCookieManager(app, {
         categories: {
           analytics: ["_ga"],
           preferences: ["lang"]
@@ -173,10 +173,10 @@ describe("configureCookieManager", () => {
       expect(res.redirect).toHaveBeenCalledWith("/cookies?saved=true");
     });
 
-    it("should redirect to custom preferences path", async () => {
+    it("should redirect to custom preferences path", () => {
       const postSpy = vi.spyOn(app, "post");
 
-      await configureCookieManager(app, {
+      configureCookieManager(app, {
         categories: { analytics: ["_ga"] },
         preferencesPath: "/custom-cookies"
       });
@@ -191,10 +191,10 @@ describe("configureCookieManager", () => {
   });
 
   describe("preferences page", () => {
-    it("should render the preferences page", async () => {
+    it("should render the preferences page", () => {
       const getSpy = vi.spyOn(app, "get");
 
-      await configureCookieManager(app, {
+      configureCookieManager(app, {
         categories: {
           analytics: ["_ga"],
           preferences: ["lang"]
@@ -225,10 +225,10 @@ describe("configureCookieManager", () => {
   });
 
   describe("edge cases", () => {
-    it("should work with minimal configuration", async () => {
+    it("should work with minimal configuration", () => {
       const useSpy = vi.spyOn(app, "use");
 
-      await configureCookieManager(app, {});
+      configureCookieManager(app, {});
 
       const middleware = useSpy.mock.calls[0][0] as any;
 

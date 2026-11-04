@@ -301,7 +301,9 @@ function buildRow(condition: CaseCondition, index: number, labels: QueryLabels, 
   const operator = definition !== undefined && isOperatorValidFor(definition.kind, condition.operator) ? condition.operator : "";
   const arity = operator === "" ? 0 : valueArity(operator);
   const control = valueControl(definition?.kind, arity);
-  const slots: (0 | 1)[] = arity === 2 ? [0, 1] : arity === 1 ? [0] : [];
+  let slots: (0 | 1)[] = [];
+  if (arity === 2) slots = [0, 1];
+  else if (arity === 1) slots = [0];
 
   return {
     number: index + 1,
@@ -396,15 +398,19 @@ function appliedOption(definition: FieldDef | undefined): QueryOption | null {
 /** One typed-in value: a text box, a number box, or the three parts of a date. */
 function buildInput(index: number, slot: 0 | 1, value: string, isDate: boolean, submitted?: Record<string, unknown>): QueryValueInput {
   const name = valueControlName(index, slot);
+  let dateParts: DateParts | null = null;
+  if (isDate) {
+    // The parts exactly as submitted win on a re-render, so a `31 2 2026` stays on screen next to the
+    // error explaining it rather than being replaced by the blank it composed to. Same reasoning as
+    // `submittedDateParts` was written for.
+    dateParts = submitted === undefined ? splitDateParts(value) : submittedDateParts(name, submitted);
+  }
 
   return {
     name,
     slot,
     value,
-    // The parts exactly as submitted win on a re-render, so a `31 2 2026` stays on screen next to the
-    // error explaining it rather than being replaced by the blank it composed to. Same reasoning as
-    // `submittedDateParts` was written for.
-    dateParts: !isDate ? null : submitted === undefined ? splitDateParts(value) : submittedDateParts(name, submitted)
+    dateParts
   };
 }
 

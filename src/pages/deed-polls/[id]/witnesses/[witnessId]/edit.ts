@@ -1,6 +1,6 @@
 /**
  * Amend-a-witness form. The same four controls as the create form, for the same reasons — see `../new.ts`,
- * which holds the reasoning this file does not repeat: why a blank field is accepted, why `declarant` is
+ * which holds the reasoning this file does not repeat: why a blank field is refused, why `declarant` is
  * compared to two literals rather than coerced, and why a schema rejection is rendered in this page's words
  * while api's is rendered in api's.
  *
@@ -37,8 +37,7 @@ import {
   findWitness,
   InvalidInputError,
   removeWitness,
-  updateWitness,
-  zodErrorToFieldErrors
+  updateWitness
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../../../../auth/current-user.js";
@@ -71,6 +70,12 @@ const en = {
     witnessOccupation: `Occupation must be ${MAX_OCCUPATION} characters or fewer`,
     declarant: "Select yes if this person is the declarant"
   } as Record<string, string>,
+  // No `as` cast here: the Welsh extractor reads only a bare object literal, and a cast one is silently skipped.
+  blankErrors: {
+    witnessName: "Enter the witness's name",
+    witnessAddress: "Enter the witness's address",
+    witnessOccupation: "Enter the witness's occupation"
+  },
   witnessRefused: "The witness could not be saved. Check the details and try again."
 };
 
@@ -112,7 +117,7 @@ export const POST = async (req: Request, res: Response) => {
   const parsed = createWitnessSchema.safeParse(submitted(req));
 
   if (!parsed.success) {
-    return rerender(req, res, ownMessages(zodErrorToFieldErrors(parsed.error)));
+    return rerender(req, res, ownMessages(parsed.error.issues));
   }
 
   try {
@@ -151,8 +156,15 @@ function declarantFrom(value: unknown): boolean | undefined {
   return undefined;
 }
 
-function ownMessages(errors: FieldError[]): Record<string, string> {
-  return Object.fromEntries(errors.filter((error) => en.fieldErrors[error.field]).map((error) => [error.field, en.fieldErrors[error.field]]));
+function ownMessages(issues: readonly SchemaIssue[]): Record<string, string> {
+  const blankErrors: Readonly<Record<string, string | undefined>> = en.blankErrors;
+  return Object.fromEntries(
+    issues.flatMap((issue) => {
+      const field = String(issue.path[0] ?? "");
+      const message = issue.code === "too_big" ? en.fieldErrors[field] : (blankErrors[field] ?? en.fieldErrors[field]);
+      return message ? [[field, message]] : [];
+    })
+  );
 }
 
 function apiMessages(errors: FieldError[]): Record<string, string> {
@@ -185,4 +197,9 @@ function summaryList(errors: Record<string, string>, formError?: string): { text
   const rows = FIELD_ORDER.filter((field) => errors[field]).map((field) => ({ text: errors[field], href: `#${field}` }));
 
   return formError ? [{ text: formError, href: "#witnessName" }, ...rows] : rows;
+}
+
+interface SchemaIssue {
+  code: string;
+  path: readonly PropertyKey[];
 }

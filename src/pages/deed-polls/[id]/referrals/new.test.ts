@@ -1,6 +1,6 @@
 import { ConflictError, createReferral, findDeedPoll, findReferrals, InvalidInputError, NotFoundError } from "@hmcts/deed-poll";
 import type { Request } from "express";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../express-doubles.js";
 import { GET, POST } from "./new.js";
 
@@ -21,13 +21,14 @@ const PARAMS = { id: "case-1" };
 /** The session's access token, which is the whole of what this page passes to the domain. */
 const CALLER = { accessToken: "session-token" };
 
-const COMPLETE = { reasons: ["Minor"], urgency: "Normal" };
+const COMPLETE = { reasons: ["DomesticAbuse"], urgency: "Normal" };
+const REASONS_REFUSED = "One or more of the reasons you selected could not be accepted. Check the reasons and try again.";
 
 /** An open referral as api publishes one, for the conflict path's link. */
 const OPEN_REFERRAL = {
   id: "ref-9",
   state: "Open",
-  reasons: ["Minor"],
+  reasons: ["DomesticAbuse"],
   notes: null,
   urgency: "Normal",
   urgencyReason: null,
@@ -51,6 +52,12 @@ describe("raise a referral page", () => {
     vi.mocked(findDeedPoll).mockResolvedValue(found as never);
     vi.mocked(createReferral).mockResolvedValue({ id: "ref-1" } as never);
     vi.mocked(findReferrals).mockResolvedValue([OPEN_REFERRAL] as never);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-28T09:00:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe("GET", () => {
@@ -122,7 +129,11 @@ describe("raise a referral page", () => {
 
       await POST(request(COMPLETE), res);
 
-      expect(createReferral).toHaveBeenCalledWith("case-1", { reasons: ["Minor"], notes: undefined, urgency: "Normal", urgencyReason: undefined }, CALLER);
+      expect(createReferral).toHaveBeenCalledWith(
+        "case-1",
+        { reasons: ["DomesticAbuse"], notes: undefined, urgency: "Normal", urgencyReason: undefined },
+        CALLER
+      );
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1#referrals");
     });
 
@@ -133,17 +144,17 @@ describe("raise a referral page", () => {
     });
 
     it("should send several reasons when several boxes are ticked", async () => {
-      await POST(request({ reasons: ["Minor", "DomesticAbuse"], urgency: "Normal" }), response());
+      await POST(request({ reasons: ["NonPublication", "DomesticAbuse"], urgency: "Normal" }), response());
 
-      expect(createReferral).toHaveBeenCalledWith("case-1", expect.objectContaining({ reasons: ["Minor", "DomesticAbuse"] }), CALLER);
+      expect(createReferral).toHaveBeenCalledWith("case-1", expect.objectContaining({ reasons: ["NonPublication", "DomesticAbuse"] }), CALLER);
     });
 
     it("should accept the bare string a single ticked box posts as one reason", async () => {
       // A checkbox group posts a string when exactly one box is ticked, so a handler expecting an array would
       // reject the commonest submission there is.
-      await POST(request({ reasons: "Minor", urgency: "Normal" }), response());
+      await POST(request({ reasons: "DomesticAbuse", urgency: "Normal" }), response());
 
-      expect(createReferral).toHaveBeenCalledWith("case-1", expect.objectContaining({ reasons: ["Minor"] }), CALLER);
+      expect(createReferral).toHaveBeenCalledWith("case-1", expect.objectContaining({ reasons: ["DomesticAbuse"] }), CALLER);
     });
 
     it("should re-render with the error against the group when no reason was chosen", async () => {
@@ -191,15 +202,23 @@ describe("raise a referral page", () => {
       // The conditional reveal only hides its textarea, so the browser still posts it: a caseworker who typed
       // a reason, then changed their mind, would otherwise store "Standard" alongside "because of the hearing"
       // with no edit page to correct it.
-      await POST(request({ reasons: ["Minor"], urgency: "Normal", urgencyReason: "Hearing on Friday." }), response());
+      await POST(request({ reasons: ["DomesticAbuse"], urgency: "Normal", urgencyReason: "Hearing on Friday." }), response());
 
-      expect(createReferral).toHaveBeenCalledWith("case-1", { reasons: ["Minor"], notes: undefined, urgency: "Normal", urgencyReason: undefined }, CALLER);
+      expect(createReferral).toHaveBeenCalledWith(
+        "case-1",
+        { reasons: ["DomesticAbuse"], notes: undefined, urgency: "Normal", urgencyReason: undefined },
+        CALLER
+      );
     });
 
     it("should not send notes left behind in a closed reveal after Other was unticked", async () => {
-      await POST(request({ reasons: ["Minor"], notes: "Typed while Other was ticked.", urgency: "Normal" }), response());
+      await POST(request({ reasons: ["DomesticAbuse"], notes: "Typed while Other was ticked.", urgency: "Normal" }), response());
 
-      expect(createReferral).toHaveBeenCalledWith("case-1", { reasons: ["Minor"], notes: undefined, urgency: "Normal", urgencyReason: undefined }, CALLER);
+      expect(createReferral).toHaveBeenCalledWith(
+        "case-1",
+        { reasons: ["DomesticAbuse"], notes: undefined, urgency: "Normal", urgencyReason: undefined },
+        CALLER
+      );
     });
 
     it("should keep a value it did not send on screen, so re-ticking its box does not mean typing it again", async () => {
@@ -218,7 +237,7 @@ describe("raise a referral page", () => {
       // Over-long notes with Other unticked: the message would render inside a closed reveal and its summary
       // link would focus an invisible field, so there is nothing for a caseworker to act on. The value is not
       // an answer, so it is dropped rather than measured.
-      await POST(request({ reasons: ["Minor"], urgency: "Normal", notes: "x".repeat(1001) }), response());
+      await POST(request({ reasons: ["DomesticAbuse"], urgency: "Normal", notes: "x".repeat(1001) }), response());
 
       expect(createReferral).toHaveBeenCalledWith("case-1", expect.objectContaining({ notes: undefined }), CALLER);
     });
@@ -226,7 +245,7 @@ describe("raise a referral page", () => {
     it("should re-render with the error against urgency when the question was left unanswered", async () => {
       const res = response();
 
-      await POST(request({ reasons: ["Minor"] }), res);
+      await POST(request({ reasons: ["DomesticAbuse"] }), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.render.mock.calls[0][1].errors.urgency).toBe("Select how urgent this referral is");
@@ -248,7 +267,7 @@ describe("raise a referral page", () => {
     it("should require a reason for urgency when Urgent is chosen", async () => {
       const res = response();
 
-      await POST(request({ reasons: ["Minor"], urgency: "Urgent" }), res);
+      await POST(request({ reasons: ["DomesticAbuse"], urgency: "Urgent" }), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(createReferral).not.toHaveBeenCalled();
@@ -257,11 +276,11 @@ describe("raise a referral page", () => {
     });
 
     it("should accept Urgent with its reason", async () => {
-      await POST(request({ reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Hearing on Friday." }), response());
+      await POST(request({ reasons: ["DomesticAbuse"], urgency: "Urgent", urgencyReason: "Hearing on Friday." }), response());
 
       expect(createReferral).toHaveBeenCalledWith(
         "case-1",
-        { reasons: ["Minor"], notes: undefined, urgency: "Urgent", urgencyReason: "Hearing on Friday." },
+        { reasons: ["DomesticAbuse"], notes: undefined, urgency: "Urgent", urgencyReason: "Hearing on Friday." },
         CALLER
       );
     });
@@ -281,10 +300,13 @@ describe("raise a referral page", () => {
     it("should keep the ticked boxes and the chosen urgency on screen when something else fails", async () => {
       const res = response();
 
-      await POST(request({ reasons: ["Minor", "Other"], urgency: "Urgent", urgencyReason: "" }), res);
+      await POST(request({ reasons: ["NonPublication", "Other"], urgency: "Urgent", urgencyReason: "" }), res);
 
       const model = res.render.mock.calls[0][1];
-      expect(model.reasonItems.filter((item: { checked: boolean }) => item.checked).map((item: { value: string }) => item.value)).toEqual(["Minor", "Other"]);
+      expect(model.reasonItems.filter((item: { checked: boolean }) => item.checked).map((item: { value: string }) => item.value)).toEqual([
+        "NonPublication",
+        "Other"
+      ]);
       expect(model.urgencyItems.find((item: { value: string }) => item.value === "Urgent").checked).toBe(true);
     });
 
@@ -323,7 +345,7 @@ describe("raise a referral page", () => {
       vi.mocked(findReferrals).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
       const res = response();
 
-      await POST(request({ reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Hearing on Friday." }), res);
+      await POST(request({ reasons: ["DomesticAbuse"], urgency: "Urgent", urgencyReason: "Hearing on Friday." }), res);
 
       expect(res.status).toHaveBeenCalledWith(409);
       expect(res.render.mock.calls[0][1].conflictHref).toBe("/deed-polls/case-1#referrals");
@@ -334,7 +356,7 @@ describe("raise a referral page", () => {
       vi.mocked(createReferral).mockRejectedValue(new ConflictError("Case case-1 already has an open referral"));
       const res = response();
 
-      await POST(request({ reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Hearing on Friday." }), res);
+      await POST(request({ reasons: ["DomesticAbuse"], urgency: "Urgent", urgencyReason: "Hearing on Friday." }), res);
 
       expect(res.render.mock.calls[0][1].values.urgencyReason).toBe("Hearing on Friday.");
     });
@@ -348,7 +370,8 @@ describe("raise a referral page", () => {
       await POST(request(COMPLETE), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.render.mock.calls[0][1].errors.reasons).toBe("Minor cannot be combined with NonPublication");
+      expect(res.render.mock.calls[0][1].errors.reasons).toBe(REASONS_REFUSED);
+      expect(res.render.mock.calls[0][1].values.reasons).toEqual(COMPLETE.reasons);
       expect(res.redirect).not.toHaveBeenCalled();
     });
 
@@ -364,8 +387,24 @@ describe("raise a referral page", () => {
       await POST(request(COMPLETE), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.render.mock.calls[0][1].errors.reasons).toBe("Minor is not accepted on a migrated case");
-      expect(res.render.mock.calls[0][1].errorList).toEqual([{ text: "Minor is not accepted on a migrated case", href: "#reasons" }]);
+      expect(res.render.mock.calls[0][1].errors.reasons).toBe(REASONS_REFUSED);
+      expect(res.render.mock.calls[0][1].errorList).toEqual([{ text: REASONS_REFUSED, href: "#reasons" }]);
+    });
+
+    it("should show its own copy, not api's member names, when api refuses a reason this form offered", async () => {
+      // A deploy between the two halves of a change: this form offers a member the running api does not know yet.
+      const apiWording = "reasons names no referral reason: 'MinorNoStepparentConsent'. One of Minor, DomesticAbuse, Other";
+      vi.mocked(createReferral).mockRejectedValue(new InvalidInputError("Request body is not valid", [{ field: "reasons", message: apiWording }]));
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = response();
+
+      await POST(request(COMPLETE), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errorList).toEqual([{ text: REASONS_REFUSED, href: "#reasons" }]);
+      expect(JSON.stringify(res.render.mock.calls[0][1].errors)).not.toContain("MinorNoStepparentConsent");
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("MinorNoStepparentConsent"));
+      logged.mockRestore();
     });
 
     it("should show its own copy when api names a field this form has no control for", async () => {
@@ -422,6 +461,39 @@ describe("raise a referral page", () => {
       vi.mocked(createReferral).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): deed-poll-api could not be reached"));
 
       await expect(POST(request(COMPLETE), response())).rejects.toThrow(/unavailable/);
+    });
+  });
+
+  describe("no Master", () => {
+    it("should ask no Master and read no Masters list, because a raised referral waits in the queue (plan Fa1)", async () => {
+      const res = response();
+
+      await GET(request(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model).not.toHaveProperty("masterItems");
+      expect(model).not.toHaveProperty("isMastersUnavailable");
+      expect(Object.keys(model.en)).not.toContain("masterLegend");
+    });
+
+    it("should send no Master even when a stale form posts one", async () => {
+      await POST(request({ ...COMPLETE, masterId: "6c1f0d4e-2b3a-4c5d-8e9f-0a1b2c3d4e5f" }), response());
+
+      expect(createReferral).toHaveBeenCalledWith(
+        "case-1",
+        { reasons: ["DomesticAbuse"], notes: undefined, urgency: "Normal", urgencyReason: undefined },
+        CALLER
+      );
+    });
+
+    it("should still render the already-open 409 for a 409 that names a field, since no Master cap applies to a raise", async () => {
+      vi.mocked(createReferral).mockRejectedValue(new ConflictError("refused", [{ field: "masterId", message: "full" }]));
+      const res = response();
+
+      await POST(request(COMPLETE), res);
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.render.mock.calls[0][1]).toMatchObject({ errors: {}, conflictHref: "/deed-polls/case-1/referrals/ref-9" });
     });
   });
 

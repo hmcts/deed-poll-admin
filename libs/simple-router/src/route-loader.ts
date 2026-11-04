@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
 import type { Handler, HandlerExport, HttpMethod, RouteModule } from "./simple-router.js";
 
-const VALID_METHODS: HttpMethod[] = ["get", "post", "put", "patch", "delete", "del", "head", "options", "trace", "connect", "all"];
+const VALID_METHODS = new Set<HttpMethod>(["get", "post", "put", "patch", "delete", "del", "head", "options", "trace", "connect", "all"]);
 
 export async function loadRouteModule(absolutePath: string): Promise<RouteModule> {
   const fileUrl = pathToFileURL(absolutePath).href;
@@ -16,7 +16,7 @@ export function extractHandlers(module: RouteModule): Map<string, HandlerExport>
   for (const [key, value] of Object.entries(module)) {
     const methodName = key.toLowerCase();
 
-    if (!VALID_METHODS.includes(methodName as HttpMethod)) {
+    if (!VALID_METHODS.has(methodName as HttpMethod)) {
       continue;
     }
 

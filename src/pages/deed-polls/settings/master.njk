@@ -1,0 +1,52 @@
+{% extends "layouts/app.njk" %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/input/macro.njk" import govukInput %}
+{% from "govuk/components/radios/macro.njk" import govukRadios %}
+{% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
+
+{% block page_content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+    {% if errorList.length %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
+    {% endif %}
+    <h1 class="govuk-heading-xl">{{ masterChangeHeading }}</h1>
+    {% if master.isLinked %}
+      {{ govukWarningText({ text: masterLinkedWarning, iconFallbackText: warningIcon }) }}
+    {% endif %}
+    <form method="post" action="{{ master.path }}" novalidate>
+      <input type="hidden" name="revision" value="{{ master.values.revision }}">
+      {{ govukInput({
+        id: "master-name", name: "name", autocomplete: "off", spellcheck: false,
+        label: { text: masterNameLabel }, value: master.values.name,
+        errorMessage: { text: master.errors.name } if master.errors.name
+      }) }}
+      {{ govukInput({
+        id: "master-email", name: "email", type: "email", autocomplete: "off", spellcheck: false,
+        label: { text: masterEmailLabel }, value: master.values.email,
+        errorMessage: { text: master.errors.email } if master.errors.email
+      }) }}
+      {{ govukRadios({
+        idPrefix: "available", name: "available", classes: "govuk-radios--inline",
+        fieldset: { legend: { text: masterAvailableLegend, classes: "govuk-fieldset__legend--s" } },
+        hint: { text: masterAvailableHint },
+        errorMessage: { text: master.errors.available } if master.errors.available,
+        items: [
+          { value: "true", text: yes, checked: master.values.available == "true" },
+          { value: "false", text: no, checked: master.values.available == "false" }
+        ]
+      }) }}
+      {% if not master.reloadText %}
+        <div class="govuk-button-group">
+          {{ govukButton({ text: masterChangeSave }) }}
+          <a class="govuk-link" href="{{ settingsPath }}">{{ cancel }}</a>
+        </div>
+      {% endif %}
+    </form>
+    {% if master.reloadText %}
+      <p class="govuk-body"><a id="reload-master" class="govuk-link" href="{{ master.path }}">{{ masterReloadLink }}</a></p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

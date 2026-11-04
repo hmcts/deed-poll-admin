@@ -39,6 +39,7 @@
  * returned-for-action worklist through the UI at all.
  */
 import {
+  assignReferral as apiAssignReferral,
   closeReferral as apiCloseReferral,
   createReferral as apiCreateReferral,
   recordConfirmation as apiRecordConfirmation,
@@ -80,6 +81,17 @@ export function findReferral(deedPollId: string, id: string, caller: Caller): Pr
  */
 export function createReferral(deedPollId: string, dto: CreateReferralInput, caller: Caller): Promise<Referral> {
   return callApi(caller, (config) => apiCreateReferral(deedPollId, dto, config));
+}
+
+/**
+ * Reassign a referral already with a Master (api F1): `Claimed` only, by a holder of `ALLOCATE_REFERRALS`, at any time.
+ * It takes no place in a window and checks no cap; the Master it already has is api's no-op.
+ *
+ * **No pre-read.** api's 409 covers an `Open` referral and one no longer waiting for a direction, told apart only by
+ * prose, so a page answers both alike. An unknown or unavailable Master is api's 400 on `masterId`.
+ */
+export function assignReferral(deedPollId: string, id: string, masterId: string, caller: Caller): Promise<Referral> {
+  return callApi(caller, (config) => apiAssignReferral(deedPollId, id, masterId, config));
 }
 
 /**

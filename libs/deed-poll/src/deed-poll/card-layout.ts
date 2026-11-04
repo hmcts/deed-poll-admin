@@ -96,7 +96,7 @@ export function splitIntoBlocks<T extends Columnable>(items: T[]): CardBlock<T>[
 
   for (const item of items) {
     const isFull = item.column === "full";
-    const open = blocks[blocks.length - 1];
+    const open = blocks.at(-1);
 
     if (isFull) {
       if (open?.kind === "full") open.rows.push(item);

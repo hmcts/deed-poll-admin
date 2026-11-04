@@ -15,8 +15,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ConflictError, createReferral, findDeedPoll, findReferrals } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
+import { addPathFilters } from "../../path-filters.js";
 import { GET, POST } from "./[id]/referrals/new.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -37,6 +38,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 const found = { id: "case-1", displayReference: "KBDP2026-00001", notes: [], witnesses: [], documents: [] };
 
@@ -67,6 +69,12 @@ describe("raise a referral template", () => {
     vi.mocked(findDeedPoll).mockResolvedValue(found as never);
     vi.mocked(createReferral).mockResolvedValue({ id: "ref-1" } as never);
     vi.mocked(findReferrals).mockResolvedValue([OPEN_REFERRAL] as never);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-28T09:00:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("should post to its own route, so a re-render submits to the same place", async () => {
@@ -135,11 +143,38 @@ describe("raise a referral template", () => {
     expect(page).toContain('href="#urgencyReason"');
   });
 
+  // Master Sullivan's feedback (Steve, 2026-10-27): the minor's details are revealed beneath "Applicant is a minor",
+  // posting api's one `reasons` field, with their own id for the error summary to link to.
+  it("should reveal a minor's details beneath Applicant is a minor, posting as reasons", async () => {
+    const res = pageResponse();
+
+    await GET(request(), res);
+    const page = html(res.render.mock.calls[0][1]);
+
+    expect(page).toContain("What applies to the minor&#39;s application?");
+    expect(page).toMatch(/<input[^>]*id="minorDetails"[^>]*name="reasons"[^>]*value="MinorTransgender"/);
+    expect(page).toContain("16/17 year old applicant has not consented");
+    expect(page.indexOf('value="Minor"')).toBeLessThan(page.indexOf('value="MinorTransgender"'));
+    expect(page.indexOf('value="MinorTransgender"')).toBeLessThan(page.indexOf('value="DomesticAbuse"'));
+  });
+
+  it("should put the minor's-details error beside the revealed boxes and keep what was ticked", async () => {
+    const res = pageResponse();
+
+    await POST(request({ reasons: ["Minor", "MinorParentalConsent", "MinorNoParentalConsent"], urgency: "Normal" }), res);
+    const page = html(res.render.mock.calls[0][1]);
+
+    expect(page).toContain('href="#minorDetails"');
+    expect(page).toContain("Select either Have parental consent or Do not have parental consent, not both");
+    expect(page).toMatch(/<input[^>]*value="MinorParentalConsent"[^>]*checked/);
+    expect(createReferral).not.toHaveBeenCalled();
+  });
+
   it("should render the already-open conflict as a summary message carrying a link to that referral", async () => {
     vi.mocked(createReferral).mockRejectedValue(new ConflictError("Case case-1 already has an open referral"));
     const res = pageResponse();
 
-    await POST(request({ reasons: ["Minor"], urgency: "Normal" }), res);
+    await POST(request({ reasons: ["DomesticAbuse"], urgency: "Normal" }), res);
     const page = html(res.render.mock.calls[0][1]);
 
     expect(page).toContain("This case already has an open referral.");
@@ -147,6 +182,17 @@ describe("raise a referral template", () => {
     expect(page).toContain("View the open referral");
     // Not a field error: nothing that was typed is wrong, so it addresses no control.
     expect(page).not.toContain('href="#reasons"');
+  });
+
+  it("should ask no Master and always offer the submit, because a raised referral waits in the queue (plan Fa1)", async () => {
+    const res = pageResponse();
+
+    await GET(request(), res);
+    const page = html(res.render.mock.calls[0][1]);
+
+    expect(page).not.toContain('name="masterId"');
+    expect(page).not.toContain("Which Master should this go to?");
+    expect(page).toContain("Raise referral");
   });
 
   it("should put the error summary before the heading, where a screen reader reaches it first", async () => {

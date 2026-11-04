@@ -1,3 +1,4 @@
+import { createServer, type Server } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -13,8 +14,9 @@ import {
   UnauthorizedError
 } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { addPathFilters } from "../../../path-filters.js";
 import { GET, POST } from "./batch.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -36,6 +38,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 const ID = "case-1";
 const BATCH_ID = "00000000-0000-4000-8000-000000000001";
@@ -75,10 +78,11 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
-async function render(body?: Record<string, unknown>, locale = "en", sessionID = "admin-session") {
+async function render(body?: Record<string, unknown>, locale = "en", sessionID = "admin-session", spentMs = 0) {
   const req = Object.assign(pageRequest({ body, teamLeader: true, accessToken: "token" }), { sessionID });
   const res = pageResponse();
   res.locals.locale = locale;
+  res.locals.receivedAt = performance.now() - spentMs;
   await (body ? POST : GET)(req, res);
   if (!res.render.mock.calls.length) return { res, model: null, markup: "", journey: "" };
   const model = res.render.mock.calls[0][1];
@@ -117,13 +121,103 @@ it("should present the actual recipient and group counts, require explicit confi
   expect(check.markup).toContain("gazette@example.com");
   expect(check.markup).toContain("FROZEN-001");
   expect(check.markup).toContain("One email will contain download links");
+  expect(check.markup).toContain('href="/deed-polls/settings#gazette-recipient" target="_blank" rel="noopener"');
   const missing = await render({ journey: check.journey, action: "send" });
   expect(missing.markup).toContain("Confirm the recipient and applications before sending");
   expect(sendGazetteSelection).not.toHaveBeenCalled();
   const sent = await render({ journey: check.journey, action: "send", confirmed: "yes" });
   expect(sent.res.redirect).toHaveBeenCalledWith(303, `/deed-polls/gazette/requests/${BATCH_ID}`);
-  expect(sendGazetteSelection).toHaveBeenCalledWith({ caseIds: [ID], recipientRevision: 2, selectionFingerprint: "original-fingerprint" }, expect.any(String), {
-    accessToken: "token"
+  expect(sendGazetteSelection).toHaveBeenCalledWith(
+    { caseIds: [ID], recipientRevision: 2, selectionFingerprint: "original-fingerprint" },
+    expect.any(String),
+    { accessToken: "token" },
+    { timeoutMs: expect.any(Number) }
+  );
+});
+
+describe("the send's deadline, counted from the request's arrival", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ now: Date.now(), toFake: ["Date", "performance"] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each([
+    { spent: 0, timeoutMs: 25_000 },
+    { spent: 12_000, timeoutMs: 13_000 },
+    { spent: 20_000, timeoutMs: 5_000 }
+  ])("should give the send what is left of the budget after $spent ms, and redirect as before", async ({ spent, timeoutMs }) => {
+    const check = await confirmation();
+
+    const sent = await render({ journey: check.journey, action: "send", confirmed: "yes" }, "en", "admin-session", spent);
+
+    expect(vi.mocked(sendGazetteSelection).mock.calls[0][3]).toEqual({ timeoutMs });
+    expect(sent.res.redirect).toHaveBeenCalledWith(303, `/deed-polls/gazette/requests/${BATCH_ID}`);
+  });
+
+  it("should count the time the review re-check spent", async () => {
+    const check = await confirmation();
+    vi.mocked(gazetteReviewsCurrent).mockImplementationOnce(async () => {
+      vi.advanceTimersByTime(9_000);
+      return true;
+    });
+
+    await render({ journey: check.journey, action: "send", confirmed: "yes" }, "en", "admin-session", 3_000);
+
+    expect(vi.mocked(sendGazetteSelection).mock.calls[0][3]).toEqual({ timeoutMs: 13_000 });
+  });
+
+  it("should send nothing when the review re-check itself spends the time down past the floor", async () => {
+    const check = await confirmation();
+    vi.mocked(gazetteReviewsCurrent).mockImplementationOnce(async () => {
+      vi.advanceTimersByTime(6_000);
+      return true;
+    });
+
+    const late = await render({ journey: check.journey, action: "send", confirmed: "yes" }, "en", "admin-session", 15_000);
+
+    expect(sendGazetteSelection).not.toHaveBeenCalled();
+    expect(late.res.status).toHaveBeenCalledWith(503);
+    expect(late.model?.errorList).toEqual([{ text: late.model?.en.notSent, href: "#confirmed" }]);
+  });
+
+  it.each(["en", "cy"])("should send nothing under the floor and re-render the %s confirm step with the same key", async (locale) => {
+    const check = await confirmation();
+
+    const late = await render({ journey: check.journey, action: "send", confirmed: "yes" }, locale, "admin-session", 21_000);
+
+    expect(sendGazetteSelection).not.toHaveBeenCalled();
+    expect(late.res.status).toHaveBeenCalledWith(503);
+    expect(late.model?.phase).toBe("confirm");
+    expect(late.model?.confirmation).toEqual(check.model?.confirmation);
+    expect(late.model?.errorList).toEqual([{ text: late.model?.[locale].notSent, href: "#confirmed" }]);
+    expect(late.markup).toContain('value="send"');
+    expect(late.markup).not.toContain('value="check"');
+    const resent = await render({ journey: late.journey, action: "send", confirmed: "yes" }, locale);
+    expect(sendGazetteSelection).toHaveBeenCalledExactlyOnceWith(expect.anything(), check.model?.confirmation.key, expect.anything(), expect.anything());
+    expect(resent.res.redirect).toHaveBeenCalledWith(303, `/deed-polls/gazette/requests/${BATCH_ID}`);
+  });
+
+  it.each(["en", "cy"])("should make no status check under the floor and re-render the %s recovery page with the original key and body", async (locale) => {
+    const check = await confirmation();
+    vi.mocked(sendGazetteSelection).mockRejectedValueOnce(new GazetteOutcomeUnknownError());
+    const lost = await render({ journey: check.journey, action: "send", confirmed: "yes" });
+    const original = vi.mocked(sendGazetteSelection).mock.calls[0];
+    vi.mocked(sendGazetteSelection).mockClear();
+
+    const late = await render({ journey: lost.journey, action: "check" }, locale, "admin-session", 20_500);
+
+    expect(sendGazetteSelection).not.toHaveBeenCalled();
+    expect(late.res.status).toHaveBeenCalledWith(503);
+    expect(late.model?.phase).toBe("recover");
+    expect(late.model?.confirmation).toEqual(lost.model?.confirmation);
+    expect(late.markup).toContain(late.model?.[locale].notChecked);
+    expect(late.markup).toContain('value="check"');
+    expect(late.markup).not.toContain('value="send"');
+    await render({ journey: late.journey, action: "check" }, locale);
+    expect(vi.mocked(sendGazetteSelection).mock.calls[0].slice(0, 3)).toEqual(original.slice(0, 3));
   });
 });
 
@@ -139,11 +233,14 @@ it("should preserve the exact payload and key after a lost response, even if dat
   vi.mocked(gazetteReviewsCurrent).mockClear().mockResolvedValue(false);
   const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3 * 60 * 60_000);
   try {
-    await render({ journey: lost.journey, action: "check" });
+    await render({ journey: lost.journey, action: "check" }, "en", "admin-session", 12_000);
   } finally {
     clock.mockRestore();
   }
-  expect(sendGazetteSelection).toHaveBeenLastCalledWith(...original);
+  expect(sendGazetteSelection).toHaveBeenLastCalledWith(original[0], original[1], original[2], { timeoutMs: expect.any(Number) });
+  const timeoutMs = vi.mocked(sendGazetteSelection).mock.lastCall?.[3]?.timeoutMs;
+  expect(timeoutMs).toBeGreaterThanOrEqual(5_000);
+  expect(timeoutMs).toBeLessThanOrEqual(13_000);
   expect(gazetteReviewsCurrent).not.toHaveBeenCalled();
 });
 
@@ -216,6 +313,61 @@ it("should reject copied session state or a direct send without valid confirmati
   expect(sendGazetteSelection).not.toHaveBeenCalled();
 });
 
+describe("a review action naming no usable case (review finding R11)", () => {
+  let paths: string[];
+  let server: Server;
+  const previousUrl = process.env.DEED_POLL_API_URL;
+
+  beforeEach(async () => {
+    paths = [];
+    server = createServer((req, res) => {
+      paths.push(req.url ?? "");
+      res.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ message: "Case not found" }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    process.env.DEED_POLL_API_URL = `http://127.0.0.1:${address && typeof address === "object" ? address.port : 0}`;
+  });
+
+  // After the visit is set up, so only the action under test reaches the real domain and adapter.
+  async function readCasesFromApi() {
+    const actual = await vi.importActual<typeof import("@hmcts/deed-poll")>("@hmcts/deed-poll");
+    vi.mocked(findDeedPoll).mockImplementation(actual.findDeedPoll);
+  }
+
+  afterEach(async () => {
+    process.env.DEED_POLL_API_URL = previousUrl;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it.each([".", ".."])("should render the invalid state and keep the visit for review:%s, asking api nothing", async (id) => {
+    const list = await reviewed();
+    await readCasesFromApi();
+
+    const result = await render({ journey: list.journey, action: `review:${id}`, caseIds: ID });
+
+    expect(paths).toEqual([]);
+    expect(result.res.status).toHaveBeenCalledWith(400);
+    expect(result.model?.phase).toBe("select");
+    expect(result.model?.selectedCount).toBe("1 applications selected");
+    expect(result.markup).toContain("This review form is no longer valid");
+    expect(result.markup).not.toContain("The applications could not be checked");
+    expect(console.error).not.toHaveBeenCalledWith("Gazette review or preview unavailable");
+  });
+
+  it("should render the same invalid state when api has no such case", async () => {
+    const list = await render();
+    await readCasesFromApi();
+
+    const result = await render({ journey: list.journey, action: "review:case-gone" });
+
+    expect(paths).toEqual(["/caseworker/cases/case-gone"]);
+    expect(result.res.status).toHaveBeenCalledWith(400);
+    expect(result.model?.phase).toBe("select");
+    expect(result.markup).not.toContain("The applications could not be checked");
+  });
+});
+
 it("should render Welsh checklist and confirmation copy and escape names and preview references", async () => {
   vi.mocked(findDeedPoll).mockResolvedValue({ ...RECORD, oldForename: "<b>Former</b>" } as never);
   const list = await render(undefined, "cy");
@@ -228,6 +380,56 @@ it("should render Welsh checklist and confirmation copy and escape names and pre
   expect(check.markup).toContain("Cadarnhau ac anfon yr e-bost");
   expect(check.markup).toContain("&lt;script&gt;reference&lt;/script&gt;");
   expect(check.markup).not.toContain("<script>reference");
+});
+
+it.each([
+  {
+    locale: "en",
+    selection: "Review applications for the London Gazette",
+    review: "Complete the application checklist",
+    confirmation: "Check the Gazette email"
+  },
+  {
+    locale: "cy",
+    selection: "Adolygu ceisiadau ar gyfer y London Gazette",
+    review: "Cwblhau rhestr wirio’r cais",
+    confirmation: "Gwirio e-bost y Gazette"
+  }
+])("should preserve headings, error targets and status throughout the $locale journey", async ({ locale, selection, review, confirmation }) => {
+  const list = await render(undefined, locale);
+  const empty = await render({ journey: list.journey, action: "preview" }, locale);
+  const checklist = await render({ journey: list.journey, action: `review:${ID}` }, locale);
+  const incomplete = await render({ journey: checklist.journey, action: "save" }, locale);
+  const complete = await render({ journey: checklist.journey, action: "save", checks: [...GAZETTE_CHECKS] }, locale);
+  const check = await render({ journey: complete.journey, action: "preview", caseIds: ID }, locale);
+  const unconfirmed = await render({ journey: check.journey, action: "send" }, locale);
+  vi.mocked(sendGazetteSelection).mockRejectedValueOnce(new GazetteOutcomeUnknownError());
+  const recovery = await render({ journey: check.journey, action: "send", confirmed: "yes" }, locale);
+  vi.mocked(sendGazetteSelection).mockRejectedValueOnce(new GazetteRefusalError({ kind: "gazette-refusal", code: "CASE_NOT_READY", conflicts: [] }));
+  const refused = await render({ journey: recovery.journey, action: "check" }, locale);
+  const invalid = await render({ action: "send" }, locale);
+  vi.mocked(previewGazetteSelection).mockRejectedValueOnce(new Error("Unavailable"));
+  const unavailable = await render({ journey: complete.journey, action: "preview", caseIds: ID }, locale);
+
+  const pages = [
+    { result: list, phase: "select", heading: selection, errorId: "selection", status: 200 },
+    { result: empty, phase: "select", heading: selection, errorId: "selection", status: 400 },
+    { result: checklist, phase: "review", heading: review, errorId: "checks", status: 200 },
+    { result: incomplete, phase: "review", heading: review, errorId: "checks", status: 400 },
+    { result: check, phase: "confirm", heading: confirmation, errorId: "confirmed", status: 200 },
+    { result: unconfirmed, phase: "confirm", heading: confirmation, errorId: "confirmed", status: 400 },
+    { result: recovery, phase: "recover", heading: confirmation, errorId: "selection", status: 503 },
+    { result: refused, phase: "refused", heading: selection, errorId: "selection", status: 400 },
+    { result: invalid, phase: undefined, heading: selection, errorId: "selection", status: 400 },
+    { result: unavailable, phase: undefined, heading: selection, errorId: "selection", status: 503 }
+  ];
+  for (const { result, phase, heading, errorId, status } of pages) {
+    expect(result.model).toMatchObject({ phase, title: heading, heading, errorId });
+    expect(result.res.status).toHaveBeenCalledWith(status);
+    expect(result.markup).toContain(`<h1 class="govuk-heading-xl">${heading}</h1>`);
+    if (status === 200) expect(result.model?.errorList).toEqual([]);
+    else expect(result.model?.errorList).toEqual([{ text: expect.any(String), href: `#${errorId}` }]);
+  }
 });
 
 // Each extracted step must preserve the distinction between loss of access, a known refusal and an outage.

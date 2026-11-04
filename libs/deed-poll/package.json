@@ -18,11 +18,11 @@
     "format": "biome format --write ."
   },
   "devDependencies": {
-    "typescript": "6.0.3",
-    "vitest": "*"
+    "typescript": "7.0.2",
+    "vitest": "4.1.12"
   },
   "dependencies": {
     "@hmcts/deed-poll-api-client": "workspace:*",
-    "zod": "4.6.2"
+    "zod": "4.6.7"
   }
 }

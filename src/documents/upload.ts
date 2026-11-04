@@ -38,9 +38,10 @@ const parser = multer({
     files: 1,
     // documentTypeId, name and direction in document-upload.njk. The longest valid value is
     // schemas.ts's 100-character name. The parser rejects at 1024 bytes (allows up to 1023),
-    // leaving room for the name's UTF-8 encoding.
+    // leaving room for the name's UTF-8 encoding. multer 2.5.0 accepts a field of exactly
+    // `fieldSize` bytes, so the limit is the largest accepted size, not the first refused one.
     fields: 3,
-    fieldSize: 1024,
+    fieldSize: 1023,
     // Three text fields plus one file; also bounds parts ignored by the field/file counters.
     parts: 4
   },

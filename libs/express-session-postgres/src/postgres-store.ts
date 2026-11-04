@@ -1,19 +1,19 @@
+import { callbackify } from "node:util";
 import type { SessionData } from "express-session";
 import { Store } from "express-session";
 import type { Pool } from "pg";
 import format from "pg-format";
 
 export class PostgresStore extends Store {
-  private pool: Pool;
-  private tableName: string;
-  private schemaName: string;
-  private ttl: number;
-  private disableTouch: boolean;
-  private cleanupInterval: number;
+  private readonly pool: Pool;
+  private readonly tableName: string;
+  private readonly schemaName: string;
+  private readonly ttl: number;
+  private readonly disableTouch: boolean;
+  private readonly cleanupInterval: number;
   private cleanupTimer?: NodeJS.Timeout;
-  private tableInitialized = false;
 
-  constructor(options: PostgresStoreOptions) {
+  private constructor(options: PostgresStoreOptions) {
     super();
 
     if (!options.pool) {
@@ -25,17 +25,16 @@ export class PostgresStore extends Store {
     this.schemaName = options.schemaName || "public";
     this.ttl = options.ttl || 86400;
     this.disableTouch = options.disableTouch || false;
-    this.cleanupInterval = options.cleanupInterval || 900000; // 15 minutes default
+    this.cleanupInterval = options.cleanupInterval ?? 900000; // 15 minutes default
+  }
 
-    this.initTable()
-      .then(() => {
-        if (this.cleanupInterval > 0) {
-          this.startCleanup();
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to initialize session table:", err);
-      });
+  static async create(options: PostgresStoreOptions): Promise<PostgresStore> {
+    const store = new PostgresStore(options);
+    await store.initTable();
+    if (store.cleanupInterval > 0) {
+      store.startCleanup();
+    }
+    return store;
   }
 
   private async initTable(): Promise<void> {
@@ -50,8 +49,6 @@ export class PostgresStore extends Store {
 
       const createIndexQuery = format("CREATE INDEX IF NOT EXISTS %I ON %I.%I (expire)", `idx_${this.tableName}_expire`, this.schemaName, this.tableName);
       await client.query(createIndexQuery);
-
-      this.tableInitialized = true;
     } finally {
       client.release();
     }
@@ -70,8 +67,6 @@ export class PostgresStore extends Store {
   }
 
   private async clearExpiredSessions(): Promise<void> {
-    if (!this.tableInitialized) return;
-
     const client = await this.pool.connect();
     try {
       const query = format("DELETE FROM %I.%I WHERE expire < NOW()", this.schemaName, this.tableName);
@@ -89,146 +84,115 @@ export class PostgresStore extends Store {
     return new Date(Date.now() + ttl * 1000);
   }
 
-  async get(sid: string, callback: (err: any, session?: SessionData | null) => void): Promise<void> {
-    if (!this.tableInitialized) {
-      return callback(null, null);
-    }
+  get(sid: string, callback: (err: any, session?: SessionData | null) => void): void {
+    callbackify(async (): Promise<SessionData | null> => {
+      const client = await this.pool.connect();
+      try {
+        const query = format("SELECT sess FROM %I.%I WHERE sid = $1 AND expire > NOW()", this.schemaName, this.tableName);
+        const result = await client.query(query, [sid]);
 
-    const client = await this.pool.connect();
-    try {
-      const query = format("SELECT sess FROM %I.%I WHERE sid = $1 AND expire > NOW()", this.schemaName, this.tableName);
-      const result = await client.query(query, [sid]);
+        if (result.rows.length === 0) {
+          return null;
+        }
 
-      if (result.rows.length === 0) {
-        return callback(null, null);
+        return result.rows[0].sess;
+      } finally {
+        client.release();
       }
-
-      const session = result.rows[0].sess;
-      callback(null, session);
-    } catch (error) {
-      callback(error);
-    } finally {
-      client.release();
-    }
+    })(callback);
   }
 
-  async set(sid: string, session: SessionData, callback?: (err?: any) => void): Promise<void> {
-    if (!this.tableInitialized) {
-      await this.initTable();
-    }
+  set(sid: string, session: SessionData, callback?: (err?: any) => void): void {
+    callbackify(async () => {
+      const client = await this.pool.connect();
+      try {
+        const expire = this.getExpireDate(session);
 
-    const client = await this.pool.connect();
-    try {
-      const expire = this.getExpireDate(session);
-
-      const query = format(
-        "INSERT INTO %I.%I (sid, sess, expire) VALUES ($1, $2, $3) ON CONFLICT (sid) DO UPDATE SET sess = $2, expire = $3",
-        this.schemaName,
-        this.tableName
-      );
-      await client.query(query, [sid, JSON.stringify(session), expire]);
-
-      callback?.(null);
-    } catch (error) {
-      callback?.(error);
-    } finally {
-      client.release();
-    }
-  }
-
-  async destroy(sid: string, callback?: (err?: any) => void): Promise<void> {
-    if (!this.tableInitialized) {
-      return callback?.(null);
-    }
-
-    const client = await this.pool.connect();
-    try {
-      const query = format("DELETE FROM %I.%I WHERE sid = $1", this.schemaName, this.tableName);
-      await client.query(query, [sid]);
-      callback?.(null);
-    } catch (error) {
-      callback?.(error);
-    } finally {
-      client.release();
-    }
-  }
-
-  async touch(sid: string, session: SessionData, callback?: (err?: any) => void): Promise<void> {
-    if (this.disableTouch || !this.tableInitialized) {
-      return callback?.(null);
-    }
-
-    const client = await this.pool.connect();
-    try {
-      const expire = this.getExpireDate(session);
-
-      const query = format("UPDATE %I.%I SET expire = $2 WHERE sid = $1", this.schemaName, this.tableName);
-      await client.query(query, [sid, expire]);
-
-      callback?.(null);
-    } catch (error) {
-      callback?.(error);
-    } finally {
-      client.release();
-    }
-  }
-
-  async clear(callback?: (err?: any) => void): Promise<void> {
-    if (!this.tableInitialized) {
-      return callback?.(null);
-    }
-
-    const client = await this.pool.connect();
-    try {
-      const query = format("DELETE FROM %I.%I", this.schemaName, this.tableName);
-      await client.query(query);
-      callback?.(null);
-    } catch (error) {
-      callback?.(error);
-    } finally {
-      client.release();
-    }
-  }
-
-  async length(callback: (err: any, length?: number) => void): Promise<void> {
-    if (!this.tableInitialized) {
-      return callback(null, 0);
-    }
-
-    const client = await this.pool.connect();
-    try {
-      const query = format("SELECT COUNT(*) FROM %I.%I", this.schemaName, this.tableName);
-      const result = await client.query(query);
-      const count = parseInt(result.rows[0].count, 10);
-      callback(null, count);
-    } catch (error) {
-      callback(error);
-    } finally {
-      client.release();
-    }
-  }
-
-  async all(callback: (err: any, sessions?: SessionData[] | { [sid: string]: SessionData } | null) => void): Promise<void> {
-    if (!this.tableInitialized) {
-      return callback(null, {});
-    }
-
-    const client = await this.pool.connect();
-    try {
-      const query = format("SELECT sid, sess FROM %I.%I WHERE expire > NOW()", this.schemaName, this.tableName);
-      const result = await client.query(query);
-
-      const sessions: { [sid: string]: SessionData } = {};
-      for (const row of result.rows) {
-        sessions[row.sid] = row.sess;
+        const query = format(
+          "INSERT INTO %I.%I (sid, sess, expire) VALUES ($1, $2, $3) ON CONFLICT (sid) DO UPDATE SET sess = $2, expire = $3",
+          this.schemaName,
+          this.tableName
+        );
+        await client.query(query, [sid, JSON.stringify(session), expire]);
+      } finally {
+        client.release();
       }
+    })((error) => callback?.(error));
+  }
 
-      callback(null, sessions);
-    } catch (error) {
-      callback(error);
-    } finally {
-      client.release();
+  destroy(sid: string, callback?: (err?: any) => void): void {
+    callbackify(async () => {
+      const client = await this.pool.connect();
+      try {
+        const query = format("DELETE FROM %I.%I WHERE sid = $1", this.schemaName, this.tableName);
+        await client.query(query, [sid]);
+      } finally {
+        client.release();
+      }
+    })((error) => callback?.(error));
+  }
+
+  touch(sid: string, session: SessionData, callback?: (err?: any) => void): void {
+    if (this.disableTouch) {
+      callback?.(null);
+      return;
     }
+
+    // Deliver completion outside the database operation so a consumer's throw is not retried as a store error.
+    callbackify(async () => {
+      const client = await this.pool.connect();
+      try {
+        const expire = this.getExpireDate(session);
+        const query = format("UPDATE %I.%I SET expire = $2 WHERE sid = $1", this.schemaName, this.tableName);
+        await client.query(query, [sid, expire]);
+      } finally {
+        client.release();
+      }
+    })((error) => callback?.(error));
+  }
+
+  clear(callback?: (err?: any) => void): void {
+    callbackify(async () => {
+      const client = await this.pool.connect();
+      try {
+        const query = format("DELETE FROM %I.%I", this.schemaName, this.tableName);
+        await client.query(query);
+      } finally {
+        client.release();
+      }
+    })((error) => callback?.(error));
+  }
+
+  length(callback: (err: any, length?: number) => void): void {
+    callbackify(async () => {
+      const client = await this.pool.connect();
+      try {
+        const query = format("SELECT COUNT(*) FROM %I.%I", this.schemaName, this.tableName);
+        const result = await client.query(query);
+        return Number.parseInt(result.rows[0].count, 10);
+      } finally {
+        client.release();
+      }
+    })(callback);
+  }
+
+  all(callback: (err: any, sessions?: SessionData[] | { [sid: string]: SessionData } | null) => void): void {
+    callbackify(async () => {
+      const client = await this.pool.connect();
+      try {
+        const query = format("SELECT sid, sess FROM %I.%I WHERE expire > NOW()", this.schemaName, this.tableName);
+        const result = await client.query(query);
+
+        const sessions: { [sid: string]: SessionData } = {};
+        for (const row of result.rows) {
+          sessions[row.sid] = row.sess;
+        }
+
+        return sessions;
+      } finally {
+        client.release();
+      }
+    })(callback);
   }
 
   stopCleanup(): void {

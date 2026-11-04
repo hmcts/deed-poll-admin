@@ -23,6 +23,7 @@
  * `docs/plans/completed/02-dal-cutover-to-api.md`.
  */
 import { z } from "zod";
+import { validateGazetteRecipientEmail } from "./gazette-recipient-email.js";
 
 /**
  * The option-set members, as api's spec declares them.
@@ -59,6 +60,9 @@ export const DOCUMENT_DIRECTION = ["Incoming", "Outgoing"] as const;
  */
 export const REFERRAL_STATE = ["Open", "Claimed", "Decided", "Closed", "Withdrawn"] as const;
 
+/** The morning or afternoon referral window of a working day, as api's `WindowSlot` declares it (plan D2). */
+export const WINDOW_SLOT = ["AM", "PM"] as const;
+
 /**
  * Why a case is referred to the judiciary, as api's `ReferralReason` declares it.
  *
@@ -68,7 +72,24 @@ export const REFERRAL_STATE = ["Open", "Claimed", "Decided", "Closed", "Withdraw
  *
  * `Other` is the one member api pairs with a rule — it requires `notes` — and the rule is api's to enforce.
  */
-export const REFERRAL_REASON = ["Minor", "DomesticAbuse", "NonPublication", "DeclarantRequirementsNotMet", "SeparatedOrEstranged", "Other"] as const;
+// The `Minor*` members after `Other` are a minor's details (api#155, Master Sullivan's feedback, 2026-10-27): api
+// accepts one only beside `Minor`, and `../../../deed-poll/src/referrals/referrals-view.ts` nests them under it.
+export const REFERRAL_REASON = [
+  "Minor",
+  "DomesticAbuse",
+  "NonPublication",
+  "DeclarantRequirementsNotMet",
+  "SeparatedOrEstranged",
+  "Other",
+  "MinorTransgender",
+  "MinorParentalConsent",
+  "MinorNoParentalConsent",
+  "MinorStepparentConsent",
+  "MinorNoStepparentConsent",
+  "MinorCourtOrder",
+  "MinorAged16Or17Consented",
+  "MinorAged16Or17NotConsented"
+] as const;
 
 /**
  * What an applicant answered when asked whether they still want their deed enrolled, as api's
@@ -105,7 +126,16 @@ export const LIST_FILTER = ["all", "open", "received", "enroled", "returned", "a
  * Published on `CallerAccessResponse.capabilities`' array items, so the drift test's property enum comparison
  * does not reach it; `contract.test.ts` pins it against the items separately, order included.
  */
-export const CAPABILITY = ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD", "ACCESS_GAZETTE"] as const;
+export const CAPABILITY = [
+  "OVERRIDE_PRIVACY",
+  "DELETE_NOTE",
+  "DELETE_WITNESS",
+  "MANAGE_SHARED_QUERIES",
+  "REPAIR_CCD",
+  "ACCESS_GAZETTE",
+  "MANAGE_PROCESS_CONFIG",
+  "ALLOCATE_REFERRALS"
+] as const;
 
 /** The two `sortDirection` tokens api matches exactly. A bare field with no direction means ascending. */
 export const SORT_DIRECTION = ["asc", "desc"] as const;
@@ -293,6 +323,12 @@ const documentSchema = z.object({
   modifiedOn: wireDateTime.nullish()
 });
 
+/** The Master a referral is assigned to, as api's `AssignedMasterResponse`: the id and the name it was assigned under. */
+const assignedMasterSchema = z.object({
+  id: z.string(),
+  name: z.string().nullish()
+});
+
 /**
  * One referral of a case to the judiciary, as the caseworker surface publishes it.
  *
@@ -305,8 +341,10 @@ const documentSchema = z.object({
  * migrated referral** — the source store had no such field — which is what `migrated` explains, and never
  * null, because api builds it with `List.copyOf`.
  *
- * `publishToGazette` is nullable where `migrated` is not: api boxes it deliberately, because a referral with
- * no direction has not been asked the question and absent is not false.
+ * `changesToStandardPublication` is nullable where `migrated` is not: api boxes it deliberately, because a referral
+ * with no direction has not been asked the question and absent is not false. It is the Master's answer to "Are there
+ * any changes to the standard publications in the Gazette?" — true for do not publish, or publish only as
+ * `directionsText` says.
  *
  * The four `confirmation*` fields are the applicant's answer to the *Request confirmation to proceed* email and
  * api's record of who transcribed it. All four are nullable and they move in pairs rather than independently:
@@ -327,12 +365,20 @@ const referralSchema = z.object({
   claimedAt: wireDateTime.nullish(),
   decision: z.enum(MASTER_DECISION).nullish(),
   directionsText: z.string().nullish(),
-  publishToGazette: z.boolean().nullish(),
+  changesToStandardPublication: z.boolean().nullish(),
   decisionDate: wireDateTime.nullish(),
   decidedBy: z.string().nullish(),
   // Set when the judge changes or withdraws their direction, and never cleared: the caseworker's cue that the
   // direction they may already have acted on is not the one first given.
   directionChangedAt: wireDateTime.nullish(),
+  // Plan D2: who it is assigned to (never the subject or the email), when, the window it counts towards for the
+  // cap, and when the Master's direction is due. `directionDueBy` is api's to compute from the processing window
+  // as it is set now, so nothing here adds the window to `assignedAt`.
+  assignedMaster: assignedMasterSchema.nullish(),
+  assignedAt: wireDateTime.nullish(),
+  windowDate: z.iso.date().nullish(),
+  windowSlot: z.enum(WINDOW_SLOT).nullish(),
+  directionDueBy: wireDateTime.nullish(),
   confirmationRequestedAt: wireDateTime.nullish(),
   confirmationOutcome: z.enum(CONFIRMATION_OUTCOME).nullish(),
   confirmationReceivedAt: wireDateTime.nullish(),
@@ -535,8 +581,8 @@ const updateWitnessSchema = createWitnessSchema.partial();
  * message against the field — a schema that refused the pair would be a second authority on a rule api
  * already enforces, and `deed-poll-validation.ts` is where this repo's copies of api's rules live.
  *
- * No `state`, no `migrated` and no assignee: the state of a new referral is always `Open`, there is no target
- * judge — who picks a referral up is a later transition — and api ignores all three rather than refusing them.
+ * No `state` and no `migrated`, and since api F1 no `masterId`: every referral is raised `Open`, waiting in the queue
+ * to be sent to a Master, and api ignores all three rather than refusing them.
  */
 const createReferralSchema = z.object({
   reasons: z.array(z.enum(REFERRAL_REASON)).min(1),
@@ -637,17 +683,6 @@ const updateSavedQuerySchema = z.object({
 });
 
 /**
- * One witness to the application, as a judge reads it. No id, because no judicial route accepts one, and no
- * audit columns.
- */
-const judicialWitnessSchema = z.object({
-  witnessName: z.string().nullish(),
-  witnessAddress: z.string().nullish(),
-  witnessOccupation: z.string().nullish(),
-  declarant: z.boolean()
-});
-
-/**
  * One supporting document a judge may open. api lists only documents with a readable file, so there is no
  * `hasFile`: every row is downloadable through `GET /judicial/referrals/{referralId}/documents/{id}/file`.
  *
@@ -666,88 +701,39 @@ const judicialDocumentSchema = z.object({
 });
 
 /**
- * The application behind a referral, as api's `/judicial/**` surface publishes it: its details, witnesses and
- * readable documents (api#118, superseding the eight-field `JudicialCaseView`), and deliberately not a case.
+ * The application behind a referral, as api's `/judicial/**` surface publishes it to a Master: the reference, the
+ * new and old names, the type, the nationality and section, a minor's parents and the readable documents (narrowed
+ * in api on 2026-10-27, Master Sullivan's feedback), and deliberately not a case.
  *
  * **Never modelled as a subset of the case schemas**, which is api's own rule — its
  * `NamespaceSeparationSecurityTest` asserts the two records are unrelated in bytecode, because the failure it
  * guards against is a field added to the caseworker response for a caseworker reason silently appearing here.
  * A separate schema means the same is true of this adapter: widening the judicial view is an edit to this
- * object, not a side effect of one to `savedCaseSchema`. That is why the fields are restated rather than
- * picked from `savedCaseSchema`, and why no payment, refund or fee field is here: api publishes none.
+ * object, not a side effect of one to `savedCaseSchema`.
  *
  * There is no case id, and that is api's decision 2 rather than an omission: the judicial surface is keyed on
- * the referral so a judge cannot name an application. `displayReference` is what a direction quotes and is not
- * an id api accepts anywhere.
+ * the referral so a Master cannot name an application. `displayReference` is what a direction quotes and is not
+ * an id api accepts anywhere. `parents` is null on any application that is not a minor's.
  */
 const judicialApplicationViewSchema = z.object({
   displayReference: z.string().nullish(),
-  type: z.enum(DEED_POLL_TYPE).nullish(),
-  state: z.enum(DEED_POLL_STATE).nullish(),
-  privacy: z.enum(PRIVACY).nullish(),
-  urgency: z.enum(URGENCY).nullish(),
-  urgencyreason: z.string().nullish(),
-  inPerson: z.boolean().nullish(),
-  maritalStatus: z.enum(MARITAL_STATUS).nullish(),
 
-  oldForename: z.string().nullish(),
-  oldMiddleName: z.string().nullish(),
-  oldSurname: z.string().nullish(),
   newForename: z.string().nullish(),
   newMiddleName: z.string().nullish(),
   newSurname: z.string().nullish(),
+  oldForename: z.string().nullish(),
+  oldMiddleName: z.string().nullish(),
+  oldSurname: z.string().nullish(),
 
-  applicantBuildingNoName: z.string().nullish(),
-  applicantEmail: z.string().nullish(),
-  applicantTelephone: z.string().nullish(),
-  applicantTownCity: z.string().nullish(),
-  applicantPostcode: z.string().nullish(),
-
-  representativeName: z.string().nullish(),
-  representativeBuildingNoName: z.string().nullish(),
-  representativeCompany: z.string().nullish(),
-  representativeEmail: z.string().nullish(),
-  representativeTelephone: z.string().nullish(),
-  representativeTownCity: z.string().nullish(),
-  representativePostcode: z.string().nullish(),
-
-  ageOfMinor: z.int().nullish(),
-  ageOfMinorMonths: z.int().nullish(),
-  minorDateOfBirth: wireDateTime.nullish(),
-  parents: z.string().nullish(),
+  type: z.enum(DEED_POLL_TYPE).nullish(),
 
   nationality: z.enum(NATIONALITY).nullish(),
   nationalitySection: z.enum(NATIONALITY_SECTION).nullish(),
   nationalitySectionOther: z.string().nullish(),
 
-  dateOfDeclaration: wireDateTime.nullish(),
-  dateOfApplication: wireDateTime.nullish(),
-  dateReceived: wireDateTime.nullish(),
-  awaitingFurtherDocsInfo: wireDateTime.nullish(),
+  parents: z.string().nullish(),
 
-  referToMasterChoice: z.enum(REFER_TO_MASTER).nullish(),
-  masterName: z.string().nullish(),
-  masterDirections: z.string().nullish(),
-  masterDecision: z.enum(MASTER_DECISION).nullish(),
-  masterDateOfDecision: wireDateTime.nullish(),
-  dateDecisionDirectionsReceived: wireDateTime.nullish(),
-  referralNotes: z.string().nullish(),
-
-  witnesses: z.array(judicialWitnessSchema),
   documents: z.array(judicialDocumentSchema)
-});
-
-/**
- * One note from the application's timeline, as a judge reads it.
- *
- * Narrower than `noteSchema`: no id, because no judicial route accepts one, and no `modifiedBy`/`modifiedOn`,
- * because the amendment audit trail is the office's record-keeping rather than the timeline. `createdBy` stays
- * — an unattributed timeline is one a judge cannot weigh.
- */
-const judicialCaseNoteSchema = z.object({
-  note: z.string(),
-  createdBy: z.string().nullish(),
-  createdOn: wireDateTime.nullish()
 });
 
 /**
@@ -768,19 +754,21 @@ const judicialReferralSummarySchema = z.object({
   notes: z.string().nullish(),
   urgency: z.enum(URGENCY).nullish(),
   urgencyReason: z.string().nullish(),
-  createdOn: wireDateTime.nullish()
+  createdOn: wireDateTime.nullish(),
+  // Plan D2. `assignedAt` is null for a claim made before assignment existed; `directionDueBy` once directed.
+  assignedAt: wireDateTime.nullish(),
+  directionDueBy: wireDateTime.nullish()
 });
 
 /**
- * One referral as the judge who may see it reads it: the referral, the narrow application view, and the
- * application's timeline — one response for what is one screen.
+ * One referral as the Master who may see it reads it: the referral and the narrow application view — one response
+ * for what is one screen. No case notes since 2026-10-27.
  *
  * Built by extending the pool row rather than restating its seven fields, as `caseDetailSchema` extends the
  * saved case, so the two cannot drift.
  *
- * `notes` is the referral's free text and `caseNotes` the application's timeline. Two different things with
- * confusable names, and both names are api's: renaming either here would make one disagree with the resource
- * it belongs to.
+ * `notes` is the referral's free text for the Master, api's name for it; it is not the application's case notes,
+ * which a Master is not sent.
  *
  * `claimedBy` and `decidedBy` can only ever name this caller or nobody — api's visibility admits an `Open`
  * referral, which has no holder, or a `Claimed`/`Decided` one only when the caller is the judge on it. So a
@@ -791,14 +779,13 @@ const judicialReferralDetailSchema = judicialReferralSummarySchema.extend({
   claimedAt: wireDateTime.nullish(),
   decision: z.enum(MASTER_DECISION).nullish(),
   directionsText: z.string().nullish(),
-  publishToGazette: z.boolean().nullish(),
+  changesToStandardPublication: z.boolean().nullish(),
   decisionDate: wireDateTime.nullish(),
   decidedBy: z.string().nullish(),
   // When the judge last changed or withdrew their direction; null while it stands as first given. Never
   // cleared, because it is a fact about the referral's history.
   directionChangedAt: wireDateTime.nullish(),
-  application: judicialApplicationViewSchema.nullish(),
-  caseNotes: z.array(judicialCaseNoteSchema)
+  application: judicialApplicationViewSchema.nullish()
 });
 
 /**
@@ -844,16 +831,17 @@ const judicialMyReferralsSchema = z.object({
 /**
  * The holding judge's direction on a referral, recorded once and complete — api has no draft and no patch.
  *
- * `publishToGazette` is a required JSON boolean and not a coerced string, which is api's own emphasis:
+ * `changesToStandardPublication` is a required JSON boolean and not a coerced string, which is api's own emphasis:
  * `"false"` is truthy in JavaScript, and publication cannot be taken back. Never derived from a
  * `NonPublication` referral reason — the caseworker's reason for referring is not the judge's decision.
  *
- * `directionsText` is optional, because an approval that needs no comment is a real answer. The state, the
+ * `directionsText` is optional on a standard publication, because an approval that needs no comment is a real
+ * answer, and **required when there are changes** — api answers 400 on it otherwise. The state, the
  * decider and the decision date come from the transition, the token and api's clock, so none of them is here.
  */
 const judicialDirectionSchema = z.object({
   decision: z.enum(MASTER_DECISION),
-  publishToGazette: z.boolean(),
+  changesToStandardPublication: z.boolean(),
   directionsText: z.string().max(4000).optional()
 });
 
@@ -1043,8 +1031,7 @@ const gazetteSettingsSchema = z.object({
   updatedBy: z.string().nullish()
 });
 
-export const GAZETTE_RECIPIENT_EMAIL_PATTERN =
-  "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:[.][A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:[.][A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$";
+export { GAZETTE_RECIPIENT_EMAIL_PATTERN } from "./gazette-recipient-email.js";
 
 const updateGazetteSettingsSchema = z
   .object({
@@ -1052,9 +1039,241 @@ const updateGazetteSettingsSchema = z
       .string()
       .trim()
       .max(254)
-      .regex(new RegExp(GAZETTE_RECIPIENT_EMAIL_PATTERN))
+      .superRefine(validateGazetteRecipientEmail)
       .refine((value) => value.indexOf("@") <= 64),
     revision: z.number().int().nonnegative()
+  })
+  .strict();
+
+/**
+ * The process settings api accepts: the processing window in whole minutes (1 to 30 days), the reminder interval in
+ * hours and the cap per referral window across all Masters. `contract.test.ts` pins every bound to
+ * `UpdateProcessSettingsRequest` in `openapi.json`, so the settings form can refuse early without restating them.
+ */
+export const PROCESS_SETTINGS_LIMITS = {
+  minProcessingMinutes: 1440,
+  maxProcessingMinutes: 43200,
+  minReminderHours: 1,
+  maxReminderHours: 168,
+  minWindowCap: 1,
+  maxWindowCap: 100
+} as const;
+
+/** A referral window time, Europe/London, `HH:mm` on the quarter hour. Pinned to the spec's pattern. */
+export const WINDOW_TIME_PATTERN = "^([01][0-9]|2[0-3]):(00|15|30|45)$";
+
+/**
+ * The Delivery Manager's process settings. The ints are Java primitives on api's record, so none arrives null; the
+ * window times are strings and nullable by this file's convention. The response's bounds are not restated: a read
+ * must not fail because api widened what it stores.
+ */
+const processSettingsSchema = z.object({
+  referralClaimExpiryMinutes: z.number().int(),
+  reminderIntervalHours: z.number().int(),
+  windowCap: z.number().int(),
+  morningWindowStart: z.string().nullish(),
+  morningWindowEnd: z.string().nullish(),
+  afternoonWindowStart: z.string().nullish(),
+  afternoonWindowEnd: z.string().nullish(),
+  revision: z.number().int().nonnegative(),
+  updatedAt: wireDateTime.nullish(),
+  updatedBy: z.string().nullish()
+});
+
+const windowTime = z.string().regex(new RegExp(WINDOW_TIME_PATTERN));
+
+/**
+ * Only the processing window and the revision are required, for one release: an absent setting keeps api's stored
+ * value and an explicit null is refused, so the optional fields are `optional()` and never `nullish()`. The ordering
+ * rule (each window starts before it ends, the morning one ending before the afternoon one starts) is api's to apply
+ * to the merged row, so it is not restated here.
+ */
+const updateProcessSettingsSchema = z
+  .object({
+    referralClaimExpiryMinutes: z.number().int().min(PROCESS_SETTINGS_LIMITS.minProcessingMinutes).max(PROCESS_SETTINGS_LIMITS.maxProcessingMinutes),
+    reminderIntervalHours: z.number().int().min(PROCESS_SETTINGS_LIMITS.minReminderHours).max(PROCESS_SETTINGS_LIMITS.maxReminderHours).optional(),
+    windowCap: z.number().int().min(PROCESS_SETTINGS_LIMITS.minWindowCap).max(PROCESS_SETTINGS_LIMITS.maxWindowCap).optional(),
+    morningWindowStart: windowTime.optional(),
+    morningWindowEnd: windowTime.optional(),
+    afternoonWindowStart: windowTime.optional(),
+    afternoonWindowEnd: windowTime.optional(),
+    revision: z.number().int().nonnegative()
+  })
+  .strict();
+
+/** The Masters list's bounds, pinned to `CreateMasterRequest` and `UpdateMasterRequest` by `contract.test.ts`. */
+export const MASTER_LIMITS = { maxNameLength: 200, maxEmailLength: 320 } as const;
+
+/**
+ * One entry on the Masters list. `linked` says whether the Master has signed in and been matched to an IDAM account
+ * by email; the account itself is never published, so nothing here can key on it. `available`, `linked` and
+ * `revision` are primitives on api's record, and `id` is strict by choice, as every other id here is.
+ */
+const masterSchema = z.object({
+  id: z.string(),
+  name: z.string().nullish(),
+  email: z.string().nullish(),
+  available: z.boolean(),
+  linked: z.boolean(),
+  revision: z.number().int().nonnegative()
+});
+
+// api trims and lower-cases the address and refuses one without exactly one `@` or with whitespace; that is
+// api's rule to apply, so only the published bounds are restated.
+const masterName = z.string().trim().min(1).max(MASTER_LIMITS.maxNameLength);
+const masterEmail = z.string().max(MASTER_LIMITS.maxEmailLength);
+
+const createMasterSchema = z
+  .object({
+    name: masterName,
+    email: masterEmail,
+    available: z.boolean().optional()
+  })
+  .strict();
+
+/** A keyed patch: the revision and at least one of the three (api's `minProperties: 2`). */
+const updateMasterSchema = z
+  .object({
+    name: masterName.optional(),
+    email: masterEmail.optional(),
+    available: z.boolean().optional(),
+    revision: z.number().int().nonnegative()
+  })
+  .strict()
+  .refine((patch) => patch.name !== undefined || patch.email !== undefined || patch.available !== undefined);
+
+/**
+ * The Masters list. Since api F1 it carries no window or cap: the referral queue's envelope does, because only the
+ * Team leaders and Delivery Managers who send referrals need them. A row is a Master and nothing more.
+ */
+const masterListSchema = z.object({
+  masters: z.array(masterSchema)
+});
+
+/**
+ * Move a referral already sent to a Master to another (api F1): `ALLOCATE_REFERRALS` only, a `Claimed` referral
+ * only, at any time and taking no place in any window. Published `additionalProperties: true`, like every write body
+ * but the email ones, so not strict.
+ */
+const assignReferralSchema = z.object({
+  masterId: z.uuid()
+});
+
+/**
+ * The referral window open now, as api's `OpenWindow`: its working day in `Europe/London`, its morning or afternoon,
+ * and when it closes. `date` stays the `yyyy-MM-dd` string, as a bank holiday's does.
+ */
+const openWindowSchema = z.object({
+  date: z.iso.date(),
+  slot: z.enum(WINDOW_SLOT),
+  closesAt: wireDateTime
+});
+
+/** The next referral window to open, as api's `NextWindow`: the open one's successor when one is open. */
+const nextWindowSchema = z.object({
+  date: z.iso.date(),
+  slot: z.enum(WINDOW_SLOT),
+  opensAt: wireDateTime
+});
+
+/** An available Master with how many of the referrals sent in the open window they hold now (0 outside one). */
+const masterInWindowSchema = z.object({
+  id: z.string(),
+  name: z.string().nullish(),
+  sentInWindow: z.number().int().nonnegative()
+});
+
+/**
+ * The window part of the queue envelope (api F1). `cap` is the window's total across all Masters; `sent` counts every
+ * referral sent in the open window whatever has happened to it since (api's A-2), so a withdrawal gives no place back.
+ * `current` is null between windows; `next` is a nested record and so nullable by this file's convention.
+ */
+const referralQueueWindowSchema = z.object({
+  current: openWindowSchema.nullish(),
+  next: nextWindowSchema.nullish(),
+  cap: z.number().int(),
+  sent: z.number().int().nonnegative(),
+  masters: z.array(masterInWindowSchema)
+});
+
+/**
+ * One row of the referral queue: what a Team leader or Delivery Manager checks before sending it, and for a `Claimed`
+ * one who has it. Never a subject or an email address. `caseId` is strict by choice, as an id is: the check view and
+ * the reassignment address the case.
+ */
+const referralQueueItemSchema = z.object({
+  id: z.string(),
+  caseId: z.string(),
+  displayReference: z.string().nullish(),
+  state: z.enum(REFERRAL_STATE).nullish(),
+  newForename: z.string().nullish(),
+  newMiddleName: z.string().nullish(),
+  newSurname: z.string().nullish(),
+  oldForename: z.string().nullish(),
+  oldMiddleName: z.string().nullish(),
+  oldSurname: z.string().nullish(),
+  type: z.enum(DEED_POLL_TYPE).nullish(),
+  nationality: z.enum(NATIONALITY).nullish(),
+  reasons: z.array(z.string()),
+  urgency: z.enum(URGENCY).nullish(),
+  urgencyReason: z.string().nullish(),
+  createdBy: z.string().nullish(),
+  createdOn: wireDateTime.nullish(),
+  assignedMaster: assignedMasterSchema.nullish(),
+  assignedAt: wireDateTime.nullish(),
+  windowDate: z.iso.date().nullish(),
+  windowSlot: z.enum(WINDOW_SLOT).nullish(),
+  directionDueBy: wireDateTime.nullish()
+});
+
+/** One page of the queue in api's order (never re-sorted here), with the window's state and counts. */
+const referralQueueSchema = z.object({
+  referrals: z.array(referralQueueItemSchema),
+  page: z.number().int(),
+  size: z.number().int(),
+  total: z.number().int(),
+  totalPages: z.number().int(),
+  window: referralQueueWindowSchema.nullish()
+});
+
+/** The send's bound: api's `maxItems`, the window cap's published maximum. Pinned by `contract.test.ts`. */
+export const REFERRAL_SEND_LIMITS = { maxAllocations: 100 } as const;
+
+/**
+ * A batch send: each referral with its Master, 1 to 100 of them, no referral twice. Published
+ * `additionalProperties: true`, so not strict. Every other rule (the window, each referral `Open`, each Master
+ * available, the cap) is api's, applied all or nothing.
+ */
+const sendReferralsSchema = z.object({
+  allocations: z
+    .array(z.object({ referralId: z.uuid(), masterId: z.uuid() }))
+    .min(1)
+    .max(REFERRAL_SEND_LIMITS.maxAllocations)
+    .refine((allocations) => new Set(allocations.map((allocation) => allocation.referralId)).size === allocations.length)
+});
+
+/** The send's answer: the referrals sent (replays included) in the body's order, and the window after the send. */
+const referralSendSchema = z.object({
+  referrals: z.array(referralQueueItemSchema),
+  window: referralQueueWindowSchema.nullish()
+});
+
+/** The bank holiday name's bound, pinned to `CreateBankHolidayRequest` by `contract.test.ts`. */
+export const BANK_HOLIDAY_LIMITS = { maxNameLength: 200 } as const;
+
+/**
+ * One England and Wales bank holiday. `date` stays the `yyyy-MM-dd` string api sends rather than becoming a `Date`:
+ * it is a calendar day with no time zone, and it is the removal's path segment. Strict by choice, as an id is.
+ */
+const bankHolidaySchema = z.object({
+  date: z.iso.date(),
+  name: z.string().nullish()
+});
+
+const createBankHolidaySchema = z
+  .object({
+    date: z.iso.date(),
+    name: z.string().trim().min(1).max(BANK_HOLIDAY_LIMITS.maxNameLength)
   })
   .strict();
 
@@ -1087,6 +1306,11 @@ export const GAZETTE_REFUSAL_CODE = [
   "CONFIRMATION_EXPIRED",
   "GAZETTE_UNAVAILABLE"
 ] as const;
+/**
+ * Why a document preview was not produced, in api's published order. Each arrives on one status only — 422 for the
+ * first two, 503 and 429 for the others — and in every case the original's `/file` download still works.
+ */
+export const DOCUMENT_PREVIEW_ERROR_CODE = ["PREVIEW_INVALID_DOCUMENT", "PREVIEW_LIMIT_EXCEEDED", "PREVIEW_UNAVAILABLE", "PREVIEW_BUSY"] as const;
 const gazetteMemberSchema = z.object({ caseId: z.string(), referenceNumber: z.string() });
 const gazetteStatusSchema = z.object({
   batchId: z.uuid(),
@@ -1133,6 +1357,9 @@ const gazetteConflictSchema = z.object({
   reason: z.enum(["NOT_FOUND", "NOT_READY", "TYPE_UNSUPPORTED", "REFERENCE_MISSING", "DATA_CHANGED", "RESERVED"])
 });
 const gazetteErrorSchema = z.object({ code: z.enum(GAZETTE_REFUSAL_CODE), error: z.string(), conflicts: z.array(gazetteConflictSchema).optional() });
+
+/** A preview that was not produced: a code to switch on and a fixed sentence that never names the document. */
+const documentPreviewErrorSchema = z.object({ code: z.enum(DOCUMENT_PREVIEW_ERROR_CODE), error: z.string() });
 
 /**
  * `GET /me`: which staff areas admit the caller and what their roles grant. Both flags are Java primitives and
@@ -1183,8 +1410,28 @@ export const WIRE_SCHEMAS = {
   SubmitGazetteRequest: submitGazetteSchema,
   Conflict: gazetteConflictSchema,
   GazetteError: gazetteErrorSchema,
+  DocumentPreviewError: documentPreviewErrorSchema,
   GazetteSettingsResponse: gazetteSettingsSchema,
   UpdateGazetteSettingsRequest: updateGazetteSettingsSchema,
+  ProcessSettingsResponse: processSettingsSchema,
+  UpdateProcessSettingsRequest: updateProcessSettingsSchema,
+  MasterResponse: masterSchema,
+  MasterListEntryResponse: masterSchema,
+  MasterListResponse: masterListSchema,
+  OpenWindow: openWindowSchema,
+  NextWindow: nextWindowSchema,
+  MasterInWindow: masterInWindowSchema,
+  ReferralQueueWindowResponse: referralQueueWindowSchema,
+  ReferralQueueItem: referralQueueItemSchema,
+  ReferralQueueResponse: referralQueueSchema,
+  SendReferralsRequest: sendReferralsSchema,
+  ReferralSendResponse: referralSendSchema,
+  AssignedMasterResponse: assignedMasterSchema,
+  AssignReferralRequest: assignReferralSchema,
+  CreateMasterRequest: createMasterSchema,
+  UpdateMasterRequest: updateMasterSchema,
+  BankHolidayResponse: bankHolidaySchema,
+  CreateBankHolidayRequest: createBankHolidaySchema,
   GazetteNoticeBatchResponse: gazetteNoticeBatchSchema,
   GazetteNoticeHistoryResponse: gazetteNoticeHistorySchema,
   CaseListResponse: caseListSchema,
@@ -1215,9 +1462,7 @@ export const WIRE_SCHEMAS = {
   JudicialReferralSummary: judicialReferralSummarySchema,
   JudicialReferralDetail: judicialReferralDetailSchema,
   JudicialApplicationView: judicialApplicationViewSchema,
-  JudicialWitness: judicialWitnessSchema,
   JudicialDocument: judicialDocumentSchema,
-  JudicialCaseNote: judicialCaseNoteSchema,
   CaseEmailsResponse: caseEmailsSchema,
   EmailTypeResponse: emailTypeSchema,
   EmailSlotResponse: emailSlotSchema,
@@ -1260,7 +1505,32 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   GazettePreviewResponse: ["recipientEmail", "recipientRevision", "caseCount", "adultCount", "minorCount", "cases", "selectionFingerprint", "expiresAt"],
   Conflict: ["caseId", "reason"],
   GazetteError: ["code", "error", "conflicts"],
+  // Both are required in api's record and the code is an enum, so neither can arrive null.
+  DocumentPreviewError: ["code", "error"],
   GazetteSettingsResponse: ["revision"],
+  ProcessSettingsResponse: ["referralClaimExpiryMinutes", "reminderIntervalHours", "windowCap", "revision"],
+  MasterResponse: ["id", "available", "linked", "revision"],
+  // The same record as `MasterResponse` since api F1 dropped `assignedInWindow`.
+  MasterListEntryResponse: ["id", "available", "linked", "revision"],
+  // A `toList()`, and since api F1 nothing else.
+  MasterListResponse: ["masters"],
+  // Every field is set on every window api computes, and `date` is a key as a bank holiday's is.
+  OpenWindow: ["date", "slot", "closesAt"],
+  NextWindow: ["date", "slot", "opensAt"],
+  // `sentInWindow` is a `long`, and `id` strict by choice.
+  MasterInWindow: ["id", "sentInWindow"],
+  // `cap` an `int`, `sent` a `long` and `masters` a `toList()`. `current` is null between windows, and `next` a
+  // nested record, not pinned for `application`'s reason.
+  ReferralQueueWindowResponse: ["cap", "sent", "masters"],
+  // `id` and `caseId` by choice, as every id is; `reasons` a `List.copyOf`, as on `ReferralResponse`.
+  ReferralQueueItem: ["id", "caseId", "reasons"],
+  // The paging four and the `toList()` rows, as `JudicialPoolResponse`'s; `window` nested, not pinned.
+  ReferralQueueResponse: ["referrals", "page", "size", "total", "totalPages"],
+  ReferralSendResponse: ["referrals"],
+  // `id` by choice, as every other id here is.
+  AssignedMasterResponse: ["id"],
+  // `date` is the row's key, and the removal's path segment, so it is strict for the reason an id is.
+  BankHolidayResponse: ["date"],
   GazetteNoticeBatchResponse: ["caseCount", "referenceNumbers", "referencesTruncated"],
   GazetteNoticeHistoryResponse: ["batches", "page", "size", "total", "totalPages"],
   // The four paging counts are `int`, `int`, `long` and `int` on api's record, so none can arrive null.
@@ -1289,27 +1559,21 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   // sends — empty for a query that narrows nothing, never null. `name` is NOT NULL in the schema.
   SavedQueryResponse: ["id", "name", "shared", "conditions", "selected", "editable"],
   // `migrated` is a `boolean` primitive on api's record and `reasons` a `List.copyOf` — empty for a migrated
-  // referral, never null. `publishToGazette` is a boxed `Boolean` and `decision` a nullable enum, so neither
-  // is here: a referral with no direction has not been asked either question.
+  // referral, never null. `changesToStandardPublication` is a boxed `Boolean` and `decision` a nullable enum, so
+  // neither is here: a referral with no direction has not been asked either question.
   ReferralResponse: ["id", "migrated", "reasons"],
   JudicialReferralSummary: ["id", "reasons"],
-  // `caseNotes` joins them: api builds it with `stream().toList()`, so an application with no notes arrives
-  // as `[]`. `application` does not, despite api always building one — a nested record is neither a
-  // primitive, a collection nor an id.
-  JudicialReferralDetail: ["id", "reasons", "caseNotes"],
+  // The summary's two and no more: `application` is not pinned, despite api always building one — a nested record
+  // is neither a primitive, a collection nor an id. (`caseNotes` was pinned here until api stopped sending it.)
+  JudicialReferralDetail: ["id", "reasons"],
   // `page`, `size` and `totalPages` are `int` and `total` is `long`, as `CaseListResponse`'s already are.
   JudicialPoolResponse: ["referrals", "page", "size", "total", "totalPages"],
   // The same five, because api's `ReferralWorkload` is the same record shape as `ReferralPool` — `List.copyOf`
   // rows and the four numbers. A judge holding nothing is `[]` and a total of zero, never a null list.
   JudicialMyReferralsResponse: ["referrals", "page", "size", "total", "totalPages"],
-  // `note` for the reason `NoteResponse.note` is pinned: the column is NOT NULL. No id, because no judicial
-  // route accepts one.
-  JudicialCaseNote: ["note"],
-  // The two lists and nothing else: api builds both with `toList()`, so an application with no witnesses or no
-  // readable documents arrives with `[]`. Every other field is a nullable column of the application.
-  JudicialApplicationView: ["witnesses", "documents"],
-  // `declarant` is a `boolean` primitive on api's record, as it is on `WitnessResponse`. No id to pin.
-  JudicialWitness: ["declarant"],
+  // The one list and nothing else: api builds it with `toList()`, so an application with no readable documents
+  // arrives with `[]`. Every other field is a nullable column of the application.
+  JudicialApplicationView: ["documents"],
   // `id` by choice, as `DocumentResponse.id` is: a row with no id is not one a page can link to.
   JudicialDocument: ["id"],
   // All three are `stream().toList()` at the source, so an empty one arrives as `[]`.
@@ -1361,9 +1625,7 @@ export type WireJudicialMyReferrals = z.infer<typeof judicialMyReferralsSchema>;
 export type WireJudicialReferralSummary = z.infer<typeof judicialReferralSummarySchema>;
 export type WireJudicialReferralDetail = z.infer<typeof judicialReferralDetailSchema>;
 export type WireJudicialApplicationView = z.infer<typeof judicialApplicationViewSchema>;
-export type WireJudicialWitness = z.infer<typeof judicialWitnessSchema>;
 export type WireJudicialDocument = z.infer<typeof judicialDocumentSchema>;
-export type WireJudicialCaseNote = z.infer<typeof judicialCaseNoteSchema>;
 export type WireJudicialDirection = z.input<typeof judicialDirectionSchema>;
 export type WireCaseEmails = z.infer<typeof caseEmailsSchema>;
 export type WireEmailType = z.infer<typeof emailTypeSchema>;
@@ -1383,6 +1645,20 @@ export type WireGazetteNoticeBatch = z.infer<typeof gazetteNoticeBatchSchema>;
 
 export type WireGazetteSettings = z.infer<typeof gazetteSettingsSchema>;
 export type WireUpdateGazetteSettings = z.infer<typeof updateGazetteSettingsSchema>;
+export type WireProcessSettings = z.infer<typeof processSettingsSchema>;
+export type WireUpdateProcessSettings = z.infer<typeof updateProcessSettingsSchema>;
+export type WireMaster = z.infer<typeof masterSchema>;
+export type WireMasterList = z.infer<typeof masterListSchema>;
+export type WireReferralQueue = z.infer<typeof referralQueueSchema>;
+export type WireReferralQueueItem = z.infer<typeof referralQueueItemSchema>;
+export type WireReferralQueueWindow = z.infer<typeof referralQueueWindowSchema>;
+export type WireReferralSend = z.infer<typeof referralSendSchema>;
+export type WireSendReferrals = z.input<typeof sendReferralsSchema>;
+export type WireAssignReferral = z.input<typeof assignReferralSchema>;
+export type WireMasterCreate = z.input<typeof createMasterSchema>;
+export type WireMasterUpdate = z.input<typeof updateMasterSchema>;
+export type WireBankHoliday = z.infer<typeof bankHolidaySchema>;
+export type WireBankHolidayCreate = z.input<typeof createBankHolidaySchema>;
 
 export type WireGazettePreview = z.infer<typeof gazettePreviewSchema>;
 export type WireGazetteStatus = z.infer<typeof gazetteStatusSchema>;
@@ -1391,3 +1667,4 @@ export type WireGazetteMembers = z.infer<typeof gazetteMembersSchema>;
 export type WirePreviewGazette = z.input<typeof previewGazetteSchema>;
 export type WireSubmitGazette = z.input<typeof submitGazetteSchema>;
 export type WireGazetteError = z.infer<typeof gazetteErrorSchema>;
+export type WireDocumentPreviewError = z.infer<typeof documentPreviewErrorSchema>;

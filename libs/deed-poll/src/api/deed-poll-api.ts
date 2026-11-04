@@ -19,7 +19,16 @@
  * vault secrets have been mounted into the environment. Reading the environment lazily, per call, is
  * correct at any point in the startup sequence.
  */
-import { type ApiConfig, type ApiError, type ApiResult, assertApiBaseUrl, checkApiReachable, type GazetteApiResult } from "@hmcts/deed-poll-api-client";
+import {
+  type ApiConfig,
+  type ApiError,
+  type ApiResult,
+  assertApiBaseUrl,
+  checkApiReachable,
+  type GazetteApiResult,
+  type PreviewApiResult
+} from "@hmcts/deed-poll-api-client";
+import { DocumentPreviewRefusedError } from "../document-viewer/errors.js";
 import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "../errors.js";
 
 import { GazetteOutcomeUnknownError, GazetteRefusalError } from "../gazette/errors.js";
@@ -80,14 +89,44 @@ export async function callApi<T>(caller: Caller, call: (config: ApiConfig) => Pr
 /**
  * Only a published Gazette refusal proves non-admission; discard untrusted diagnostic prose. A 429 stays an
  * unknown outcome too: api's limiter answering does not prove an earlier attempt under the same key was not admitted.
+ *
+ * `limit.timeoutMs` is the time the caller has left to wait. It is a time budget, not an identity, so it travels
+ * beside the `Caller` rather than on it, and it can only shorten `DEED_POLL_API_TIMEOUT_MS`, never extend it.
  */
-export async function callGazetteApi<T>(caller: Caller, call: (config: ApiConfig) => Promise<GazetteApiResult<T>>): Promise<T> {
-  const result = await call(apiConfig(caller));
+export async function callGazetteApi<T>(caller: Caller, call: (config: ApiConfig) => Promise<GazetteApiResult<T>>, limit: CallLimit = {}): Promise<T> {
+  const config = apiConfig(caller);
+  const timeoutMs = shortest(config.timeoutMs, limit.timeoutMs);
+  const result = await call({ ...config, timeoutMs });
   if (result.ok) return result.data;
   if (result.error.kind === "gazette-refusal") throw new GazetteRefusalError(result.error);
   if (result.error.kind === "unauthorized") throw new UnauthorizedError("Authentication required");
   if (result.error.kind === "forbidden") throw new ForbiddenError("Gazette access refused");
   throw new GazetteOutcomeUnknownError();
+}
+
+/**
+ * A document preview: `callApi`'s mapping, plus api's four preview refusals as one typed error.
+ *
+ * A refusal is a normal viewer state, not a fault: the preview was not produced and the original download still
+ * works, so the page needs api's code to choose its own `en`/`cy` sentence. Nothing of api's prose travels.
+ * `signal` lets the page stop the call when the browser has gone; it never extends the configured timeout.
+ */
+export async function callPreviewApi<T>(caller: Caller, call: (config: ApiConfig) => Promise<PreviewApiResult<T>>, signal?: AbortSignal): Promise<T> {
+  const result = await call({ ...apiConfig(caller), signal });
+  if (result.ok) return result.data;
+  if (result.error.kind === "preview-refused") throw new DocumentPreviewRefusedError(result.error.code, result.error.status, result.error.retryAfterSeconds);
+
+  throw errorFor(withoutProse(result.error));
+}
+
+/**
+ * A preview failure with api's prose replaced by its kind and status. A converter's own words can arrive in api's
+ * error body, and every failure here ends in a log line (`src/errors.ts`, or the starter's 500 handler), so the
+ * message is fixed and field errors are dropped: nothing on this page has a field to show them against.
+ */
+function withoutProse(error: ApiError): ApiError {
+  const status = error.status === undefined ? "" : ` ${error.status}`;
+  return { ...error, message: `document preview failed (${error.kind}${status})`, fieldErrors: [] };
 }
 
 /**
@@ -145,6 +184,12 @@ function apiConfig(caller: Caller): ApiConfig {
   };
 }
 
+function shortest(configured: number | undefined, limit: number | undefined): number | undefined {
+  if (configured === undefined) return limit;
+  if (limit === undefined) return configured;
+  return Math.min(configured, limit);
+}
+
 /**
  * One classified failure as the domain error the app already renders.
  *
@@ -163,7 +208,7 @@ function errorFor(error: ApiError): Error {
     case "unauthorized":
       return new UnauthorizedError(error.message);
     case "conflict":
-      return new ConflictError(error.message);
+      return new ConflictError(error.message, [...(error.fieldErrors ?? [])]);
     case "rate-limited":
       return new TooManyRequestsError(error.message, error.retryAfterSeconds ?? null);
     case "validation":
@@ -173,4 +218,9 @@ function errorFor(error: ApiError): Error {
     default:
       return new Error(`deed-poll-api call failed (${error.kind}): ${error.message}`);
   }
+}
+
+/** How long one call may wait at most. Unset leaves the configured or the adapter's own timeout. */
+export interface CallLimit {
+  timeoutMs?: number;
 }

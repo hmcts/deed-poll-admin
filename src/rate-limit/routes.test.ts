@@ -105,19 +105,23 @@ describe("rate-limit/routes", () => {
     });
 
     it("should release the in-flight slot when an upload finishes", async () => {
-      const { app } = appWith({ mode: "enforce", inFlight: 1 });
+      const { app, reached } = appWith({ mode: "enforce", inFlight: 1 });
 
       await anUpload(app).expect(200);
 
       await anUpload(app).expect(200);
+
+      expect(reached).toEqual(["upload", "upload"]);
     });
 
     it("should release the in-flight slot when an upload fails", async () => {
-      const { app } = appWith({ mode: "enforce", inFlight: 1 });
+      const { app, reached } = appWith({ mode: "enforce", inFlight: 1 });
 
       await anUpload(app, "fail").expect(500);
 
       await anUpload(app).expect(200);
+
+      expect(reached).toEqual(["fail", "upload"]);
     });
   });
 });

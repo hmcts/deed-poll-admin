@@ -17,17 +17,10 @@ import { Readable } from "node:stream";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import type { z } from "zod";
 import { assertApiBaseUrl } from "./transport.js";
-import type {
-  WireGazetteError,
-  WireGazetteMembers,
-  WireGazettePreview,
-  WireGazetteRequests,
-  WireGazetteStatus,
-  WirePreviewGazette,
-  WireSubmitGazette
-} from "./wire.js";
 import {
   WIRE_SCHEMAS,
+  type WireBankHoliday,
+  type WireBankHolidayCreate,
   type WireCallerAccess,
   type WireCaseDetail,
   type WireCaseEmails,
@@ -35,6 +28,7 @@ import {
   type WireCaseWrite,
   type WireCorrespondenceDocument,
   type WireDocument,
+  type WireDocumentPreviewError,
   type WireDocumentType,
   type WireEmailHistory,
   type WireEmailPreview,
@@ -43,28 +37,44 @@ import {
   type WireEmailSlotsWrite,
   type WireEmailType,
   type WireFieldRules,
+  type WireGazetteError,
+  type WireGazetteMembers,
   type WireGazetteNoticeBatch,
   type WireGazetteNoticeHistory,
+  type WireGazettePreview,
+  type WireGazetteRequests,
   type WireGazetteSettings,
+  type WireGazetteStatus,
   type WireJudicialApplicationView,
-  type WireJudicialCaseNote,
   type WireJudicialDirection,
   type WireJudicialDocument,
   type WireJudicialMyReferrals,
   type WireJudicialPool,
   type WireJudicialReferralDetail,
   type WireJudicialReferralSummary,
-  type WireJudicialWitness,
+  type WireMaster,
+  type WireMasterCreate,
+  type WireMasterList,
+  type WireMasterUpdate,
   type WireNote,
+  type WirePreviewGazette,
+  type WireProcessSettings,
   type WireRecordConfirmation,
   type WireReferral,
   type WireReferralCreate,
+  type WireReferralQueue,
+  type WireReferralQueueItem,
+  type WireReferralQueueWindow,
+  type WireReferralSend,
   type WireSavedCase,
   type WireSavedQuery,
   type WireSavedQueryCreate,
   type WireSavedQueryUpdate,
+  type WireSendReferrals,
   type WireSentEmail,
+  type WireSubmitGazette,
   type WireUpdateGazetteSettings,
+  type WireUpdateProcessSettings,
   type WireWitnessCreate,
   type WireWitnessUpdate
 } from "./wire.js";
@@ -121,7 +131,7 @@ export {
 export const DEFAULT_TIMEOUT_MS = 10_000;
 
 /**
- * Sixty seconds, for the one call that sends a body instead of receiving one.
+ * Sixty seconds, for the upload, which sends a large body instead of receiving one.
  *
  * `DEFAULT_TIMEOUT_MS` is sized for a request whose body is a few hundred bytes, so the clock is really
  * measuring api's thinking time. A multipart upload is up to `MAX_UPLOAD_BYTES` — 25 MB — and the same
@@ -137,12 +147,66 @@ export const DEFAULT_TIMEOUT_MS = 10_000;
  * have).
  *
  * Still bounded, and still overridable: `DEED_POLL_API_TIMEOUT_MS` wins over this the same way it wins
- * over the default, so an environment that needs a different figure sets one number rather than two.
+ * over the default, so an environment that needs a different figure sets one number rather than two. (The
+ * Gazette submit is the exception: there it can only shorten `GAZETTE_SUBMIT_TIMEOUT_MS`.)
  */
 const UPLOAD_TIMEOUT_MS = 60_000;
 
+/**
+ * Twenty seconds, for the Gazette submit, because api sends the batch inside the request (finding R03,
+ * `docs/plans/completed/20261021-r03-gazette-submit-timeout.md`).
+ *
+ * Four numbers bound that send, and this is the one this app controls:
+ * - api waits up to 60 s on GOV.UK Notify (`GazetteNotify`'s call deadline, 30 s per read).
+ * - The backend Application Gateway in front of api's `.internal` address cuts this app's call off at 30 s:
+ *   deed-poll-api's entry in `azure-platform-terraform`'s `backend_lb_config.yaml` sets no `request_timeout`, so
+ *   `terraform-module-application-backend` defaults it to 30, and answers 504.
+ * - The frontend Application Gateway in front of this app cuts the **browser's** request off at 30 s too
+ *   (`terraform-module-applicationgateway`'s `request_timeout` default). If this app is still waiting then, the
+ *   caseworker gets the gateway's error page instead of the recovery page that carries the request's key.
+ * - So this app must answer the browser inside 30 s in total, and the send request first re-checks every selected
+ *   review (`gazetteReviewsCurrent`, up to 100 case reads, ten at a time). Twenty seconds leaves that, and the
+ *   render, about ten. Because that re-check (and a token refresh) can take longer, the page also counts a 25 s
+ *   budget from the request's arrival and passes what is left as the timeout, and under 5 s sends nothing
+ *   (`src/gazette/send-deadline.ts`).
+ *
+ * A send over 20 s is still an unknown outcome — recoverable, because "Check request status" replays the same key —
+ * until both gateways' `request_timeout` is raised or api answers 202 and sends in the background. Only the submit
+ * gets this: the preview and the status read send nothing. It is a ceiling, not a default: a configured timeout
+ * (`DEED_POLL_API_TIMEOUT_MS`, or what is left of the page's deadline) can only shorten the wait, never extend it
+ * past the gateways (plan `docs/plans/completed/20261021-r03b-gazette-send-deadline.md`).
+ */
+const GAZETTE_SUBMIT_TIMEOUT_MS = 20_000;
+
+/**
+ * Twenty-seven seconds, for a document preview, which api builds inside the request before it sends a byte.
+ *
+ * api's preview budget is 25 s (`requestBudgetSeconds` in the operations' `x-document-preview-limits`), so a
+ * conversion api would still finish must not be cut off here first, which the ten-second default would do to every
+ * DOCX. And both Application Gateways end the request at 30 s (see `GAZETTE_SUBMIT_TIMEOUT_MS`), so waiting longer
+ * would only swap this app's timeout for the gateway's error page. Never api's old 45 s (decision 2 of
+ * `docs/plans/completed/20261023-full-page-document-viewer.md`). A ceiling like the Gazette submit's: a configured timeout can
+ * only shorten it.
+ */
+const PREVIEW_TIMEOUT_MS = 27_000;
+
+/**
+ * The producer's preview limits that this app enforces, as api publishes them in both preview operations'
+ * `x-document-preview-limits`. Restated because a running app cannot read the document; `contract.test.ts` pins each
+ * to the published value, so a refresh that changes one fails there.
+ *
+ * - `maxOutputBytes` bounds the body this adapter will relay, so a preview larger than api promises never reaches a
+ *   browser.
+ * - `maxPages` is for the viewer: api counts pages only for the previews it builds, never for a PDF or a converted
+ *   DOCX, so the viewer refuses one over the limit before rendering (decision 7).
+ */
+export const DOCUMENT_PREVIEW_LIMITS = { maxOutputBytes: 52_428_800, maxPages: 100 } as const;
+
 /** The multipart field name api reads the upload from. Matches `UploadPolicy.UPLOAD_FILE_FIELD`. */
 const UPLOAD_FILE_FIELD = "file";
+
+// Fixed and naming no id: the id is a caller's input and this reaches a log through `callApi`.
+const UNUSABLE_SEGMENT_MESSAGE = "deed-poll-api path would contain an unusable id";
 
 /**
  * One page of the case list: a saved-query filter, field-level conditions, an order and a page.
@@ -166,7 +230,9 @@ export async function listCases(query: CaseListQuery, config: ApiConfig): Promis
 
   const search = parameters.toString();
 
-  return request(config, "GET", `/caseworker/cases${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.CaseListResponse);
+  const querySuffix = search === "" ? "" : `?${search}`;
+
+  return request(config, "GET", `/caseworker/cases${querySuffix}`, WIRE_SCHEMAS.CaseListResponse);
 }
 
 /** Gazette writes classify only the published structured refusal as proof of no admission. */
@@ -175,7 +241,8 @@ export function previewGazetteNotice(input: PreviewGazette, config: ApiConfig): 
 }
 
 export function submitGazetteNotice(input: SubmitGazette, key: string, config: ApiConfig): Promise<GazetteApiResult<GazetteStatus>> {
-  return gazetteRequest(config, "/caseworker/gazette-notices", WIRE_SCHEMAS.GazetteStatusResponse, input, key);
+  const timeoutMs = Math.min(config.timeoutMs ?? GAZETTE_SUBMIT_TIMEOUT_MS, GAZETTE_SUBMIT_TIMEOUT_MS);
+  return gazetteRequest({ ...config, timeoutMs }, "/caseworker/gazette-notices", WIRE_SCHEMAS.GazetteStatusResponse, input, key);
 }
 
 export function getGazetteRequests(query: GazetteRequestsQuery, config: ApiConfig): Promise<ApiResult<GazetteRequests>> {
@@ -216,6 +283,73 @@ export function updateGazetteSettings(input: UpdateGazetteSettings, config: ApiC
   });
 }
 
+/** Delivery Manager only (`MANAGE_PROCESS_CONFIG`). Revision 0 and null attribution mean never changed. */
+export function getProcessSettings(config: ApiConfig): Promise<ApiResult<ProcessSettings>> {
+  return request(config, "GET", "/caseworker/process-settings", WIRE_SCHEMAS.ProcessSettingsResponse);
+}
+
+/** A stale revision is a 409 even when the value already matches; an unchanged value at the current one is a no-op. */
+export function updateProcessSettings(input: UpdateProcessSettings, config: ApiConfig): Promise<ApiResult<ProcessSettings>> {
+  return request(config, "PUT", "/caseworker/process-settings", WIRE_SCHEMAS.ProcessSettingsResponse, {
+    referralClaimExpiryMinutes: input.referralClaimExpiryMinutes,
+    reminderIntervalHours: input.reminderIntervalHours,
+    windowCap: input.windowCap,
+    morningWindowStart: input.morningWindowStart,
+    morningWindowEnd: input.morningWindowEnd,
+    afternoonWindowStart: input.afternoonWindowStart,
+    afternoonWindowEnd: input.afternoonWindowEnd,
+    revision: input.revision
+  });
+}
+
+/**
+ * Every Master, available or not, in api's order (name, then id). Any staff role may read it. Since api F1 the window's
+ * load is the referral queue's, not this list's.
+ */
+export function listMasters(config: ApiConfig): Promise<ApiResult<MasterList>> {
+  return request(config, "GET", "/caseworker/masters", WIRE_SCHEMAS.MasterListResponse);
+}
+
+/** Delivery Manager only. An email another Master holds, in any case, is a 409. */
+export function createMaster(input: MasterCreate, config: ApiConfig): Promise<ApiResult<Master>> {
+  return request(config, "POST", "/caseworker/masters", WIRE_SCHEMAS.MasterResponse, {
+    name: input.name,
+    email: input.email,
+    available: input.available
+  });
+}
+
+/**
+ * A keyed patch with the revision the list returned: a stale one is a 409 with no change. Changing a linked Master's
+ * email unlinks them until the new address signs in.
+ */
+export function updateMaster(id: string, patch: MasterUpdate, config: ApiConfig): Promise<ApiResult<Master>> {
+  return request(config, "PATCH", `/caseworker/masters/${encodeURIComponent(id)}`, WIRE_SCHEMAS.MasterResponse, {
+    name: patch.name,
+    email: patch.email,
+    available: patch.available,
+    revision: patch.revision
+  });
+}
+
+/** Every listed England and Wales bank holiday, earliest first. Any staff role may read it. */
+export function listBankHolidays(config: ApiConfig): Promise<ApiResult<BankHoliday[]>> {
+  return request(config, "GET", "/caseworker/process-settings/bank-holidays", WIRE_SCHEMAS.BankHolidayResponse.array());
+}
+
+/** Delivery Manager only. A date already listed is a 409. */
+export function addBankHoliday(input: BankHolidayCreate, config: ApiConfig): Promise<ApiResult<BankHoliday>> {
+  return request(config, "POST", "/caseworker/process-settings/bank-holidays", WIRE_SCHEMAS.BankHolidayResponse, {
+    date: input.date,
+    name: input.name
+  });
+}
+
+/** Delivery Manager only. 204; a date that is not listed is `not-found`. */
+export function removeBankHoliday(date: string, config: ApiConfig): Promise<ApiResult<void>> {
+  return requestNoContent(config, "DELETE", `/caseworker/process-settings/bank-holidays/${encodeURIComponent(date)}`);
+}
+
 /** Admin-only audit history. Omitted paging stays omitted so api applies its own defaults. */
 export function getGazetteNoticeHistory(query: GazetteNoticeHistoryQuery, config: ApiConfig): Promise<ApiResult<GazetteNoticeHistory>> {
   const parameters = new URLSearchParams();
@@ -223,7 +357,9 @@ export function getGazetteNoticeHistory(query: GazetteNoticeHistoryQuery, config
   if (query.size !== undefined) parameters.set("size", String(query.size));
   const search = parameters.toString();
 
-  return request(config, "GET", `/caseworker/gazette-notices${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.GazetteNoticeHistoryResponse);
+  const querySuffix = search === "" ? "" : `?${search}`;
+
+  return request(config, "GET", `/caseworker/gazette-notices${querySuffix}`, WIRE_SCHEMAS.GazetteNoticeHistoryResponse);
 }
 
 /** One case with its notes, witnesses and documents. One call, because the detail page needs all four. */
@@ -372,7 +508,7 @@ export function uploadDocument(caseId: string, upload: DocumentUpload, config: A
   if (upload.documentName !== undefined) form.append("name", upload.documentName);
   if (upload.direction !== undefined) form.append("direction", upload.direction);
 
-  // The only call given a timeout of its own — see `UPLOAD_TIMEOUT_MS` for why the JSON default is the
+  // One of two calls given a timeout of its own — see `UPLOAD_TIMEOUT_MS` for why the JSON default is the
   // wrong bound for a request that sends 25 MB.
   const timeoutMs = config.timeoutMs ?? UPLOAD_TIMEOUT_MS;
 
@@ -406,6 +542,29 @@ export function downloadJudicialDocument(referralId: string, documentId: string,
   return download(config, `${judicialReferralPath(referralId)}/documents/${encodeURIComponent(documentId)}/file`);
 }
 
+/**
+ * Fetch a case document's preview: the whole document as one PDF, whatever its original type, for viewing in place.
+ *
+ * Not {@link downloadDocument}, and the two must not stand in for each other: api audits this as
+ * `DOCUMENT_PREVIEWED` and the original as `DOCUMENT_DOWNLOADED` (decision 5). Streamed like the download, under
+ * {@link PREVIEW_TIMEOUT_MS} rather than the default. Only a body that is a PDF within
+ * `DOCUMENT_PREVIEW_LIMITS.maxOutputBytes` is relayed: anything else is `invalid-response`, and a body that runs
+ * past the limit errors mid-stream rather than arriving whole.
+ *
+ * A preview api did not produce is a `preview-refused` failure carrying api's code, and leaves `/file` working.
+ */
+export function previewDocument(caseId: string, documentId: string, config: ApiConfig): Promise<PreviewApiResult<DocumentPreview>> {
+  return preview(config, `/caseworker/cases/${encodeURIComponent(caseId)}/documents/${encodeURIComponent(documentId)}/preview`);
+}
+
+/**
+ * The judicial twin of {@link previewDocument}, scoped exactly as {@link downloadJudicialDocument} is: `not-found`
+ * for a referral this judge may not see and for a document not on its application, indistinguishably.
+ */
+export function previewJudicialDocument(referralId: string, documentId: string, config: ApiConfig): Promise<PreviewApiResult<DocumentPreview>> {
+  return preview(config, `${judicialReferralPath(referralId)}/documents/${encodeURIComponent(documentId)}/preview`);
+}
+
 async function download(config: ApiConfig, path: string): Promise<ApiResult<DocumentDownload>> {
   const sent = await send(config, "GET", path, undefined, "*/*", true);
   if (!sent.ok) return sent;
@@ -434,6 +593,103 @@ async function download(config: ApiConfig, path: string): Promise<ApiResult<Docu
   };
 }
 
+async function preview(config: ApiConfig, path: string): Promise<PreviewApiResult<DocumentPreview>> {
+  const timeoutMs = Math.min(config.timeoutMs ?? PREVIEW_TIMEOUT_MS, PREVIEW_TIMEOUT_MS);
+  // One deadline for headers and body together, unlike a download's per-read patience: a preview that kept
+  // trickling past the gateways' 30 s would be cut off by them rather than ended here (plan decision 2).
+  const deadline = performance.now() + timeoutMs;
+  // api answers every refusal as JSON even to this `Accept`, and it is the type the operation publishes.
+  const sent = await exchange({ ...config, timeoutMs }, "GET", path, undefined, "application/pdf", { streaming: true, readFailure: previewFailure });
+  if (!sent.ok) return sent;
+
+  const response = sent.response;
+  const contentLength = declaredLength(response.headers.get("content-length"));
+  const breach = previewBreach(response, contentLength);
+  if (breach !== null || response.body === null) {
+    // Released rather than left for the garbage collector, as `requestNoContent` does: undici holds the socket.
+    await response.body?.cancel().catch(() => {});
+    return { ok: false, error: { kind: "invalid-response", status: response.status, message: `GET ${path} ${breach}` } };
+  }
+
+  const body = capped(bounded(response.body, timeoutMs, deadline), DOCUMENT_PREVIEW_LIMITS.maxOutputBytes);
+  return {
+    ok: true,
+    data: {
+      body: Readable.fromWeb(body as NodeReadableStream<Uint8Array>),
+      contentLength
+    }
+  };
+}
+
+function previewBreach(response: Response, contentLength: number | null): string | null {
+  if (!response.body) return "returned no body";
+  if (!isPdf(response.headers.get("content-type"))) return "returned a preview that is not a PDF";
+  if (contentLength !== null && contentLength > DOCUMENT_PREVIEW_LIMITS.maxOutputBytes) return "returned a preview larger than the published limit";
+  return null;
+}
+
+/**
+ * A preview refusal is api's code only on the status api publishes it with; the same body on any other status, or
+ * a 429 or 503 without one (the abuse limiter, a proxy), is classified as every other failure is.
+ */
+async function previewFailure(response: Response): Promise<ApiError | PreviewRefusal> {
+  const payload = await readJsonOrNull(response);
+  const refusal = WIRE_SCHEMAS.DocumentPreviewError.safeParse(payload);
+  if (refusal.success && PREVIEW_REFUSAL_STATUS[refusal.data.code] === response.status) {
+    const { code } = refusal.data;
+    return {
+      kind: "preview-refused",
+      code,
+      status: response.status,
+      retryAfterSeconds: code === "PREVIEW_BUSY" ? retryAfterSeconds(response.headers.get("retry-after")) : null
+    };
+  }
+  return classifyFailure(response, payload);
+}
+
+const PREVIEW_REFUSAL_STATUS: Readonly<Record<PreviewRefusalCode, number>> = {
+  PREVIEW_INVALID_DOCUMENT: 422,
+  PREVIEW_LIMIT_EXCEEDED: 422,
+  PREVIEW_UNAVAILABLE: 503,
+  PREVIEW_BUSY: 429
+};
+
+/** The media type alone, case-insensitively: parameters such as a charset do not make a PDF something else. */
+function isPdf(contentType: string | null): boolean {
+  return contentType?.split(";")[0].trim().toLowerCase() === "application/pdf";
+}
+
+/** undici has already refused a malformed `Content-Length`, so anything but digits here is simply absent. */
+function declaredLength(header: string | null): number | null {
+  const length = header !== null && /^\d+$/.test(header.trim()) ? Number(header.trim()) : Number.NaN;
+  return Number.isSafeInteger(length) ? length : null;
+}
+
+/**
+ * A body that errors once it exceeds `maxBytes`, rather than relaying a preview larger than api promises.
+ *
+ * An error and not an end-of-stream, for `bounded`'s reason: the 200 has gone out, and a PDF cut short is a broken
+ * document where an aborted transfer is an honest failure.
+ */
+function capped(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let received = 0;
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) return controller.close();
+      received += value.byteLength;
+      if (received > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new RangeError("deed-poll-api sent a preview larger than the published limit");
+      }
+      controller.enqueue(value);
+    },
+    cancel: (reason) => reader.cancel(reason)
+  });
+}
+
 /** Every supporting-document type, as api orders them. Read-only: api has no document-type writes. */
 export function listDocumentTypes(config: ApiConfig): Promise<ApiResult<DocumentType[]>> {
   return request(config, "GET", "/caseworker/document-types", WIRE_SCHEMAS.DocumentTypeResponse.array());
@@ -456,7 +712,8 @@ export function getReferral(caseId: string, referralId: string, config: ApiConfi
 }
 
 /**
- * Raise a referral, unclaimed into the shared pool. 201.
+ * Raise a referral. 201, always `Open`: since api F1 it waits in the referral queue until a Team leader or Delivery
+ * Manager sends it to a Master.
  *
  * `conflict` when the case already has a referral that is neither closed nor withdrawn — api allows many
  * referrals over a case's life but only one live at a time, and it answers 409 rather than 400 because a
@@ -464,6 +721,54 @@ export function getReferral(caseId: string, referralId: string, config: ApiConfi
  */
 export function createReferral(caseId: string, referral: ReferralCreate, config: ApiConfig): Promise<ApiResult<Referral>> {
   return request(config, "POST", `/caseworker/cases/${encodeURIComponent(caseId)}/referrals`, WIRE_SCHEMAS.ReferralResponse, referral);
+}
+
+/**
+ * Reassign a referral already sent to a Master (api F1): `ALLOCATE_REFERRALS` only, a `Claimed` referral only, at any
+ * time, inside a referral window or not. It takes no place in any window and checks no cap; the referral keeps the
+ * window it was sent in, and its processing window and reminders restart. The Master it already has is a no-op 200.
+ *
+ * `validation` with an error on `masterId` for an unknown or unavailable Master. `conflict` for an `Open` referral
+ * (send it from the queue) and for one no longer waiting for a direction; only api's prose tells those apart, so a
+ * page answers both from a fresh read.
+ */
+export function assignReferral(caseId: string, referralId: string, masterId: string, config: ApiConfig): Promise<ApiResult<Referral>> {
+  return request(config, "PUT", `${referralPath(caseId, referralId)}/assignment`, WIRE_SCHEMAS.ReferralResponse, { masterId });
+}
+
+/**
+ * One page of the referral queue (api F1), `ALLOCATE_REFERRALS` only: `Open` referrals waiting to be sent (the
+ * default; urgent first, then oldest raised) or `Claimed` ones sent and not yet directed (oldest sent first), across
+ * every case, with the window's state and counts. The order is api's and is never re-sorted here.
+ *
+ * `page` and `size` publish as strings, as the case list's do; omitted ones are not sent, so api applies its own
+ * defaults (the first 25).
+ */
+export function getReferralQueue(query: ReferralQueueQuery, config: ApiConfig): Promise<ApiResult<ReferralQueue>> {
+  const parameters = new URLSearchParams();
+  if (query.state !== undefined) parameters.set("state", query.state);
+  if (query.page !== undefined) parameters.set("page", String(query.page));
+  if (query.size !== undefined) parameters.set("size", String(query.size));
+
+  const search = parameters.toString();
+
+  const querySuffix = search === "" ? "" : `?${search}`;
+
+  return request(config, "GET", `/caseworker/referral-queue${querySuffix}`, WIRE_SCHEMAS.ReferralQueueResponse);
+}
+
+/**
+ * Send referrals from the queue to Masters, together and all or nothing (api F1). Only inside a referral window.
+ *
+ * `validation` on `allocations[i].masterId` for an unknown or unavailable Master. `conflict` for no open window, for a
+ * referral no longer waiting (on `allocations[i].referralId`) and for a send past the window's cap (no field); the
+ * field is what tells a row's refusal from the window's. A referral already sent to the same Master in the same window
+ * is skipped, so sending the same body again after a lost response is a 200 that changes nothing.
+ */
+export function sendReferrals(input: SendReferrals, config: ApiConfig): Promise<ApiResult<ReferralSend>> {
+  return request(config, "POST", "/caseworker/referral-queue/sends", WIRE_SCHEMAS.ReferralSendResponse, {
+    allocations: input.allocations.map((allocation) => ({ referralId: allocation.referralId, masterId: allocation.masterId }))
+  });
 }
 
 /**
@@ -650,8 +955,9 @@ export function deselectSavedQuery(id: string, config: ApiConfig): Promise<ApiRe
 }
 
 /**
- * One page of the shared judicial pool: the referrals waiting to be picked up, urgent first then
- * longest-waiting.
+ * One page of the former shared judicial pool. **Deprecated by api since plan D2**: referrals are assigned by the
+ * office, so this always answers an empty page with a total of 0. Kept for api's one deprecated release; nothing
+ * should call it now, and it goes with the operation.
  *
  * The five judicial operations are a sibling namespace to the caseworker surface rather than a section of it,
  * which is why none of them takes a case id: api keys the judicial surface on the referral so a judge cannot
@@ -669,12 +975,15 @@ export function getJudicialPool(query: JudicialPoolQuery, config: ApiConfig): Pr
 
   const search = parameters.toString();
 
-  return request(config, "GET", `/judicial/referrals${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.JudicialPoolResponse);
+  const querySuffix = search === "" ? "" : `?${search}`;
+
+  return request(config, "GET", `/judicial/referrals${querySuffix}`, WIRE_SCHEMAS.JudicialPoolResponse);
 }
 
 /**
- * One page of the referrals this judge has in hand: the ones they are holding, and the directions the office has
- * not yet actioned.
+ * One page of the referrals this judge has in hand: the ones assigned to them, and the directions the office has
+ * not yet actioned. Since plan D2 in api's `MINE_ORDER`: undirected before directed, urgent first among the
+ * undirected only, then oldest first, then the id.
  *
  * **`/mine` is a literal path segment and not a query parameter, and that is the security decision.** A
  * `?claimedBy=` would make whose list this is something a caller types, and a judge who typed a colleague's would
@@ -700,15 +1009,17 @@ export function getJudicialMyReferrals(query: JudicialPoolQuery, config: ApiConf
 
   const search = parameters.toString();
 
-  return request(config, "GET", `/judicial/referrals/mine${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.JudicialMyReferralsResponse);
+  const querySuffix = search === "" ? "" : `?${search}`;
+
+  return request(config, "GET", `/judicial/referrals/mine${querySuffix}`, WIRE_SCHEMAS.JudicialMyReferralsResponse);
 }
 
 /**
  * One referral as the judge who may see it reads it: the referral, the application with its witnesses and
  * documents, and the application's timeline, in one call because they are one screen.
  *
- * `not-found` for a referral this judge may not see — an `Open` one is visible to any of them, a claimed or
- * decided one only to its holder — and indistinguishable from an id that never existed, so no referral is
+ * `not-found` for a referral this judge may not see — since plan D2 an `Open` one (waiting for assignment) is
+ * visible to none of them, an assigned or decided one only to its Master — and indistinguishable from an id that never existed, so no referral is
  * discoverable by watching status codes.
  */
 export function getJudicialReferral(referralId: string, config: ApiConfig): Promise<ApiResult<JudicialReferralDetail>> {
@@ -716,6 +1027,9 @@ export function getJudicialReferral(referralId: string, config: ApiConfig): Prom
 }
 
 /**
+ * **Deprecated by api since plan D2**, kept for its one release: an `Open` referral is now visible to no judge, so
+ * this is `not-found` for it, and `conflict` for one already assigned to this judge. Nothing should call it now.
+ *
  * Pick a referral up out of the pool. No body — the sub-resource names the transition and the holder comes
  * from the token.
  *
@@ -834,11 +1148,29 @@ function savedQueryPath(id: string): string {
  * `done`, and a body that merely ends leaves the route sending a short file under a 200 it has already
  * committed to — the silent truncation this whole arrangement exists to avoid. Erroring destroys the
  * response instead, so the browser sees an aborted transfer rather than a corrupt document.
+ *
+ * `deadline` (a `performance.now()` instant) additionally ends the transfer once reached, however steadily bytes
+ * arrive and whether or not the consumer is still reading; only the preview sets one.
  */
-function bounded(body: ReadableStream<Uint8Array>, timeoutMs: number): ReadableStream<Uint8Array> {
+function bounded(body: ReadableStream<Uint8Array>, timeoutMs: number, deadline = Number.POSITIVE_INFINITY): ReadableStream<Uint8Array> {
   const reader = body.getReader();
+  let expired = false;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
 
   return new ReadableStream<Uint8Array>({
+    start(controller) {
+      if (deadline === Number.POSITIVE_INFINITY) return;
+      // Armed once here rather than in `pull`, which a back-pressuring consumer stops calling: the deadline has to
+      // release api's socket whether or not anybody is asking for bytes at that moment.
+      deadlineTimer = setTimeout(
+        () => {
+          expired = true;
+          controller.error(new DOMException("deed-poll-api did not finish sending the preview in time", "TimeoutError"));
+          reader.cancel(new DOMException("timeout", "TimeoutError")).catch(() => {});
+        },
+        Math.max(0, deadline - performance.now())
+      );
+    },
     async pull(controller) {
       let stalled = false;
       const timer = setTimeout(() => {
@@ -853,14 +1185,24 @@ function bounded(body: ReadableStream<Uint8Array>, timeoutMs: number): ReadableS
 
       try {
         const { done, value } = await reader.read();
+        // The deadline has already errored the stream, so neither a close nor an enqueue is possible.
+        if (expired) return;
         if (stalled) throw new DOMException("deed-poll-api stopped sending the document", "TimeoutError");
-        if (done) controller.close();
-        else controller.enqueue(value);
+        if (done) {
+          clearTimeout(deadlineTimer);
+          controller.close();
+        } else controller.enqueue(value);
+      } catch (error) {
+        clearTimeout(deadlineTimer);
+        throw error;
       } finally {
         clearTimeout(timer);
       }
     },
-    cancel: (reason) => reader.cancel(reason)
+    cancel: (reason) => {
+      clearTimeout(deadlineTimer);
+      return reader.cancel(reason);
+    }
   });
 }
 
@@ -891,6 +1233,7 @@ async function request<S extends z.ZodType>(
 }
 
 async function parseResponse<S extends z.ZodType>(response: Response, schema: S, method: string, path: string): Promise<ApiResult<z.infer<S>>> {
+  const operation = `${method} ${withoutQuery(path)}`;
   let payload: unknown;
   try {
     payload = await response.json();
@@ -900,7 +1243,7 @@ async function parseResponse<S extends z.ZodType>(response: Response, schema: S,
     // reporting a stall as one sends them hunting a defect when the answer is that api stopped talking.
     if (isAborted(error)) return { ok: false, error: transportError(error) };
 
-    return { ok: false, error: { kind: "invalid-response", status: response.status, message: `${method} ${path} returned a body that is not JSON` } };
+    return { ok: false, error: { kind: "invalid-response", status: response.status, message: `${operation} returned a body that is not JSON` } };
   }
 
   const parsed = schema.safeParse(payload);
@@ -909,11 +1252,31 @@ async function parseResponse<S extends z.ZodType>(response: Response, schema: S,
     const fields = parsed.error.issues.map((issue) => issue.path.join(".")).join(", ");
     return {
       ok: false,
-      error: { kind: "invalid-response", status: response.status, message: `${method} ${path} returned an unexpected shape (${fields})` }
+      error: { kind: "invalid-response", status: response.status, message: `${operation} returned an unexpected shape (${fields})` }
     };
   }
 
   return { ok: true, data: parsed.data };
+}
+
+/** Scan the suffix once, leaving internal slash runs and encoded path segments unchanged. */
+function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === "/") end--;
+
+  return value.slice(0, end);
+}
+
+/**
+ * The path a diagnostic may name: everything before the query or fragment.
+ *
+ * A list's query carries the caseworker's search text and field conditions — applicant names — and this message
+ * reaches a log via `callApi`. Cut by position rather than by parameter name, so a parameter added later is left
+ * out too. Ids are already percent-encoded segments, so a `?` in one cannot end the path early.
+ */
+function withoutQuery(path: string): string {
+  const end = path.search(/[?#]/);
+  return end === -1 ? path : path.slice(0, end);
 }
 
 /** A call whose success carries nothing to parse — a 204, or a probe where only the status matters. */
@@ -952,7 +1315,7 @@ async function send(
   streaming = false,
   headers?: Record<string, string>
 ): Promise<SendResult> {
-  const result = await exchange(config, method, path, body, accept, streaming, headers);
+  const result = await exchange(config, method, path, body, accept, { streaming, headers });
   if (!result.ok || result.response.ok) return result;
   return { ok: false, error: await failureFromResponse(result.response) };
 }
@@ -964,7 +1327,7 @@ async function gazetteRequest<S extends z.ZodType>(
   body: unknown,
   key?: string
 ): Promise<GazetteApiResult<z.infer<S>>> {
-  const result = await exchange(config, "POST", path, body, "application/json", false, key === undefined ? undefined : { "idempotency-key": key });
+  const result = await exchange(config, "POST", path, body, "application/json", { headers: key === undefined ? undefined : { "idempotency-key": key } });
   if (!result.ok) return result;
   const response = result.response;
   if (response.ok) return parseResponse(response, schema, "POST", path);
@@ -979,18 +1342,18 @@ async function gazetteRequest<S extends z.ZodType>(
   return { ok: false, error: classifyFailure(response, payload) };
 }
 
-async function exchange(
+async function exchange<E = ApiError>(
   config: ApiConfig,
   method: string,
   path: string,
   body: unknown,
   accept: string,
-  streaming = false,
-  headers?: Record<string, string>
-): Promise<SendResult> {
+  { streaming = false, headers, readFailure = failureFromResponse }: ExchangeOptions<E> = {}
+): Promise<SendResult<E>> {
   // Startup validates the app's URL; direct adapter consumers must receive the same protection.
   assertApiBaseUrl(config.baseUrl);
-  const url = `${config.baseUrl.replace(/\/+$/, "")}${path}`;
+  if (!hasUsableSegments(path)) return { ok: false, error: { kind: "not-found", status: 404, message: UNUSABLE_SEGMENT_MESSAGE } };
+  const url = `${withoutTrailingSlashes(config.baseUrl)}${path}`;
   const isForm = body instanceof FormData;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   // A cancellable timer for the streaming case; `AbortSignal.timeout` cannot be called off once armed.
@@ -1014,8 +1377,8 @@ async function exchange(
           ...(config.accessToken === undefined ? {} : { authorization: `Bearer ${config.accessToken}` }),
           ...(body !== undefined && !isForm ? { "content-type": "application/json" } : {})
         },
-        body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
-        signal: controller?.signal ?? AbortSignal.timeout(timeoutMs),
+        body: isForm ? body : JSON.stringify(body),
+        signal: withCallerSignal(controller?.signal ?? AbortSignal.timeout(timeoutMs), config.signal),
         // Never forward a token or request body to a redirect target, including an HTTP downgrade.
         redirect: "error"
       });
@@ -1024,13 +1387,39 @@ async function exchange(
     }
 
     // Keep a streaming failure-body read inside the cancellable timeout, before finally clears it.
-    if (!response.ok && streaming) return { ok: false, error: await failureFromResponse(response) };
+    if (!response.ok && streaming) return { ok: false, error: await readFailure(response) };
     return { ok: true, response };
   } finally {
     // Inside the `finally` so the failure body above is still read under the timeout: an unavailable api
     // often answers with a proxy's HTML, and reading that must not be the unbounded wait.
     clearTimeout(timer);
   }
+}
+
+/**
+ * The timeout's signal, joined to the caller's own when it has one, so a caller that has given up (a browser that
+ * closed the viewer while api was still converting) stops the call instead of leaving it to run to the timeout. An
+ * abort is reported as `timeout`: nobody is waiting for the answer, so which it was matters only to a log.
+ */
+function withCallerSignal(signal: AbortSignal, caller: AbortSignal | undefined): AbortSignal {
+  return caller === undefined ? signal : AbortSignal.any([signal, caller]);
+}
+
+/**
+ * Whether every segment of the path names something, rather than moving the path (review finding R11,
+ * `docs/plans/completed/20261022-r11-r16-path-segments-and-observe-guard.md`).
+ *
+ * `encodeURIComponent` leaves dots alone, so an id of `.` or `..` would be resolved as a dot segment and an empty
+ * one would leave `//` or a trailing `/`: `getCase("..")` asked api for `/caseworker/`. Checked here, once, rather
+ * than at each path builder, because every operation reaches `exchange` and no fixed path holds such a segment —
+ * so one of these can only have come from an id, and an operation added later cannot forget the check. Ids are
+ * percent-encoded, so `%2E` in one arrives as `%252E` and is an ordinary segment.
+ */
+function hasUsableSegments(path: string): boolean {
+  return withoutQuery(path)
+    .split("/")
+    .slice(1)
+    .every((segment) => segment !== "" && segment !== "." && segment !== "..");
 }
 
 /**
@@ -1087,7 +1476,9 @@ function classifyFailure(response: Response, payload: unknown): ApiError {
   if (status === 401) return { kind: "unauthorized", status, message };
   if (status === 403) return { kind: "forbidden", status, message };
   if (status === 404) return { kind: "not-found", status, message };
-  if (status === 409) return { kind: "conflict", status, message };
+  // A 409 can name a field too: a Master's email another Master holds is api's conflict on `email`, which a stale
+  // revision is not, and the field is the only structured way to tell the two apart.
+  if (status === 409) return { kind: "conflict", status, message, ...(fieldErrors.length > 0 ? { fieldErrors } : {}) };
 
   // api's abuse limiter, not an outage: the caseworker is told how long to wait rather than that the
   // service has broken.
@@ -1129,6 +1520,8 @@ function mapResult<W, T>(result: ApiResult<W>, map: (value: W) => T): ApiResult<
 export interface ApiConfig {
   baseUrl: string;
   timeoutMs?: number;
+  /** The caller giving up — a closed browser request — which ends the call before its timeout does. */
+  signal?: AbortSignal;
   /**
    * The caller's IDAM access token. api authenticates every caseworker route and derives the audit name
    * and admin status from the token, so a call without one is a 401 — which is why this is not optional
@@ -1146,7 +1539,7 @@ export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiError 
  * - `validation` — api rejected the content; `fieldErrors` map onto an error summary
  * - `not-found` — no such case, note or document
  * - `forbidden` / `unauthorized` — the caller's token is missing, expired, or lacks a role
- * - `conflict` — the record's state does not allow this
+ * - `conflict` — the record's state does not allow this; `fieldErrors` when api names the field
  * - `rate-limited` — api's abuse limiter refused this caller; `retryAfterSeconds` says for how long, or
  *   `null` when api did not say in a form this reads
  * - `unavailable` / `timeout` — nobody's fault; try again shortly
@@ -1229,9 +1622,7 @@ export type JudicialMyReferrals = WireJudicialMyReferrals;
 export type JudicialReferralSummary = WireJudicialReferralSummary;
 export type JudicialReferralDetail = WireJudicialReferralDetail;
 export type JudicialApplicationView = WireJudicialApplicationView;
-export type JudicialWitness = WireJudicialWitness;
 export type JudicialDocument = WireJudicialDocument;
-export type JudicialCaseNote = WireJudicialCaseNote;
 export type JudicialDirection = WireJudicialDirection;
 /**
  * The email types, which are one payload's parts rather than five endpoints' worth: `CaseEmails` is what the tab
@@ -1385,7 +1776,38 @@ export interface DocumentDownload {
   contentTypeOptions: string | null;
 }
 
-type SendResult = { ok: true; response: Response } | { ok: false; error: ApiError };
+type SendResult<E = ApiError> = { ok: true; response: Response } | { ok: false; error: E | ApiError };
+
+interface ExchangeOptions<E = ApiError> {
+  streaming?: boolean;
+  headers?: Record<string, string>;
+  readFailure?: (response: Response) => Promise<E | ApiError>;
+}
+
+/**
+ * A document's preview: always a PDF, with the length api measured when it declared one. None of api's headers is
+ * carried, because the relay answers with its own fixed containment and nothing of api's may loosen it.
+ */
+export interface DocumentPreview {
+  body: Readable;
+  contentLength: number | null;
+}
+
+export type PreviewRefusalCode = WireDocumentPreviewError["code"];
+
+/**
+ * A preview api did not produce, by api's code. The original download is unaffected in every case, so a page offers
+ * it. `retryAfterSeconds` is set for `PREVIEW_BUSY` when api said how long to wait, and `null` otherwise. api's own
+ * sentence is not carried: the viewer has its own `en`/`cy` copy per code.
+ */
+export interface PreviewRefusal {
+  kind: "preview-refused";
+  code: PreviewRefusalCode;
+  status: number;
+  retryAfterSeconds: number | null;
+}
+
+export type PreviewApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiError | PreviewRefusal };
 
 /** History has no custom filter or sort. Its order and membership belong to api. */
 export interface GazetteNoticeHistoryQuery {
@@ -1399,8 +1821,30 @@ export type CallerAccess = WireCallerAccess;
 export type Capability = CallerAccess["capabilities"][number];
 export type GazetteSettings = WireGazetteSettings;
 export type UpdateGazetteSettings = WireUpdateGazetteSettings;
+export type ProcessSettings = WireProcessSettings;
+export type UpdateProcessSettings = WireUpdateProcessSettings;
+export type Master = WireMaster;
+export type MasterList = WireMasterList;
+export type ReferralQueue = WireReferralQueue;
+export type ReferralQueueItem = WireReferralQueueItem;
+export type ReferralQueueWindow = WireReferralQueueWindow;
+export type ReferralSend = WireReferralSend;
+export type SendReferrals = WireSendReferrals;
+/** Which half of the queue to read, and which page. `state` is api's two published values; omitted is `Open`. */
+export interface ReferralQueueQuery {
+  state?: "Open" | "Claimed";
+  /** 1-based. */
+  page?: number;
+  /** Defaults to 25; api clamps to 100. */
+  size?: number;
+}
+export type MasterCreate = WireMasterCreate;
+export type MasterUpdate = WireMasterUpdate;
+export type BankHoliday = WireBankHoliday;
+export type BankHolidayCreate = WireBankHolidayCreate;
 
-export { GAZETTE_RECIPIENT_EMAIL_PATTERN } from "./wire.js";
+export { GAZETTE_RECIPIENT_EMAIL_PATTERN, validateGazetteRecipientEmail } from "./gazette-recipient-email.js";
+export { BANK_HOLIDAY_LIMITS, MASTER_LIMITS, PROCESS_SETTINGS_LIMITS, REFERRAL_SEND_LIMITS, WINDOW_TIME_PATTERN } from "./wire.js";
 
 export type GazettePreview = WireGazettePreview;
 export type GazetteStatus = WireGazetteStatus;

@@ -4,6 +4,7 @@ import { findGazetteReadyCases } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { addPathFilters } from "../../../path-filters.js";
 import { GET } from "./index.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -21,6 +22,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 const RECORD = {
   id: "case-1",
   displayReference: "KBDP2026-00001",
@@ -68,6 +70,8 @@ describe("Gazette ready list", () => {
     expect(markup).toContain("Lovelace");
     expect(markup).toContain("1 March 2026");
     expect(markup).toContain('href="/deed-polls/gazette/history"');
+    expect(markup).toContain('href="/deed-polls/settings#gazette-recipient"');
+    expect(markup).not.toContain("/deed-polls/gazette/settings");
     expect(markup).toContain('href="/deed-polls"');
     expect(markup).toContain("Applications enrolled longest ago are first");
   });

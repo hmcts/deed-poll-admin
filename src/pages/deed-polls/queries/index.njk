@@ -46,7 +46,7 @@
               {{ govukButton({ text: content.add, name: "action", value: "add", classes: "govuk-button--secondary" }) }}
             {% endif %}
             {% if row.editable %}
-              <a class="govuk-link" href="{{ libraryPath }}/{{ row.id }}/edit">{{ content.amend }}</a>
+              <a class="govuk-link" href="{{ libraryPath }}/{{ row.id | pathSegment }}/edit">{{ content.amend }}</a>
             {% endif %}
           </div>
         </form>

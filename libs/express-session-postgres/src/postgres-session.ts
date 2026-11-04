@@ -3,11 +3,11 @@ import session, { type SessionOptions } from "express-session";
 import type { Pool } from "pg";
 import { PostgresStore } from "./postgres-store.js";
 
-export function expressSessionPostgres(options: ExpressSessionPostgresOptions): RequestHandler {
+export async function expressSessionPostgres(options: ExpressSessionPostgresOptions): Promise<RequestHandler> {
   const { pgConnection, sessionOptions = {}, storeOptions = {} } = options;
   const secret = sessionOptions.secret || process.env.SESSION_SECRET || "default-secret-change-in-production";
 
-  const store = new PostgresStore({
+  const store = await PostgresStore.create({
     pool: pgConnection,
     ...storeOptions
   });

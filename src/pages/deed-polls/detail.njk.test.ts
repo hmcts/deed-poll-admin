@@ -21,6 +21,7 @@ import { findCaseEmails, findDeedPoll, findReferrals } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
+import { addPathFilters } from "../../path-filters.js";
 import { GET } from "./[id].js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => {
@@ -47,6 +48,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 const found = {
   id: "case-1",
@@ -265,7 +267,7 @@ describe("case detail template — the referrals tab", () => {
 
     const panel = referralsPanel(await page([changed]));
 
-    expect(panel).toMatch(/<div class="govuk-inset-text[^"]*">\s*The judge changed this direction on 19 October 2026 at 10:30am\.\s*<\/div>/);
+    expect(panel).toMatch(/<div class="govuk-inset-text[^"]*">\s*The Master changed this direction on 19 October 2026 at 10:30am\.\s*<\/div>/);
   });
 
   it("should put the change notice only on the referral whose direction changed", async () => {
@@ -274,14 +276,14 @@ describe("case detail template — the referrals tab", () => {
 
     const panel = referralsPanel(await page([changed, unchanged]));
 
-    expect(panel.match(/The judge changed this direction/g)).toHaveLength(1);
-    expect(panel.indexOf("The judge changed this direction")).toBeLessThan(panel.indexOf('href="/deed-polls/case-1/referrals/ref-1"'));
+    expect(panel.match(/The Master changed this direction/g)).toHaveLength(1);
+    expect(panel.indexOf("The Master changed this direction")).toBeLessThan(panel.indexOf('href="/deed-polls/case-1/referrals/ref-1"'));
   });
 
   it("should show no change notice on a referral whose direction stands as first given", async () => {
     const panel = referralsPanel(await page([{ ...REFERRAL, state: "Decided" }]));
 
-    expect(panel).not.toContain("The judge changed this direction");
+    expect(panel).not.toContain("The Master changed this direction");
   });
 
   it("should pluralise the count, since a case can be referred more than once", async () => {
@@ -295,7 +297,7 @@ describe("case detail template — the referrals tab", () => {
     const rendered = await page([]);
 
     expect(rendered).toContain('href="/deed-polls/case-1/referrals/new"');
-    expect(rendered).toContain("Refer this case to the judiciary");
+    expect(rendered).toContain("Refer this case to a Master");
     expect(rendered).toContain("None recorded.");
   });
 
@@ -305,11 +307,27 @@ describe("case detail template — the referrals tab", () => {
     expect(rendered).toContain('href="/deed-polls/case-1/referrals/new"');
   });
 
-  it.each(["Open", "Claimed"] as const)("should withhold the raise button while a %s referral is with the judiciary, and say why", async (state) => {
-    const rendered = await page([{ ...REFERRAL, state }]);
+  it("should withhold the raise button while a referral is with a Master, and say why", async () => {
+    const rendered = await page([{ ...REFERRAL, state: "Claimed" }]);
 
     expect(rendered).not.toContain('href="/deed-polls/case-1/referrals/new"');
     expect(rendered).toContain("Withdraw the open referral before raising another.");
+  });
+
+  it("should say a referral is waiting to be sent to a Master, with no assign link on its row", async () => {
+    const rendered = await page([{ ...REFERRAL, state: "Open" }]);
+
+    expect(rendered).not.toContain('href="/deed-polls/case-1/referrals/new"');
+    expect(rendered).toContain("This case has a referral waiting to be sent to a Master. Withdraw it before raising another.");
+    expect(rendered).toContain("Waiting to be sent");
+    expect(rendered).not.toContain("/assign");
+  });
+
+  it.each(["Claimed", "Decided"])("should offer no assign link on a %s row, since caseworkers no longer assign (plan Fa1)", async (state) => {
+    const rendered = await page([{ ...REFERRAL, state }]);
+
+    expect(rendered).not.toContain("/assign");
+    expect(rendered).not.toContain("Assign to");
   });
 
   it("should tell a caseworker with a returned direction to action it, never to withdraw it", async () => {
@@ -753,5 +771,31 @@ describe("case detail template — the awaiting-confirmation notice", () => {
     const rendered = await page([REFERRAL], found);
 
     expect(rendered).not.toContain("Awaiting the applicant&#39;s response");
+  });
+});
+
+describe("case detail template — the documents tab", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NODE_ENV = "test";
+    vi.mocked(findCaseEmails).mockResolvedValue(CASE_EMAILS as never);
+  });
+
+  const DOCUMENT = { id: "doc-1", name: "Generated deed.pdf", documentType: { name: "Deed" }, direction: null, createdOn: null, hasFile: true };
+
+  it("should open an attached document in the case's viewer, not the legacy file route, as the panel the viewer returns to", async () => {
+    const rendered = await page([], { ...found, documents: [DOCUMENT] });
+
+    const panel = panelFor(rendered, "documents");
+    expect(panel).toContain('<a class="govuk-link" href="/deed-polls/case-1/documents/doc-1/view">Generated deed.pdf</a>');
+    expect(rendered).not.toContain("/documents/doc-1/file");
+  });
+
+  it("should not link a document whose file has not arrived", async () => {
+    const rendered = await page([], { ...found, documents: [{ ...DOCUMENT, hasFile: false }] });
+
+    const panel = panelFor(rendered, "documents");
+    expect(panel).toContain("Generated deed.pdf");
+    expect(panel).not.toContain("/documents/doc-1/");
   });
 });

@@ -95,7 +95,16 @@
     #}
     <h2 class="govuk-heading-m">{{ progressHeading }}</h2>
     {% set progressRows = [{ key: { text: createdLabel }, value: { text: referral.createdBy + ", " + referral.createdOn } }] %}
-    {% if referral.claim %}
+    {#
+      An assignment replaces the claim row (plan Db1): assigning also names the Master as the holder, and one fact
+      twice would read as two. A claim with no assignment is one made before assignment existed.
+    #}
+    {% if referral.assignment %}
+      {% set progressRows = (progressRows.push({ key: { text: assignedLabel }, value: { text: referral.assignment.masterName + ", " + referral.assignment.assignedOn } }), progressRows) %}
+      {% if referral.assignment.directionDueBy %}
+        {% set progressRows = (progressRows.push({ key: { text: directionDueLabel }, value: { text: referral.assignment.directionDueBy } }), progressRows) %}
+      {% endif %}
+    {% elif referral.claim %}
       {% set progressRows = (progressRows.push({ key: { text: claimedLabel }, value: { text: referral.claim.claimedBy + ", " + referral.claim.claimedOn } }), progressRows) %}
     {% endif %}
     {% set progressRows = (progressRows.push({ key: { text: modifiedLabel }, value: { text: referral.modifiedBy + ", " + referral.modifiedOn } }), progressRows) %}
@@ -109,7 +118,7 @@
       carries the ordinary "not provided" placeholder and the two states look different.
 
       `gazetteAnswer` is resolved by the handler rather than read off the model with a ternary here: api's
-      `publishToGazette` is nullish, so `{{ yes if … else no }}` would print "No" for a direction it recorded no
+      `changesToStandardPublication` is nullish, so `{{ yes if … else no }}` would print "No" for a direction it recorded no
       answer for, telling the caseworker the judge directed against publication.
 
       "Decided by" is the judicial author and stays that way after closure, which changes only the modifier
@@ -178,7 +187,7 @@
     {% endif %}
 
     <p class="govuk-body">
-      <a class="govuk-link" href="/deed-polls/{{ case.id }}#referrals">{{ backToCase }}</a>
+      <a class="govuk-link" href="{{ case.id | casePath }}#referrals">{{ backToCase }}</a>
     </p>
   </div>
 </div>

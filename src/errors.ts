@@ -23,10 +23,15 @@ import { forLog } from "./for-log.js";
 
 export function domainErrorHandler(): ErrorRequestHandler {
   return (err: Error, req: Request, res: Response, next: NextFunction) => {
-    // Past the point of changing the status, so let Express abort rather than attempt a second set
-    // of headers. Relevant here because the document download route streams.
+    // Past the point of changing the status, so the response is cut off here rather than passed on: the starter's
+    // handler would render a 500 over a streamed document's headers and throw `ERR_HTTP_HEADERS_SENT` outside any
+    // handler, taking the pod with it. A reader closing a preview or download mid-body is routine, not a failure.
     if (res.headersSent) {
-      return next(err);
+      if ((err as NodeJS.ErrnoException).code !== "ERR_STREAM_PREMATURE_CLOSE") {
+        console.error(`response failed after its headers were sent: ${forLog(err.message)}`);
+      }
+      res.destroy();
+      return;
     }
 
     if (err instanceof NotFoundError) {
@@ -45,9 +50,10 @@ export function domainErrorHandler(): ErrorRequestHandler {
       securityEvent(event, req, props);
 
       // Reached by `requireJudicial` (./auth/require-role.ts), which refuses an authenticated non-judge this
-      // way rather than rendering its own page, and by api's own 403. The 404 **view** on a 403 status keeps
-      // the area non-enumerable: telling a caseworker who guessed a judicial URL that there is something
-      // there to be refused from is more than they need to know. `src/pages/errors/403.njk` does exist, but
+      // way rather than rendering its own page, and by api's own 403. The 404 **view** says nothing about what
+      // was refused, and the gate fires before any lookup, so a guessed judicial URL never reveals whether that
+      // resource exists. The 403 **status** does reveal the area and that the caller may not enter it, which is
+      // deliberate and pinned by the e2e specs (review finding R14). `src/pages/errors/403.njk` does exist, but
       // it is the login flow's — there the user already knows who they are and what was refused.
       return res.status(403).render("errors/404");
     }

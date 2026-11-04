@@ -30,7 +30,20 @@ it("should preserve the API's authorization and conflict failures", async () => 
   await expect(saveGazetteSettings(SETTINGS, CALLER)).rejects.toBeInstanceOf(ConflictError);
 });
 
-it.each([undefined, "", "-1", "1.5", "0x10", "2147483648", ["0"]])("should refuse invalid form revision %j", (revision) => {
+it.each([undefined, "", "-1", "+1", "01", "00", " 1", "1 ", "1\n", "١", "１", "1.5", "0x10", "2147483648", ["0"]])(
+  "should refuse invalid form revision %j",
+  (revision) => {
+    const schema = gazetteSettingsFormSchema({ required: "required", invalid: "invalid", reload: "reload" });
+    expect(schema.safeParse({ recipientEmail: "lg@example.com", revision }).success).toBe(false);
+  }
+);
+
+it.each([
+  ["0", 0],
+  ["1", 1],
+  ["10", 10],
+  ["2147483647", 2147483647]
+])("should parse valid form revision %s as %i", (revision, expected) => {
   const schema = gazetteSettingsFormSchema({ required: "required", invalid: "invalid", reload: "reload" });
-  expect(schema.safeParse({ recipientEmail: "lg@example.com", revision }).success).toBe(false);
+  expect(schema.parse({ recipientEmail: "lg@example.com", revision }).revision).toBe(expected);
 });

@@ -2,7 +2,10 @@ import {
   countAwaitingConfirmation,
   countGazetteReadyCases,
   countReturnedForAction,
+  countWaitingForAssignment,
   findDeedPolls,
+  findGazetteSettings,
+  findProcessSettings,
   findSavedQueries,
   InvalidInputError,
   NotFoundError
@@ -22,7 +25,10 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   countAwaitingConfirmation: vi.fn(),
   countGazetteReadyCases: vi.fn(),
   countReturnedForAction: vi.fn(),
+  countWaitingForAssignment: vi.fn(),
   findDeedPolls: vi.fn(),
+  findGazetteSettings: vi.fn(),
+  findProcessSettings: vi.fn(),
   findSavedQueries: vi.fn()
 }));
 
@@ -74,6 +80,7 @@ describe("deed-polls list page", () => {
     vi.mocked(findDeedPolls).mockResolvedValue(page([]) as never);
     vi.mocked(findSavedQueries).mockResolvedValue([] as never);
     vi.mocked(countReturnedForAction).mockResolvedValue(0);
+    vi.mocked(countWaitingForAssignment).mockResolvedValue(0);
     vi.mocked(countAwaitingConfirmation).mockResolvedValue(0);
     vi.mocked(countGazetteReadyCases).mockResolvedValue(0);
   });
@@ -111,6 +118,39 @@ describe("deed-polls list page", () => {
       gazetteFailed: false,
       gazetteCount: `Applications ready for the London Gazette: ${count}`
     });
+  });
+
+  it("should offer the service settings link to a Delivery Manager without reading anything for it", async () => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ deliveryManager: true }), res);
+
+    expect(res.render.mock.calls[0][1]).toMatchObject({ showSettings: true });
+    expect(findProcessSettings).not.toHaveBeenCalled();
+    expect(findGazetteSettings).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["teamLeader", true],
+    ["deliveryManager", true],
+    ["legacyAdmin", true],
+    ["caseworker", false],
+    ["judge", false],
+    ["none", false]
+  ] as const)("should offer %s the referral queue link: %s, from the session alone", async (persona, shown) => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ persona }), res);
+
+    expect(res.render.mock.calls[0][1]).toMatchObject({ showReferrals: shown });
+  });
+
+  it.each(["legacyAdmin", "teamLeader", "caseworker", "judge", "none"] as const)("should not offer the service settings link to %s", async (persona) => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ persona }), res);
+
+    expect(res.render.mock.calls[0][1]).toMatchObject({ showSettings: false });
   });
 
   it("should degrade and log only the Gazette count when its read fails", async () => {
@@ -403,6 +443,75 @@ describe("deed-polls list page", () => {
    * page owns is that the number reaches the screen, that it is read as its own query rather than the one on
    * screen, and that it links to the worklist it counted.
    */
+  describe("the waiting-for-assignment count", () => {
+    const WORKLIST_HREF = "/deed-polls?where=currentReferralState%3Ais%3AOpen";
+
+    it("reads the count with the caseworker's own token and links a caseworker to the Open worklist", async () => {
+      vi.mocked(countWaitingForAssignment).mockResolvedValue(2);
+      const res = pageResponse();
+
+      await GET(pageRequest({ persona: "caseworker", accessToken: "caseworker-token" }), res);
+
+      expect(countWaitingForAssignment).toHaveBeenCalledWith({ accessToken: "caseworker-token" });
+      expect(res.render.mock.calls[0][1]).toMatchObject({
+        waitingForAssignment: "2 referrals are waiting to be sent to a Master.",
+        waitingForAssignmentFailed: false,
+        waitingForAssignmentHref: WORKLIST_HREF,
+        waitingForAssignmentLinkText: "View referrals waiting to be sent"
+      });
+    });
+
+    it.each(["teamLeader", "deliveryManager", "legacyAdmin"] as const)(
+      "links %s, who holds ALLOCATE_REFERRALS, to the referral queue instead",
+      async (persona) => {
+        vi.mocked(countWaitingForAssignment).mockResolvedValue(2);
+        const res = pageResponse();
+
+        await GET(pageRequest({ persona }), res);
+
+        expect(res.render.mock.calls[0][1]).toMatchObject({
+          waitingForAssignment: "2 referrals are waiting to be sent to a Master.",
+          waitingForAssignmentHref: "/deed-polls/referrals",
+          waitingForAssignmentLinkText: "Check and send referrals"
+        });
+      }
+    );
+
+    it("states one referral in the singular", async () => {
+      vi.mocked(countWaitingForAssignment).mockResolvedValue(1);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].waitingForAssignment).toBe("1 referral is waiting to be sent to a Master.");
+    });
+
+    it("says nothing at zero, and does not call a zero a failure", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1]).toMatchObject({ waitingForAssignment: "", waitingForAssignmentFailed: false });
+    });
+
+    it("degrades to its own state and logs, leaving the list and the other counts alone", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(countWaitingForAssignment).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      vi.mocked(countReturnedForAction).mockResolvedValue(3);
+      vi.mocked(findDeedPolls).mockResolvedValue(page([record]) as never);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.cases).toHaveLength(1);
+      expect(model).toMatchObject({ waitingForAssignment: "", waitingForAssignmentFailed: true, returnedForActionFailed: false });
+      expect(model.returnedForAction).toBe("3 applications have a returned direction needing action");
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("waiting-for-assignment count unavailable"));
+      logged.mockRestore();
+    });
+  });
+
   describe("the returned-for-action count", () => {
     /** The worklist as the URL states it: the same condition the count is read with — decision 3. */
     const WORKLIST_HREF = "/deed-polls?where=currentReferralState%3Ais%3ADecided";
@@ -698,7 +807,7 @@ describe("deed-polls list page", () => {
         "Privacy",
         "Received",
         "Type",
-        "State",
+        "Status",
         "New forename",
         "New surname"
       ]);
@@ -897,6 +1006,14 @@ describe("deed-polls list page", () => {
       await GET(pageRequest({ query: { where: ["type:is:Adult", "newForename:is:"] } }), res);
 
       expect(res.render.mock.calls[0][1].unusedConditions).toBe("Condition 2 was not used, because it is not complete.");
+    });
+
+    it("joins two unused condition numbers with and and no comma", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: ["type:is:Adult", "newForename:is:", "ageOfMinor:between:3"] } }), res);
+
+      expect(res.render.mock.calls[0][1].unusedConditions).toBe("Conditions 2 and 3 were not used, because they are not complete.");
     });
 
     it("names every unused condition in one statement, reading as a sentence", async () => {
@@ -1155,7 +1272,7 @@ describe("deed-polls list page", () => {
       await GET(pageRequest({ query: { sort: "state:asc" } }), res);
 
       const header = res.render.mock.calls[0][1].sortHeaders[4];
-      expect(header).toEqual({ label: "State", field: "state", href: "/deed-polls?sort=state%3Adesc", ariaSort: "ascending" });
+      expect(header).toEqual({ label: "Status", field: "state", href: "/deed-polls?sort=state%3Adesc", ariaSort: "ascending" });
     });
 
     it("carries the tab, the conditions and the order on every page link", async () => {

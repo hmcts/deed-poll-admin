@@ -10,6 +10,7 @@ import type { JudicialReferralDetail } from "@hmcts/deed-poll-api-client";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { addPathFilters } from "../../../path-filters.js";
 import { GET } from "./[referralId]/withdraw.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -28,6 +29,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 const decided = (): JudicialReferralDetail =>
   ({
@@ -36,7 +38,7 @@ const decided = (): JudicialReferralDetail =>
     reasons: ["Minor"],
     createdOn: new Date("2026-09-03T08:44:00Z"),
     decision: "Approved",
-    publishToGazette: true,
+    changesToStandardPublication: false,
     decisionDate: new Date("2026-09-05T16:05:00Z"),
     application: { displayReference: "KBDP2026-00001", type: "Adult", witnesses: [], documents: [] },
     caseNotes: []
@@ -66,8 +68,8 @@ describe("withdraw direction template", () => {
   it("should say what withdrawing leaves the judge with, naming no other judge", async () => {
     const html = await renderPage();
 
-    expect(html).toContain("You&#39;ll need to give a new direction. Until you do, this referral stays claimed by you.");
-    expect(html).toContain("If it isn&#39;t directed, it may return to the shared list like any other claim.");
+    expect(html).toContain("You&#39;ll need to give a new direction. Until you do, this referral stays with you.");
+    expect(html).toContain("If it isn&#39;t directed in time, it goes back to the office to be assigned again.");
     expect(html).not.toMatch(/another judge|claimed by (?!you)/i);
   });
 

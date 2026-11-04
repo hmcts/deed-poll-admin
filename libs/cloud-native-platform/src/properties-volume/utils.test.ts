@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deepMerge, deepSearch, getProperty, normalizeSecretName, setProperty } from "./utils.js";
+import { deepMerge, deepSearch, normalizeSecretName } from "./utils.js";
 
 describe("deepMerge", () => {
   it("should merge objects recursively", () => {
@@ -49,96 +49,6 @@ describe("deepMerge", () => {
       a: 1,
       b: { c: 2 },
       d: undefined
-    });
-  });
-});
-
-describe("getProperty", () => {
-  const obj = {
-    a: 1,
-    b: {
-      c: 2,
-      d: {
-        e: "deep value"
-      }
-    },
-    array: [1, 2, 3]
-  };
-
-  it("should get top-level properties", () => {
-    expect(getProperty(obj, "a")).toBe(1);
-    expect(getProperty(obj, "array")).toEqual([1, 2, 3]);
-  });
-
-  it("should get nested properties", () => {
-    expect(getProperty(obj, "b.c")).toBe(2);
-    expect(getProperty(obj, "b.d.e")).toBe("deep value");
-  });
-
-  it("should return default value for non-existent paths", () => {
-    expect(getProperty(obj, "nonexistent", "default")).toBe("default");
-    expect(getProperty(obj, "b.nonexistent", "default")).toBe("default");
-    expect(getProperty(obj, "b.c.nonexistent", "default")).toBe("default");
-  });
-
-  it("should return undefined for non-existent paths without default", () => {
-    expect(getProperty(obj, "nonexistent")).toBeUndefined();
-    expect(getProperty(obj, "b.nonexistent")).toBeUndefined();
-  });
-
-  it("should handle null and undefined objects", () => {
-    expect(getProperty(null, "a", "default")).toBe("default");
-    expect(getProperty(undefined, "a", "default")).toBe("default");
-  });
-});
-
-describe("setProperty", () => {
-  it("should set top-level properties", () => {
-    const obj = {};
-    setProperty(obj, "a", 1);
-    expect(obj).toEqual({ a: 1 });
-  });
-
-  it("should set nested properties", () => {
-    const obj = {};
-    setProperty(obj, "a.b.c", "value");
-    expect(obj).toEqual({
-      a: {
-        b: {
-          c: "value"
-        }
-      }
-    });
-  });
-
-  it("should overwrite existing properties", () => {
-    const obj = { a: { b: "old" } };
-    setProperty(obj, "a.b", "new");
-    expect(obj).toEqual({ a: { b: "new" } });
-  });
-
-  it("should create intermediate objects", () => {
-    const obj = { a: 1 };
-    setProperty(obj, "b.c.d", "value");
-    expect(obj).toEqual({
-      a: 1,
-      b: {
-        c: {
-          d: "value"
-        }
-      }
-    });
-  });
-
-  it("should replace non-object values in path", () => {
-    const obj = { a: { b: "not-object" } };
-    setProperty(obj, "a.b.c", "value");
-    expect(obj).toEqual({
-      a: {
-        b: {
-          c: "value"
-        }
-      }
     });
   });
 });

@@ -142,18 +142,21 @@ export class GuardedSessionStore extends Store {
 
   override set(sid: string, sess: SessionData, callback: (err?: unknown) => void = () => {}): void {
     const ttl = Math.ceil(this.#ttl(sess));
-    if (!(ttl > 0)) {
+    if (!Number.isSafeInteger(ttl) || ttl <= 0) {
       this.destroy(sid, callback);
       return;
     }
     const body = JSON.stringify(sess);
     const version = this.#versions.get(sess);
 
-    const write = !version
-      ? this.#create(sid, sess, body, ttl)
-      : !version.lease && version.data === dataOf(sess)
-        ? this.#keep(sid, version, ttl)
-        : this.#update(sid, sess, version, body, ttl);
+    let write: Promise<void>;
+    if (!version) {
+      write = this.#create(sid, sess, body, ttl);
+    } else if (!version.lease && version.data === dataOf(sess)) {
+      write = this.#keep(sid, version, ttl);
+    } else {
+      write = this.#update(sid, sess, version, body, ttl);
+    }
     write.then(() => callback(), callback);
   }
 
@@ -175,6 +178,15 @@ export class GuardedSessionStore extends Store {
   }
 
   /**
+   * Destroy, reporting whether the key was there to destroy. One `DEL`, so of two requests replacing the same session
+   * at once only one hears that it existed. A re-sign-in needs that answer and `destroy`'s callback cannot carry it: a
+   * session already gone was logged out, and replacing it would undo the logout (review finding R05).
+   */
+  async destroyExisting(sid: string): Promise<boolean> {
+    return (await this.#run(DESTROY, sid, [])) === 1;
+  }
+
+  /**
    * Take the per-session refresh lease, waiting a bounded time for another request's refresh to finish.
    *
    * `acquired` comes with the lease, and the caller must read the session again before deciding anything, because the
@@ -187,16 +199,19 @@ export class GuardedSessionStore extends Store {
     const lease = randomUUID();
     const deadline = Date.now() + this.#refreshWaitMs;
     for (;;) {
-      const claimed = await this.#run(CLAIM, sid, [version.inc, lease, String(this.#refreshLeaseMs)]).catch(async (error: unknown) => {
+      let claimed: unknown;
+      try {
+        claimed = await this.#run(CLAIM, sid, [version.inc, lease, String(this.#refreshLeaseMs)]);
+      } catch (error) {
         // A timed-out claim may still have been granted, and nobody else knows its lease, so give it up if it was.
         await this.releaseRefresh(sid, lease).catch(() => {});
         throw error;
-      });
+      }
       if (claimed === 1) return { outcome: "acquired", lease };
       if (claimed === -1) return { outcome: "missing" };
       if (claimed !== 0) return { outcome: "conflict" };
       if (Date.now() >= deadline) return { outcome: "busy" };
-      await new Promise((resolve) => setTimeout(resolve, REFRESH_POLL_MS));
+      await new Promise((resolve) => setTimeout(resolve, REFRESH_POLL_MS)); // NOSONAR typescript:S9382 - each retry follows its claim result and delay; Steve accepted 2026-10-26
     }
   }
 

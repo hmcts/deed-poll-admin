@@ -26,7 +26,7 @@ import {
   URGENCY,
   type Urgency
 } from "@hmcts/deed-poll-api-client";
-import { formatTimestamp, NOT_RECORDED } from "../deed-poll/case-header.js";
+import { formatShortDate, formatTimestamp, NOT_RECORDED } from "../deed-poll/case-header.js";
 import { NOT_PROVIDED } from "../deed-poll/detail-view.js";
 import { MASTER_DECISION_LABEL, TERMINAL_REFERRAL_STATES } from "../deed-poll/enums/dynamics-values.js";
 
@@ -37,8 +37,33 @@ export const REFERRAL_REASON_LABEL: Record<ReferralReason, string> = {
   NonPublication: "Non-publication request",
   DeclarantRequirementsNotMet: "Declarant requirements not met",
   SeparatedOrEstranged: "Separated or estranged",
-  Other: "Other"
+  Other: "Other",
+  // A minor's details, in the Masters' own words (Master Sullivan's feedback, Steve, 2026-10-27).
+  MinorTransgender: "Transgender",
+  MinorParentalConsent: "Have parental consent",
+  MinorNoParentalConsent: "Do not have parental consent",
+  MinorStepparentConsent: "Stepparent parental consent",
+  MinorNoStepparentConsent: "Do not have stepparent consent",
+  MinorCourtOrder: "Court Order",
+  MinorAged16Or17Consented: "16/17 year old applicant has consented",
+  MinorAged16Or17NotConsented: "16/17 year old applicant has not consented"
 };
+
+/**
+ * The reasons that refine `Minor` rather than stand beside it: offered beneath "Applicant is a minor" and read as
+ * part of it. api marks them `isMinorDetail()` but publishes no such flag, so the list is stated here, in api's order,
+ * and `referrals-view.test.ts` fails if a `Minor*` member reaches the client without being in it.
+ */
+export const MINOR_DETAIL_REASONS: readonly ReferralReason[] = [
+  "MinorTransgender",
+  "MinorParentalConsent",
+  "MinorNoParentalConsent",
+  "MinorStepparentConsent",
+  "MinorNoStepparentConsent",
+  "MinorCourtOrder",
+  "MinorAged16Or17Consented",
+  "MinorAged16Or17NotConsented"
+];
 
 /** A referral's own urgency. See the docblock for why `Normal` reads "Standard" here and "Normal" on a case. */
 export const REFERRAL_URGENCY_LABEL: Record<Urgency, string> = {
@@ -56,10 +81,14 @@ export const REFERRAL_URGENCY_LABEL: Record<Urgency, string> = {
  *
  * Keyed by `ReferralState` so a member added at api's end is a type error here rather than a blank cell, like
  * every other map in this file. See `REFERRAL_STATE_MEANING` for the sentence that goes with each label.
+ *
+ * **`Claimed` is the fallback for a referral with no assigned Master** (a claim made before assignment, plan Db1):
+ * one that has one reads "With {name}", built in `buildReferralDetail`. `Open` is waiting in the queue (plan Fa1):
+ * a Team leader or Delivery Manager checks it and sends it to a Master, and no Master picks one up from a pool.
  */
 export const REFERRAL_STATE_LABEL: Record<ReferralState, string> = {
-  Open: "Awaiting a judge",
-  Claimed: "With a judge",
+  Open: "Waiting to be sent",
+  Claimed: "With a Master",
   Decided: "Direction received",
   Closed: "Direction actioned",
   Withdrawn: "Withdrawn"
@@ -78,8 +107,9 @@ export const REFERRAL_STATE_LABEL: Record<ReferralState, string> = {
  * here is derived from or writes to `DeedPollState`.
  */
 export const REFERRAL_STATE_MEANING: Record<ReferralState, string> = {
-  Open: "Waiting for a judge to claim",
-  Claimed: "Being considered by the judiciary",
+  Open: "A Team leader or Delivery Manager will check this referral and send it to a Master.",
+  // The fallback, as `REFERRAL_STATE_LABEL`'s: an assigned referral names its Master and the due date.
+  Claimed: "Waiting for a direction from a Master",
   Decided: "Direction received — action needed",
   Closed: "Direction actioned",
   Withdrawn: "Withdrawn before a direction"
@@ -122,8 +152,16 @@ export const CONFIRMATION_OUTCOME_CHOICES: { value: ConfirmationOutcome; text: s
   text: CONFIRMATION_OUTCOME_LABEL[outcome]
 }));
 
-/** The reason checkboxes, in api's published order. Built from the member array, never typed out. */
-export const REFERRAL_REASON_CHOICES: { value: ReferralReason; text: string }[] = REFERRAL_REASON.map((reason) => ({
+/** The reason checkboxes, in api's published order, without the minor's details, which `Minor` reveals. */
+export const REFERRAL_REASON_CHOICES: { value: ReferralReason; text: string }[] = REFERRAL_REASON.filter(
+  (reason) => !MINOR_DETAIL_REASONS.includes(reason)
+).map((reason) => ({
+  value: reason,
+  text: REFERRAL_REASON_LABEL[reason]
+}));
+
+/** The minor's details, the checkboxes revealed beneath "Applicant is a minor". */
+export const MINOR_DETAIL_CHOICES: { value: ReferralReason; text: string }[] = MINOR_DETAIL_REASONS.map((reason) => ({
   value: reason,
   text: REFERRAL_REASON_LABEL[reason]
 }));
@@ -159,17 +197,18 @@ export const REFERRAL_URGENCY_CHOICES: { value: Urgency; text: string }[] = URGE
  */
 export function buildReferralDetail(referral: Referral): ReferralView {
   const state = referral.state ?? null;
+  const assignment = buildAssignmentView(referral);
 
   return {
     id: referral.id,
     // The caseworker's words, not api's member — see `REFERRAL_STATE_LABEL`. Absent means api published no
     // state, which is a claim about the read rather than about the referral.
-    state: state ? REFERRAL_STATE_LABEL[state] : NOT_RECORDED,
+    state: stateLabel(state, assignment),
     // Null rather than a placeholder sentence: there is nothing true to say about a state this app cannot
     // read, and the page leaves the line out instead of explaining an unknown.
-    stateMeaning: state ? REFERRAL_STATE_MEANING[state] : null,
+    stateMeaning: stateMeaning(state, assignment),
     stateTagClasses: state ? REFERRAL_STATE_TAG[state] : "govuk-tag--grey",
-    reasons: referral.reasons.map(referralReasonLabel),
+    reasons: referralReasonLabels(referral.reasons),
     migrated: referral.migrated,
     notes: orPlaceholder(referral.notes, NOT_PROVIDED),
     urgency: referral.urgency ? REFERRAL_URGENCY_LABEL[referral.urgency] : NOT_PROVIDED,
@@ -181,6 +220,7 @@ export function buildReferralDetail(referral: Referral): ReferralView {
     live: isLive(state),
     canWithdraw: state === "Open" || state === "Claimed",
     canClose: state === "Decided",
+    assignment,
     claim: buildClaimView(referral),
     direction: buildDirectionView(referral),
     // Beside the direction rather than inside it: a withdrawal clears the direction and api keeps the flag, so
@@ -221,7 +261,7 @@ export function buildReferralsView(referrals: Referral[]): ReferralsView {
     rows,
     count: rows.length,
     liveReferral: live
-      ? { id: live.id, state: live.state ? REFERRAL_STATE_LABEL[live.state] : NOT_RECORDED, message: liveReferralMessage(live.state ?? null) }
+      ? { id: live.id, state: stateLabel(live.state ?? null, buildAssignmentView(live)), message: liveReferralMessage(live.state ?? null) }
       : null,
     unavailable: false,
     offerRaise: live === undefined
@@ -262,6 +302,24 @@ export function referralReasonLabel(reason: string): string {
 }
 
 /**
+ * A referral's reasons as a reader sees them: one entry each, with a minor's details folded into "Applicant is a
+ * minor" — "Applicant is a minor: Transgender, Have parental consent" — because a detail standing alone in a list
+ * ("Court Order") does not say whose. In the stored order otherwise, so the list reads as the caseworker ticked it.
+ * A detail stored without `Minor`, which api refuses but an older row could hold, keeps its own entry rather than
+ * being dropped. Both personas read this, for `referralReasonLabel`'s reason.
+ */
+export function referralReasonLabels(reasons: readonly string[]): string[] {
+  const details = reasons.filter((reason) => MINOR_DETAIL_REASONS.includes(reason as ReferralReason));
+  const folded = reasons.includes("Minor") && details.length > 0;
+
+  return reasons
+    .filter((reason) => !(folded && details.includes(reason)))
+    .map((reason) =>
+      folded && reason === "Minor" ? `${referralReasonLabel(reason)}: ${details.map(referralReasonLabel).join(", ")}` : referralReasonLabel(reason)
+    );
+}
+
+/**
  * Is this the case's live referral — the one that stops a second being raised?
  *
  * **api's `isTerminal()` negated, and deliberately not its `canBeWithdrawn()`.** The two predicates answer
@@ -275,6 +333,42 @@ export function referralReasonLabel(reason: string): string {
  */
 function isLive(state: ReferralState | null): boolean {
   return state === null || !TERMINAL_REFERRAL_STATES.includes(state);
+}
+
+/**
+ * The Master a referral is assigned to, when, and when their direction is due — or null with no Master on it.
+ *
+ * Read off api's `assignedMaster`, never off `claimedBy`: a claim made before assignment existed has a holder and no
+ * assignment, and keeps its claim row instead. `directionDueBy` is api's own answer (it is null once directed), so
+ * nothing here adds the processing window to `assignedAt`.
+ */
+function buildAssignmentView(referral: Referral): ReferralAssignmentView | null {
+  const master = referral.assignedMaster;
+  if (master === null || master === undefined) return null;
+
+  return {
+    masterName: orPlaceholder(master.name, NOT_RECORDED),
+    hasName: typeof master.name === "string" && master.name.trim().length > 0,
+    assignedOn: formatTimestamp(referral.assignedAt),
+    directionDueBy: referral.directionDueBy ? formatShortDate(referral.directionDueBy) : null
+  };
+}
+
+/** "With {name}" for an assigned `Claimed` referral, else the state's own label. */
+function stateLabel(state: ReferralState | null, assignment: ReferralAssignmentView | null): string {
+  if (state === null) return NOT_RECORDED;
+  if (state === "Claimed" && assignment?.hasName) return `With ${assignment.masterName}`;
+
+  return REFERRAL_STATE_LABEL[state];
+}
+
+/** "Waiting for a direction from {name}, due by dd-mm-yy" for an assigned `Claimed` referral, else the state's own. */
+function stateMeaning(state: ReferralState | null, assignment: ReferralAssignmentView | null): string | null {
+  if (state === null) return null;
+  if (state !== "Claimed" || assignment === null) return REFERRAL_STATE_MEANING[state];
+  const from = assignment.hasName ? `Waiting for a direction from ${assignment.masterName}` : REFERRAL_STATE_MEANING.Claimed;
+
+  return assignment.directionDueBy ? `${from}, due by ${assignment.directionDueBy}` : from;
 }
 
 /**
@@ -302,7 +396,7 @@ function buildClaimView(referral: Referral): ReferralClaimView | null {
  * so this renders the ordinary "not provided" placeholder inside a section that is there; a referral with no
  * direction at all has no section. The two states say different things and must look different.
  *
- * **`publishToGazette` stays a boolean**, as `../judicial/view.ts` keeps it: null means the judge did not
+ * **`changesToStandardPublication` stays a boolean**, as `../judicial/view.ts` keeps it: null means the judge did not
  * answer, and turning that into "No" would record a decision nobody made. The two words belong to the page's
  * `en`/`cy`, not to a library.
  *
@@ -317,7 +411,7 @@ function buildDirectionView(referral: Referral): ReferralDirectionView | null {
   return {
     decision: referral.decision ? MASTER_DECISION_LABEL[referral.decision] : NOT_RECORDED,
     directionsText: orPlaceholder(referral.directionsText, NOT_PROVIDED),
-    publishToGazette: referral.publishToGazette ?? null,
+    changesToStandardPublication: referral.changesToStandardPublication ?? null,
     decidedBy: orPlaceholder(referral.decidedBy, NOT_RECORDED),
     decidedOn: formatTimestamp(referral.decisionDate)
   };
@@ -363,13 +457,15 @@ function buildConfirmationView(referral: Referral): ReferralConfirmationView | n
 /**
  * Which message the referrals tab shows in place of the raise button, given the live referral's state.
  *
- * A key and not a sentence, so the page's `en`/`cy` owns the copy. Three cases because there are three things
- * to say: one is with the judiciary and will come back, one has come back and needs actioning, and one is in a
+ * A key and not a sentence, so the page's `en`/`cy` owns the copy. Four cases because there are four things
+ * to say: one is waiting to be sent to a Master (plan Fa1), one is with the judiciary and will come back, one
+ * has come back and needs actioning, and one is in a
  * state this app cannot read — which is not the same as the read having failed (`unavailableReferralsView`)
  * and so cannot borrow that message.
  */
 function liveReferralMessage(state: ReferralState | null): LiveReferralMessage {
   if (state === "Decided") return "directionReceived";
+  if (state === "Open") return "waitingForAssignment";
 
   return state === null ? "stateUnknown" : "withJudiciary";
 }
@@ -414,6 +510,8 @@ export interface ReferralView {
   canWithdraw: boolean;
   /** `Decided`, so there is a direction to mark as actioned. */
   canClose: boolean;
+  /** The assigned Master, or null on a referral with none — see `buildAssignmentView`. */
+  assignment: ReferralAssignmentView | null;
   /** The judge's claim, or null on a referral nobody has picked up. */
   claim: ReferralClaimView | null;
   /** The returned direction, or null on a referral that has none. */
@@ -438,17 +536,27 @@ export interface ReferralConfirmationView {
   recordedBy: string | null;
 }
 
+/** The Master a referral is assigned to. */
+export interface ReferralAssignmentView {
+  masterName: string;
+  /** api sent a name, so the state can say "With {name}" rather than "With Not recorded". */
+  hasName: boolean;
+  assignedOn: string;
+  /** `dd-mm-yy`, or null once directed or when api sent none. */
+  directionDueBy: string | null;
+}
+
 /** Who is holding, or held, the referral. Both fields or neither — see `buildClaimView`. */
 export interface ReferralClaimView {
   claimedBy: string;
   claimedOn: string;
 }
 
-/** The direction a judge returned. `publishToGazette` is a boolean — see `buildDirectionView`. */
+/** The direction a judge returned. `changesToStandardPublication` is a boolean — see `buildDirectionView`. */
 export interface ReferralDirectionView {
   decision: string;
   directionsText: string;
-  publishToGazette: boolean | null;
+  changesToStandardPublication: boolean | null;
   decidedBy: string;
   decidedOn: string;
 }
@@ -483,4 +591,4 @@ export interface LiveReferral {
 }
 
 /** The three things the tab may have to say about a live referral. See `liveReferralMessage`. */
-export type LiveReferralMessage = "withJudiciary" | "directionReceived" | "stateUnknown";
+export type LiveReferralMessage = "waitingForAssignment" | "withJudiciary" | "directionReceived" | "stateUnknown";

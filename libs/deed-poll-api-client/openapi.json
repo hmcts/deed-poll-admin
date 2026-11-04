@@ -418,6 +418,182 @@
         "tags": ["caseworker-document-controller"]
       }
     },
+    "/caseworker/cases/{id}/documents/{documentId}/preview": {
+      "get": {
+        "description": "A read-only rendition of the document as one complete PDF, for viewing in place; the original stays on /file, unchanged. PDF passes through after checks, JPEG and PNG become one page, a TIFF one page per frame in order (a JPEG-compressed TIFF, Compression 6 or 7, is deliberately not previewed and answers PREVIEW_INVALID_DOCUMENT), and DOCX is converted. Scoped to the case as /file is: 404 for another case's document, an unknown one, or one with no readable file. Recorded as DOCUMENT_PREVIEWED, not DOCUMENT_DOWNLOADED, once per request before the original is opened, and refused if that cannot be recorded. No range support: a Range header is ignored and the whole PDF is sent. A preview that is not produced is one of four fixed codes, and leaves /file working.",
+        "operationId": "previewCaseDocument",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "documentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "description": "The whole preview, a complete PDF. Never partial: a Range header is ignored.",
+            "headers": {
+              "Accept-Ranges": {
+                "description": "none: there is no range support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Disposition": {
+                "description": "inline, with the fixed filename document-preview.pdf.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "description": "The preview's measured length in bytes.",
+                "schema": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              },
+              "Content-Security-Policy": {
+                "description": "default-src 'none'; sandbox.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "nosniff.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "No such document in this scope, as /file answers: the usual error object."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreviewError"
+                }
+              }
+            },
+            "description": "The preview was not produced and the original download still works. PREVIEW_INVALID_DOCUMENT: This document cannot be previewed. Download the original instead. PREVIEW_LIMIT_EXCEEDED: This document is too large to preview. Download the original instead.",
+            "headers": {
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreviewError"
+                }
+              }
+            },
+            "description": "The preview was not produced and the original download still works. PREVIEW_BUSY: Too many previews are being prepared. Try again in a few seconds, or download the original.",
+            "headers": {
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Whole seconds to wait before trying again: 5 as configured, never more than 60.",
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "The document store would not return the original, as /file answers: the usual error object. Nothing was converted."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreviewError"
+                }
+              }
+            },
+            "description": "The preview was not produced and the original download still works. PREVIEW_UNAVAILABLE: A preview of this document is not available at the moment. Download the original instead.",
+            "headers": {
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Preview a supporting document as a PDF",
+        "tags": ["caseworker-document-controller"],
+        "x-document-preview-limits": {
+          "busyRetryAfterSeconds": 5,
+          "description": "Preview limits only: none changes upload acceptance or the original download. The budget covers conversion and rendering, but not a stalled read of the original, which keeps the document store's own timeouts as the download does. Conversions beyond the per-instance limit are refused with PREVIEW_BUSY, not queued; a PDF takes no conversion slot. Previews of any format beyond maxConcurrentPreviewsPerInstance, counted from the original's read until the response is written, are PREVIEW_BUSY too. Reaching any other limit is PREVIEW_LIMIT_EXCEEDED, never a truncated PDF. maxPages is enforced by the service only for the previews it builds (maxPagesEnforcedFor); a PDF or converted DOCX is served unparsed and uncounted, so the viewer must count its pages and refuse one over maxPages before rendering.",
+          "maxConcurrentConversionsPerInstance": 3,
+          "maxConcurrentPreviewsPerInstance": 8,
+          "maxFramePixels": 25000000,
+          "maxInputBytes": 26214400,
+          "maxOutputBytes": 52428800,
+          "maxPages": 100,
+          "maxPagesEnforcedByViewerFor": ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+          "maxPagesEnforcedFor": ["image/jpeg", "image/png", "image/tiff"],
+          "rangeRequests": "unsupported",
+          "requestBudgetSeconds": 25
+        }
+      }
+    },
     "/caseworker/cases/{id}/emails": {
       "get": {
         "operationId": "emails",
@@ -842,8 +1018,14 @@
             },
             "description": "Created"
           },
+          "400": {
+            "description": "The body is not valid, each field's error named."
+          },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "The case already has a referral that is not closed or withdrawn."
           }
         },
         "tags": ["caseworker-referral-controller"]
@@ -883,6 +1065,61 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": ["caseworker-referral-controller"]
+      }
+    },
+    "/caseworker/cases/{id}/referrals/{referralId}/assignment": {
+      "put": {
+        "operationId": "assign",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "referralId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignReferralRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "masterId names no Master, or one who is not available: \"Select a Master who is available\"."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "The referral has not been sent to a Master (it is Open): \"Send this referral from the queue: it has not been sent to a Master yet.\" Or it is not waiting for a direction (it is Decided, Closed or Withdrawn)."
           }
         },
         "tags": ["caseworker-referral-controller"]
@@ -1715,6 +1952,328 @@
         "tags": ["caseworker-gazette-settings-controller"]
       }
     },
+    "/caseworker/masters": {
+      "get": {
+        "description": "Any deed poll staff role. Every Master, available or not, ordered by name and then id. linked says whether the Master has signed in and been linked to their IDAM account; the account itself is never published. The current window, the cap and each Master's count in it are the referral queue's (GET /caseworker/referral-queue).",
+        "operationId": "listMasters",
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterListResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "List the Masters",
+        "tags": ["caseworker-masters-controller"]
+      },
+      "post": {
+        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). name and email are required and available defaults to true. The email is trimmed and lower-cased; one already on the list, in any case, is 409. The Master is linked to their IDAM account when they first sign in with that address. There is no delete: a Master who leaves is marked unavailable.",
+        "operationId": "createMaster",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMasterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Add a Master to the list",
+        "tags": ["caseworker-masters-controller"]
+      }
+    },
+    "/caseworker/masters/{id}": {
+      "patch": {
+        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). A keyed patch of name, email and available, at least one of them, with the revision read; a stale revision is 409 with no change, and saving the current values is a no-op. An email another Master holds is 409. Changing the email of a linked Master unlinks it: the new address must sign in to link again.",
+        "operationId": "updateMaster",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMasterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Change a Master's name, email or availability",
+        "tags": ["caseworker-masters-controller"]
+      }
+    },
+    "/caseworker/process-settings": {
+      "get": {
+        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). Seeded with a processing window of 10080 minutes (7 days), a 48-hour reminder interval, a cap of 10 referrals sent per window across all Masters, and referral windows of 07:00-10:30 and 14:00-14:30 Europe/London, at revision 0 with null attribution.",
+        "operationId": "getProcessSettings",
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessSettingsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Read the Delivery Manager's process settings",
+        "tags": ["caseworker-process-settings-controller"]
+      },
+      "put": {
+        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). Supply the revision read with the form; a stale revision returns 409 with no change, even when the value already matches. A change increments revision, records attribution and is audited. Saving the current values at the current revision is a no-op. referralClaimExpiryMinutes (the processing window: how long a Master has to give a direction before the referral is unassigned) and revision are required. The other settings are optional for one release: an absent one keeps its stored value, and each changed setting writes its own history row. Window times are HH:mm on the quarter hour, each window starting before it ends and the morning window ending before the afternoon one starts. A new processing window applies from the next sweep; saving it releases nothing itself, and raising it never restores a referral already released.",
+        "operationId": "updateProcessSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProcessSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessSettingsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Update the Delivery Manager's process settings",
+        "tags": ["caseworker-process-settings-controller"]
+      }
+    },
+    "/caseworker/process-settings/bank-holidays": {
+      "get": {
+        "description": "Any deed poll staff role. Every listed England and Wales bank holiday, earliest first. Seeded with GOV.UK's published dates for 2026, 2027 and 2028; nothing is fetched from GOV.UK.",
+        "operationId": "listBankHolidays",
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BankHolidayResponse"
+                  }
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "List the bank holidays",
+        "tags": ["caseworker-bank-holidays-controller"]
+      },
+      "post": {
+        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). date (yyyy-MM-dd) and name are required. A date already listed is 409. The referral windows and Master reminders skip it from their next decision.",
+        "operationId": "addBankHoliday",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBankHolidayRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankHolidayResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Add a bank holiday",
+        "tags": ["caseworker-bank-holidays-controller"]
+      }
+    },
+    "/caseworker/process-settings/bank-holidays/{date}": {
+      "delete": {
+        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). 204 with no body; a date that is not listed, or is not a yyyy-MM-dd date, is 404.",
+        "operationId": "removeBankHoliday",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "date",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Remove a bank holiday",
+        "tags": ["caseworker-bank-holidays-controller"]
+      }
+    },
+    "/caseworker/referral-queue": {
+      "get": {
+        "description": "Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ALLOCATE_REFERRALS); anyone else is 403 before anything is read. state=Open (the default) lists the referrals waiting to be sent to a Master, urgent first, then the oldest raised, then id; state=Claimed lists those sent and not yet directed, for reassigning, the oldest sent first, then id. Any other state is 400 on state. page (1-based) and size (default 25, at most 100) as the case list takes them. Across every case. window says whether a referral window is open now (current, null outside one), which opens next, the cap across all Masters, how many referrals were sent in the open window whatever happened to them since, and each available Master's share. No subject or email address is published.",
+        "operationId": "listReferralQueue",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralQueueResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "List the referral queue",
+        "tags": ["caseworker-referral-queue-controller"]
+      }
+    },
+    "/caseworker/referral-queue/sends": {
+      "post": {
+        "description": "Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ALLOCATE_REFERRALS); anyone else is 403 before any field of the body is read (only a body that is not JSON at all is the fixed 400 first). Sends each named referral, waiting in the queue, to the Master named beside it, together and all or nothing: any refusal sends none. Only while a referral window is open (409 outside one, naming when the next opens). Each referral must be Open (409 on allocations[i].referralId), and each Master available (400 on allocations[i].masterId). The referrals already sent in the window, except any since withdrawn, plus these must not exceed the cap across all Masters (409, saying how many more fit). A referral already sent to the same Master in the same window is skipped rather than refused, so the same body sent again is 200 and changes nothing. Each one sent is Claimed by its Master, starts the processing window and gets a case note and an audit event.",
+        "operationId": "sendReferrals",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendReferralsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralSendResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "The body is not valid, each entry's error named (allocations[2].masterId); or a Master is unknown or not available, on allocations[i].masterId: \"Select a Master who is available\". Nothing is sent."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "Nothing is sent. No referral window is open: \"Referrals can only be sent during a referral window. The next one opens at 14:00 today.\"; or a referral is not waiting to be sent, on allocations[i].referralId: \"This referral is no longer waiting to be sent\"; or the send would take the window past the cap across all Masters: \"Only 3 more referrals can be sent this morning. Remove 2 and try again.\""
+          }
+        },
+        "summary": "Send referrals from the queue to Masters",
+        "tags": ["caseworker-referral-queue-controller"]
+      }
+    },
     "/caseworker/saved-queries": {
       "get": {
         "operationId": "savedQueries",
@@ -1908,6 +2467,8 @@
     },
     "/judicial/referrals": {
       "get": {
+        "deprecated": true,
+        "description": "Deprecated: referrals are assigned to a Master by the office, so no judge can see a referral waiting for assignment and this always answers an empty page, with a total of 0. Kept for one release for the admin that still calls it; a later release removes it. Use GET /judicial/referrals/mine.",
         "operationId": "pool",
         "parameters": [
           {
@@ -1942,6 +2503,7 @@
             "$ref": "#/components/responses/Forbidden"
           }
         },
+        "summary": "The former shared pool, now always empty",
         "tags": ["judicial-referral-controller"]
       }
     },
@@ -1986,7 +2548,7 @@
     },
     "/judicial/referrals/{referralId}": {
       "get": {
-        "description": "Requires the judicial role. The referral, the whole application (details, witnesses and the documents a download would serve, but no case id and no payment or refund data), and its notes. Recorded as CASE_VIEWED. 404, in the words an unknown id gets, for a referral this judge may not see: one held or directed by another judge, and every referral once it is closed or withdrawn.",
+        "description": "Requires the judicial role. The referral and the application as a Master sees it: the reference, the new and old names, the type, the nationality and section, a minor's parents, and the documents a download would serve. No case id, contact details, witnesses or case notes. Recorded as CASE_VIEWED. 404, in the words an unknown id gets, for a referral this judge may not see: one waiting for assignment, one assigned to or directed by another judge, and every referral once it is closed or withdrawn. Opening it does not extend the processing window.",
         "operationId": "referral",
         "parameters": [
           {
@@ -2013,12 +2575,14 @@
             "$ref": "#/components/responses/Forbidden"
           }
         },
-        "summary": "Read a referral and the whole application behind it",
+        "summary": "Read a referral and the application behind it",
         "tags": ["judicial-referral-controller"]
       }
     },
     "/judicial/referrals/{referralId}/claim": {
       "post": {
+        "deprecated": true,
+        "description": "Deprecated: referrals are assigned to a Master by the office. A referral waiting for assignment is visible to no judge, so this is 404 for it, and 409 for a referral already assigned to this judge. Kept for one release for the admin that still calls it; a later release removes it.",
         "operationId": "claim",
         "parameters": [
           {
@@ -2045,6 +2609,7 @@
             "$ref": "#/components/responses/Forbidden"
           }
         },
+        "summary": "Claim a referral from the former shared pool",
         "tags": ["judicial-referral-controller"]
       }
     },
@@ -2091,7 +2656,7 @@
         "tags": ["judicial-referral-controller"]
       },
       "put": {
-        "description": "Requires the judicial role. Permitted while the referral is Decided and this judge directed it, which is until the office closes it; a visible referral that is not their direction (the pool, or their own claim) is 409, and a closed one is 404. Takes the direction POST's body and refuses it in the same words (400). Replaces the decision, directionsText and publishToGazette, moves decisionDate to now, keeps decidedBy as first signed, and sets directionChangedAt. The original direction stays on the audit trail; the caseworker is told by a case note and directionChangedAt.",
+        "description": "Requires the judicial role. Permitted while the referral is Decided and this judge directed it, which is until the office closes it; a visible referral that is not their direction (their own undirected one) is 409, and a closed one is 404. Takes the direction POST's body and refuses it in the same words (400). Replaces the decision, directionsText and changesToStandardPublication, moves decisionDate to now, keeps decidedBy as first signed, and sets directionChangedAt. The original direction stays on the audit trail; the caseworker is told by a case note and directionChangedAt.",
         "operationId": "reviseDirection",
         "parameters": [
           {
@@ -2134,7 +2699,7 @@
     },
     "/judicial/referrals/{referralId}/direction/withdraw": {
       "post": {
-        "description": "Requires the judicial role. No body. Permitted while the referral is Decided and this judge directed it; otherwise 409, or 404 once closed. The referral returns to Claimed, held by the same judge, with the decision, directionsText, publishToGazette, decisionDate and decidedBy cleared, and directionChangedAt set. The judge directs again with POST .../direction. A withdrawn direction is a live claim again: if the judge does not direct it within the claim's inactivity window, the inactivity sweep returns it to the shared pool, where any judge may claim it.",
+        "description": "Requires the judicial role. No body. Permitted while the referral is Decided and this judge directed it; otherwise 409, or 404 once closed. The referral returns to Claimed, held by the same judge, with the decision, directionsText, changesToStandardPublication, decisionDate and decidedBy cleared, and directionChangedAt set. The judge directs again with POST .../direction. Withdrawing restarts the processing window: assignedAt becomes now, and directionDueBy moves with it. If the judge does not direct it within the window, it is returned to the queue to be sent again like any other.",
         "operationId": "withdrawDirection",
         "parameters": [
           {
@@ -2167,7 +2732,7 @@
     },
     "/judicial/referrals/{referralId}/documents/{documentId}/file": {
       "get": {
-        "description": "Requires the judicial role. The documentId is one of the referral's application.documents. Any judge may open the documents of an Open referral, the holder those of a Claimed one and the directing judge those of a Decided one. Recorded as DOCUMENT_DOWNLOADED before the file is opened, and refused if that cannot be recorded. Served with the caseworker download's headers: the recorded MIME type, its disposition and Cache-Control: no-store. 404 for a referral this judge may not see, and for a document that is not this referral's case's or has no readable file.",
+        "description": "Requires the judicial role. The documentId is one of the referral's application.documents. The assigned Master may open the documents of a Claimed referral and the directing judge those of a Decided one. Recorded as DOCUMENT_DOWNLOADED before the file is opened, and refused if that cannot be recorded. Served with the caseworker download's headers: the recorded MIME type, its disposition and Cache-Control: no-store. 404 for a referral this judge may not see, and for a document that is not this referral's case's or has no readable file.",
         "operationId": "document",
         "parameters": [
           {
@@ -2205,6 +2770,182 @@
         },
         "summary": "Download one of the application's supporting documents",
         "tags": ["judicial-referral-controller"]
+      }
+    },
+    "/judicial/referrals/{referralId}/documents/{documentId}/preview": {
+      "get": {
+        "description": "Requires the judicial role. The documentId is one of the referral's application.documents, and who may preview it is exactly who may download it from /file: the assigned Master for a Claimed referral and the directing judge for a Decided one. A read-only rendition as one complete PDF; the original stays on /file, unchanged. PDF passes through after checks, JPEG and PNG become one page, a TIFF one page per frame in order (a JPEG-compressed TIFF, Compression 6 or 7, is deliberately not previewed and answers PREVIEW_INVALID_DOCUMENT), and DOCX is converted. Recorded as DOCUMENT_PREVIEWED, not DOCUMENT_DOWNLOADED, once per request before the original is opened, and refused if that cannot be recorded. 404 for a referral this judge may not see, and for a document that is not this referral's case's or has no readable file. No range support: a Range header is ignored and the whole PDF is sent. A preview that is not produced is one of four fixed codes, and leaves /file working.",
+        "operationId": "previewReferralDocument",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "referralId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "documentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "description": "The whole preview, a complete PDF. Never partial: a Range header is ignored.",
+            "headers": {
+              "Accept-Ranges": {
+                "description": "none: there is no range support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Disposition": {
+                "description": "inline, with the fixed filename document-preview.pdf.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "description": "The preview's measured length in bytes.",
+                "schema": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              },
+              "Content-Security-Policy": {
+                "description": "default-src 'none'; sandbox.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "nosniff.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "No such document in this scope, as /file answers: the usual error object."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreviewError"
+                }
+              }
+            },
+            "description": "The preview was not produced and the original download still works. PREVIEW_INVALID_DOCUMENT: This document cannot be previewed. Download the original instead. PREVIEW_LIMIT_EXCEEDED: This document is too large to preview. Download the original instead.",
+            "headers": {
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreviewError"
+                }
+              }
+            },
+            "description": "The preview was not produced and the original download still works. PREVIEW_BUSY: Too many previews are being prepared. Try again in a few seconds, or download the original.",
+            "headers": {
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Whole seconds to wait before trying again: 5 as configured, never more than 60.",
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "The document store would not return the original, as /file answers: the usual error object. Nothing was converted."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreviewError"
+                }
+              }
+            },
+            "description": "The preview was not produced and the original download still works. PREVIEW_UNAVAILABLE: A preview of this document is not available at the moment. Download the original instead.",
+            "headers": {
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Preview one of the application's supporting documents as a PDF",
+        "tags": ["judicial-referral-controller"],
+        "x-document-preview-limits": {
+          "busyRetryAfterSeconds": 5,
+          "description": "Preview limits only: none changes upload acceptance or the original download. The budget covers conversion and rendering, but not a stalled read of the original, which keeps the document store's own timeouts as the download does. Conversions beyond the per-instance limit are refused with PREVIEW_BUSY, not queued; a PDF takes no conversion slot. Previews of any format beyond maxConcurrentPreviewsPerInstance, counted from the original's read until the response is written, are PREVIEW_BUSY too. Reaching any other limit is PREVIEW_LIMIT_EXCEEDED, never a truncated PDF. maxPages is enforced by the service only for the previews it builds (maxPagesEnforcedFor); a PDF or converted DOCX is served unparsed and uncounted, so the viewer must count its pages and refuse one over maxPages before rendering.",
+          "maxConcurrentConversionsPerInstance": 3,
+          "maxConcurrentPreviewsPerInstance": 8,
+          "maxFramePixels": 25000000,
+          "maxInputBytes": 26214400,
+          "maxOutputBytes": 52428800,
+          "maxPages": 100,
+          "maxPagesEnforcedByViewerFor": ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+          "maxPagesEnforcedFor": ["image/jpeg", "image/png", "image/tiff"],
+          "rangeRequests": "unsupported",
+          "requestBudgetSeconds": 25
+        }
       }
     },
     "/me": {
@@ -2256,6 +2997,42 @@
           }
         }
       },
+      "AssignReferralRequest": {
+        "additionalProperties": true,
+        "description": "Moves a referral already sent to a Master to another. Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ALLOCATE_REFERRALS), while the referral is Claimed (sent, waiting for a direction), at any time, inside a referral window or not. It takes no place in any window and checks no cap: the referral keeps the window it was sent in. The Master it already has is a no-op that records nothing. Otherwise the referral's processing window and its reminders restart from now.",
+        "properties": {
+          "masterId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The Masters-list entry to assign the referral to. An unknown or unavailable Master is a 400 on masterId: \"Select a Master who is available\"."
+          }
+        },
+        "required": ["masterId"]
+      },
+      "AssignedMasterResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "BankHolidayResponse": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "The date, yyyy-MM-dd."
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "CallerAccessResponse": {
         "type": "object",
         "properties": {
@@ -2264,7 +3041,16 @@
             "description": "The caller's capabilities, in declaration order",
             "items": {
               "type": "string",
-              "enum": ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD", "ACCESS_GAZETTE"]
+              "enum": [
+                "OVERRIDE_PRIVACY",
+                "DELETE_NOTE",
+                "DELETE_WITNESS",
+                "MANAGE_SHARED_QUERIES",
+                "REPAIR_CCD",
+                "ACCESS_GAZETTE",
+                "MANAGE_PROCESS_CONFIG",
+                "ALLOCATE_REFERRALS"
+              ]
             }
           },
           "judicial": {
@@ -2780,6 +3566,23 @@
           }
         }
       },
+      "CreateBankHolidayRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "yyyy-MM-dd. A date already listed returns 409."
+          },
+          "name": {
+            "type": "string",
+            "description": "Trimmed first: the bounds hold for the trimmed value, so a blank is refused.",
+            "maxLength": 200,
+            "minLength": 1
+          }
+        },
+        "required": ["date", "name"]
+      },
       "CreateCaseRequest": {
         "additionalProperties": true,
         "description": "Every field is optional: a case is logged incrementally. An omitted field is left alone and an explicit null clears the column, where the column is nullable. Unknown keys are ignored. dateReceived is needed to allocate a reference number, so a create without it is a 400 attributed to that field.",
@@ -2897,7 +3700,9 @@
             "enum": ["Approved", "Rejected", null]
           },
           "masterDirections": {
-            "type": ["string", "null"]
+            "type": ["string", "null"],
+            "description": "A line break counts as one character towards maxLength, whether it is sent as LF, CRLF or CR.",
+            "maxLength": 2000
           },
           "masterName": {
             "type": ["string", "null"]
@@ -2966,7 +3771,9 @@
             "enum": ["Yes", "No", null]
           },
           "referralNotes": {
-            "type": ["string", "null"]
+            "type": ["string", "null"],
+            "description": "A line break counts as one character towards maxLength, whether it is sent as LF, CRLF or CR.",
+            "maxLength": 2000
           },
           "refundAmount": {
             "type": ["number", "null"]
@@ -3005,7 +3812,9 @@
             "type": "boolean"
           },
           "returnReason": {
-            "type": ["string", "null"]
+            "type": ["string", "null"],
+            "description": "A line break counts as one character towards maxLength, whether it is sent as LF, CRLF or CR.",
+            "maxLength": 2000
           },
           "signatureReceivedDate": {
             "type": ["string", "null"],
@@ -3042,6 +3851,27 @@
           }
         }
       },
+      "CreateMasterRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "Defaults to true."
+          },
+          "email": {
+            "type": "string",
+            "description": "Trimmed and lower-cased; exactly one @ and no whitespace. An address another Master holds, in any case, returns 409.",
+            "maxLength": 320
+          },
+          "name": {
+            "type": "string",
+            "description": "Trimmed first: the bounds hold for the trimmed value, so a blank is refused.",
+            "maxLength": 200,
+            "minLength": 1
+          }
+        },
+        "required": ["email", "name"]
+      },
       "CreateNoteRequest": {
         "additionalProperties": true,
         "description": "The note text. Trimmed before validation, and the trimmed value is what is stored. The author comes from the caller's token and the case from the path, so neither can be set here. Unknown keys are ignored.",
@@ -3056,7 +3886,7 @@
       },
       "CreateReferralRequest": {
         "additionalProperties": true,
-        "description": "A referral of the case to the judiciary, raised unclaimed into the shared pool. reasons is the only field required outright; notes is required when Other is among them, and urgencyReason when urgency is Urgent. The case comes from the path, the state is always Open, and there is no target judge -- who picks a referral up is a later transition -- so state, migrated and any assignee are ignored rather than refused, as any unknown key is. A case may hold many referrals over its lifetime but only one that is not closed or withdrawn, so a second live referral is a 409 rather than a 400.",
+        "description": "A referral of the case to a Master. It is created Open, waiting in the referral queue until a Team leader or Delivery Manager sends it to a Master; a masterId is ignored, as any unknown key is. reasons is the only field required outright; notes is required when Other is among them, and urgencyReason when urgency is Urgent. The case comes from the path and the state is always Open, so state and migrated are ignored rather than refused, as any unknown key is. A case may hold many referrals over its lifetime but only one that is not closed or withdrawn, so a second live referral is a 409 rather than a 400.",
         "properties": {
           "notes": {
             "type": "string",
@@ -3065,11 +3895,26 @@
           },
           "reasons": {
             "type": "array",
-            "description": "Why the case is being referred. At least one, de-duplicated, and stored in the order they are sent. Other requires notes.",
+            "description": "Why the case is being referred. At least one, de-duplicated, and stored in the order they are sent. Other requires notes. The Minor* details (MinorTransgender and the rest) say what kind of minor's application it is: Minor requires at least one, each is accepted only beside it, and the three consent pairs (parental, stepparent, a 16 or 17 year old's own) cannot both be named.",
             "items": {
               "type": "string",
               "description": "Matched exactly, as the stored form is the wire form.",
-              "enum": ["Minor", "DomesticAbuse", "NonPublication", "DeclarantRequirementsNotMet", "SeparatedOrEstranged", "Other"]
+              "enum": [
+                "Minor",
+                "DomesticAbuse",
+                "NonPublication",
+                "DeclarantRequirementsNotMet",
+                "SeparatedOrEstranged",
+                "Other",
+                "MinorTransgender",
+                "MinorParentalConsent",
+                "MinorNoParentalConsent",
+                "MinorStepparentConsent",
+                "MinorNoStepparentConsent",
+                "MinorCourtOrder",
+                "MinorAged16Or17Consented",
+                "MinorAged16Or17NotConsented"
+              ]
             },
             "minItems": 1
           },
@@ -3136,7 +3981,7 @@
       },
       "CreateWitnessRequest": {
         "additionalProperties": true,
-        "description": "A witness or declarant. All four fields are required: every column is NOT NULL. declarant must be a JSON boolean -- the string \"true\" is refused rather than coerced. Values are stored as submitted and not trimmed. The case comes from the path and no author is recorded, so neither can be set here. Unknown keys are ignored.",
+        "description": "A witness or declarant. All four fields are required: every column is NOT NULL. declarant must be a JSON boolean -- the string \"true\" is refused rather than coerced. The three text fields are trimmed, stored trimmed, and refused if blank; each maximum is measured after trimming. The case comes from the path and no author is recorded, so neither can be set here. Unknown keys are ignored.",
         "properties": {
           "declarant": {
             "type": "boolean",
@@ -3144,19 +3989,40 @@
           },
           "witnessAddress": {
             "type": "string",
-            "description": "The whole address as one free-text field, exactly as the source form holds it.",
-            "maxLength": 250
+            "description": "The whole address as one free-text field, exactly as the source form holds it. Trimmed first: the bounds hold for the trimmed value, which is what is stored, so a blank is refused.",
+            "maxLength": 250,
+            "minLength": 1
           },
           "witnessName": {
             "type": "string",
-            "maxLength": 100
+            "description": "Trimmed first: the bounds hold for the trimmed value, which is what is stored, so a blank is refused.",
+            "maxLength": 100,
+            "minLength": 1
           },
           "witnessOccupation": {
             "type": "string",
-            "maxLength": 100
+            "description": "Trimmed first: the bounds hold for the trimmed value, which is what is stored, so a blank is refused.",
+            "maxLength": 100,
+            "minLength": 1
           }
         },
         "required": ["declarant", "witnessAddress", "witnessName", "witnessOccupation"]
+      },
+      "DocumentPreviewError": {
+        "type": "object",
+        "description": "A document preview that was not produced. The original download is unaffected.",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The stable code to switch on.",
+            "enum": ["PREVIEW_INVALID_DOCUMENT", "PREVIEW_LIMIT_EXCEEDED", "PREVIEW_UNAVAILABLE", "PREVIEW_BUSY"]
+          },
+          "error": {
+            "type": "string",
+            "description": "A fixed sentence, safe to show. It never names the document or the converter."
+          }
+        },
+        "required": ["code", "error"]
       },
       "DocumentResponse": {
         "type": "object",
@@ -3622,49 +4488,6 @@
       "JudicialApplicationView": {
         "type": "object",
         "properties": {
-          "ageOfMinor": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "ageOfMinorMonths": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "applicantBuildingNoName": {
-            "type": "string"
-          },
-          "applicantEmail": {
-            "type": "string"
-          },
-          "applicantPostcode": {
-            "type": "string"
-          },
-          "applicantTelephone": {
-            "type": "string"
-          },
-          "applicantTownCity": {
-            "type": "string"
-          },
-          "awaitingFurtherDocsInfo": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "dateDecisionDirectionsReceived": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "dateOfApplication": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "dateOfDeclaration": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "dateReceived": {
-            "type": "string",
-            "format": "date-time"
-          },
           "displayReference": {
             "type": "string"
           },
@@ -3673,31 +4496,6 @@
             "items": {
               "$ref": "#/components/schemas/JudicialDocument"
             }
-          },
-          "inPerson": {
-            "type": "boolean"
-          },
-          "maritalStatus": {
-            "type": "string",
-            "enum": ["Single", "MarriedCivilPartnership", "Widowed", "DivorcedDissolved"]
-          },
-          "masterDateOfDecision": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "masterDecision": {
-            "type": "string",
-            "enum": ["Approved", "Rejected"]
-          },
-          "masterDirections": {
-            "type": "string"
-          },
-          "masterName": {
-            "type": "string"
-          },
-          "minorDateOfBirth": {
-            "type": "string",
-            "format": "date-time"
           },
           "nationality": {
             "type": "string",
@@ -3731,73 +4529,9 @@
           "parents": {
             "type": "string"
           },
-          "privacy": {
-            "type": "string",
-            "enum": ["Normal", "Private"]
-          },
-          "referToMasterChoice": {
-            "type": "string",
-            "enum": ["Yes", "No"]
-          },
-          "referralNotes": {
-            "type": "string"
-          },
-          "representativeBuildingNoName": {
-            "type": "string"
-          },
-          "representativeCompany": {
-            "type": "string"
-          },
-          "representativeEmail": {
-            "type": "string"
-          },
-          "representativeName": {
-            "type": "string"
-          },
-          "representativePostcode": {
-            "type": "string"
-          },
-          "representativeTelephone": {
-            "type": "string"
-          },
-          "representativeTownCity": {
-            "type": "string"
-          },
-          "state": {
-            "type": "string",
-            "enum": ["Received", "ReadyForMaster", "ReferredToMaster", "Enroled", "Returned", "AwaitingFurtherDocs", "AwaitingSignature", "AwaitingEnrolment"]
-          },
           "type": {
             "type": "string",
             "enum": ["Adult", "AdultTransgender", "Minor", "MinorTransgender", "DeedOfRelinquishment", "Unknown"]
-          },
-          "urgency": {
-            "type": "string",
-            "enum": ["Normal", "Urgent"]
-          },
-          "urgencyreason": {
-            "type": "string"
-          },
-          "witnesses": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/JudicialWitness"
-            }
-          }
-        }
-      },
-      "JudicialCaseNote": {
-        "type": "object",
-        "properties": {
-          "createdBy": {
-            "type": "string"
-          },
-          "createdOn": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "note": {
-            "type": "string"
           }
         }
       },
@@ -3805,6 +4539,10 @@
         "additionalProperties": true,
         "description": "A judge's direction on a referral, always complete -- there is no draft and no patch, because the check-your-answers page and the attestation are the admin's. POST records it on a referral this caller currently holds, so a referral withdrawn under them or taken back by the inactivity sweep is a 409 rather than a late direction on a referral that moved on. PUT replaces the whole of a direction this caller gave, while the referral is Decided and not yet closed, and is validated identically. The referral comes from the path and the case is resolved from it -- a judicial URL carries no case id -- and the state, decidedBy and decisionDate come from the transition, the token and the clock, so all of them are ignored rather than refused, as any unknown key is.",
         "properties": {
+          "changesToStandardPublication": {
+            "type": "boolean",
+            "description": "The Master's answer to \"Are there any changes to the standard publications in the Gazette?\": true for do not publish, or publish only as directionsText says; false for publish as standard. The judge's decision, never derived from a caseworker's referral reasons. A JSON boolean -- the string \"false\" is refused rather than coerced, because publication cannot be taken back."
+          },
           "decision": {
             "type": "string",
             "description": "What the judge decided. Matched exactly, as the stored form is the wire form.",
@@ -3812,15 +4550,11 @@
           },
           "directionsText": {
             "type": "string",
-            "description": "What the judge directed. Optional: an approval that needs no comment is a real answer. Trimmed, and a whitespace-only value counts as none.",
+            "description": "What the judge directed. Optional on a standard publication: an approval that needs no comment is a real answer. Required when changesToStandardPublication is true, to say whether to publish nothing or what to publish. Trimmed, and a whitespace-only value counts as none.",
             "maxLength": 4000
-          },
-          "publishToGazette": {
-            "type": "boolean",
-            "description": "Whether the change is to be published in the London Gazette. The judge's decision, never derived from a caseworker's referral reasons. A JSON boolean -- the string \"false\" is refused rather than coerced, because publication cannot be taken back."
           }
         },
-        "required": ["decision", "publishToGazette"]
+        "required": ["changesToStandardPublication", "decision"]
       },
       "JudicialDocument": {
         "type": "object",
@@ -3910,13 +4644,16 @@
         "properties": {
           "application": {
             "$ref": "#/components/schemas/JudicialApplicationView",
-            "description": "The application behind the referral, resolved from it: its details, witnesses and readable documents. Never a case id, and no payment or refund data."
+            "description": "The application behind the referral, resolved from it: the names, type, nationality, a minor's parents and its readable documents. Never a case id, contact details or case notes."
           },
-          "caseNotes": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/JudicialCaseNote"
-            }
+          "assignedAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the referral was assigned to this Master, which starts the processing window; null for a claim made before assignment existed."
+          },
+          "changesToStandardPublication": {
+            "type": ["boolean", "null"],
+            "description": "The Master's answer to \"Are there any changes to the standard publications in the Gazette?\": true for do not publish, or publish only as directionsText says; false for publish as standard; null until a direction exists."
           },
           "claimedAt": {
             "type": "string",
@@ -3945,6 +4682,11 @@
             "format": "date-time",
             "description": "When the judge last revised or withdrew their direction, or null if it stands as first given. Set by both and never cleared: a fact about the referral's history, and the earlier direction is on the audit trail."
           },
+          "directionDueBy": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the Master's direction is due: the processing window's start plus its length as configured now. Null once directed."
+          },
           "directionsText": {
             "type": "string"
           },
@@ -3953,9 +4695,6 @@
           },
           "notes": {
             "type": "string"
-          },
-          "publishToGazette": {
-            "type": "boolean"
           },
           "reasons": {
             "type": "array",
@@ -3979,9 +4718,19 @@
       "JudicialReferralSummary": {
         "type": "object",
         "properties": {
+          "assignedAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the referral was assigned to this Master, which starts the processing window; null for a claim made before assignment existed."
+          },
           "createdOn": {
             "type": "string",
             "format": "date-time"
+          },
+          "directionDueBy": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the Master's direction is due: the processing window's start plus its length as configured now. Null once directed."
           },
           "id": {
             "type": "string"
@@ -4008,20 +4757,100 @@
           }
         }
       },
-      "JudicialWitness": {
+      "MasterInWindow": {
         "type": "object",
         "properties": {
-          "declarant": {
-            "type": "boolean"
-          },
-          "witnessAddress": {
+          "id": {
             "type": "string"
           },
-          "witnessName": {
+          "name": {
             "type": "string"
           },
-          "witnessOccupation": {
+          "sentInWindow": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "MasterListEntryResponse": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "Whether the Master may be sent referrals. A Master who leaves is marked unavailable rather than deleted."
+          },
+          "email": {
             "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "linked": {
+            "type": "boolean",
+            "description": "Whether the Master has signed in and so been linked to their IDAM account, by email."
+          },
+          "name": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Supply it with a change; a stale revision returns 409."
+          }
+        }
+      },
+      "MasterListResponse": {
+        "type": "object",
+        "properties": {
+          "masters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MasterListEntryResponse"
+            }
+          }
+        }
+      },
+      "MasterResponse": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "Whether the Master may be assigned referrals. A Master who leaves is marked unavailable rather than deleted."
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "linked": {
+            "type": "boolean",
+            "description": "Whether the Master has signed in and so been linked to their IDAM account, by email."
+          },
+          "name": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Supply it with a change; a stale revision returns 409."
+          }
+        }
+      },
+      "NextWindow": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "opensAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "slot": {
+            "type": "string",
+            "enum": ["AM", "PM"]
           }
         }
       },
@@ -4047,6 +4876,23 @@
           },
           "note": {
             "type": "string"
+          }
+        }
+      },
+      "OpenWindow": {
+        "type": "object",
+        "properties": {
+          "closesAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "slot": {
+            "type": "string",
+            "enum": ["AM", "PM"]
           }
         }
       },
@@ -4088,6 +4934,63 @@
         },
         "required": ["caseIds"]
       },
+      "ProcessSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "afternoonWindowEnd": {
+            "type": "string",
+            "description": "The afternoon referral window's end, Europe/London, HH:mm.",
+            "pattern": "^([01][0-9]|2[0-3]):(00|15|30|45)$"
+          },
+          "afternoonWindowStart": {
+            "type": "string",
+            "description": "The afternoon referral window's start, Europe/London, HH:mm.",
+            "pattern": "^([01][0-9]|2[0-3]):(00|15|30|45)$"
+          },
+          "morningWindowEnd": {
+            "type": "string",
+            "description": "The morning referral window's end, Europe/London, HH:mm.",
+            "pattern": "^([01][0-9]|2[0-3]):(00|15|30|45)$"
+          },
+          "morningWindowStart": {
+            "type": "string",
+            "description": "The morning referral window's start, Europe/London, HH:mm.",
+            "pattern": "^([01][0-9]|2[0-3]):(00|15|30|45)$"
+          },
+          "referralClaimExpiryMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The processing window: how long a Master has to give a direction before the referral is unassigned, in minutes (1 to 30 days). The wire name is the former claim window's.",
+            "maximum": 43200,
+            "minimum": 1440
+          },
+          "reminderIntervalHours": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How often a Master is reminded of their undirected referrals, in hours.",
+            "maximum": 168,
+            "minimum": 1
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updatedAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "updatedBy": {
+            "type": ["string", "null"]
+          },
+          "windowCap": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The most referrals that can be sent to Masters in one referral window, across all Masters.",
+            "maximum": 100,
+            "minimum": 1
+          }
+        }
+      },
       "RecordConfirmationRequest": {
         "additionalProperties": true,
         "description": "The applicant's answer to the Request confirmation to proceed email, as the caseworker who read their reply records it. Recording it does not move the case on: no date is set or cleared, and the caseworker then does whatever the process requires through the ordinary case edit. Idempotent by refusal rather than last-write-wins -- a second answer is a 409 naming what is already recorded and when, and an answer on a referral that was never asked to confirm is a 409 too. The referral comes from the path, and the recording caseworker and the date come from the token and the clock, so confirmationRecordedBy and confirmationReceivedAt are ignored rather than refused, as any unknown key is.",
@@ -4105,9 +5008,177 @@
         },
         "required": ["outcome"]
       },
+      "ReferralQueueItem": {
+        "type": "object",
+        "properties": {
+          "assignedAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When it was sent or last reassigned, which starts the Master's processing window. Null while it is waiting to be sent."
+          },
+          "assignedMaster": {
+            "type": "null",
+            "$ref": "#/components/schemas/AssignedMasterResponse",
+            "description": "The Master it was sent to, as the Masters-list entry's id and the name it was sent under. Null while it is waiting to be sent."
+          },
+          "caseId": {
+            "type": "string",
+            "description": "The case the referral was raised on, which the caseworker case routes address."
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "Who raised the referral."
+          },
+          "createdOn": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the referral was raised; the queue's order after urgency."
+          },
+          "directionDueBy": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When it returns to the queue if the Master has given no direction. Only while it is Claimed; null otherwise."
+          },
+          "displayReference": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "nationality": {
+            "type": "string",
+            "enum": ["BritishCitizen", "BritishDependantTerritoriesCitizen", "CommonwealthCitizen", "Unknown"]
+          },
+          "newForename": {
+            "type": "string"
+          },
+          "newMiddleName": {
+            "type": "string"
+          },
+          "newSurname": {
+            "type": "string"
+          },
+          "oldForename": {
+            "type": "string"
+          },
+          "oldMiddleName": {
+            "type": "string"
+          },
+          "oldSurname": {
+            "type": "string"
+          },
+          "reasons": {
+            "type": "array",
+            "description": "Why the case was referred, as the stored ReferralReason names; empty for a migrated referral.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "state": {
+            "type": "string",
+            "enum": ["Open", "Claimed", "Decided", "Closed", "Withdrawn"]
+          },
+          "type": {
+            "type": "string",
+            "enum": ["Adult", "AdultTransgender", "Minor", "MinorTransgender", "DeedOfRelinquishment", "Unknown"]
+          },
+          "urgency": {
+            "type": "string",
+            "enum": ["Normal", "Urgent"]
+          },
+          "urgencyReason": {
+            "type": "string"
+          },
+          "windowDate": {
+            "type": ["string", "null"],
+            "format": "date",
+            "description": "The working day, in Europe/London, of the window it was sent in. Null while it is waiting to be sent."
+          },
+          "windowSlot": {
+            "type": ["string", "null"],
+            "description": "The morning (AM) or afternoon (PM) of windowDate.",
+            "enum": ["AM", "PM"]
+          }
+        }
+      },
+      "ReferralQueueResponse": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "referrals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReferralQueueItem"
+            }
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "window": {
+            "$ref": "#/components/schemas/ReferralQueueWindowResponse"
+          }
+        }
+      },
+      "ReferralQueueWindowResponse": {
+        "type": "object",
+        "properties": {
+          "cap": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The most referrals that can be sent to Masters in one window, across all Masters."
+          },
+          "current": {
+            "type": "null",
+            "$ref": "#/components/schemas/OpenWindow",
+            "description": "The window open now, in which referrals can be sent, or null between windows and on a day that is not a working day."
+          },
+          "masters": {
+            "type": "array",
+            "description": "Every available Master, by name, with how many of the referrals sent in the open window they hold now: a referral reassigned since keeps its window and counts under its new Master.",
+            "items": {
+              "$ref": "#/components/schemas/MasterInWindow"
+            }
+          },
+          "next": {
+            "$ref": "#/components/schemas/NextWindow",
+            "description": "The next window to open: the open one's successor when one is open."
+          },
+          "sent": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many referrals were sent in the open window and still hold their place (one since withdrawn gives it back), or 0 when none is open."
+          }
+        }
+      },
       "ReferralResponse": {
         "type": "object",
         "properties": {
+          "assignedAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the referral was sent or last reassigned, which starts the Master's processing window; a reassignment restarts it. Null when it is not assigned."
+          },
+          "assignedMaster": {
+            "type": "null",
+            "$ref": "#/components/schemas/AssignedMasterResponse",
+            "description": "The Masters-list entry the referral is assigned to, as its id and the name it was assigned under, or null: an Open referral is waiting to be sent, and a referral claimed before assignment existed has none until that Master is listed and signs in. Kept once directed."
+          },
+          "changesToStandardPublication": {
+            "type": ["boolean", "null"],
+            "description": "The Master's answer to \"Are there any changes to the standard publications in the Gazette?\": true for do not publish, or publish only as directionsText says; false for publish as standard; null until a direction exists."
+          },
           "claimedAt": {
             "type": "string",
             "format": "date-time"
@@ -4153,6 +5224,11 @@
             "format": "date-time",
             "description": "When the judge last revised or withdrew their direction, or null if it stands as first given. Set by both and never cleared: a fact about the referral's history, and the earlier direction is on the audit trail."
           },
+          "directionDueBy": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the referral is unassigned and returned to the queue if the Master has given no direction: the start of the processing window plus its length as currently set. Only while the referral is Claimed; null otherwise."
+          },
           "directionsText": {
             "type": "string"
           },
@@ -4172,9 +5248,6 @@
           "notes": {
             "type": "string"
           },
-          "publishToGazette": {
-            "type": "boolean"
-          },
           "reasons": {
             "type": "array",
             "items": {
@@ -4191,6 +5264,30 @@
           },
           "urgencyReason": {
             "type": "string"
+          },
+          "windowDate": {
+            "type": ["string", "null"],
+            "format": "date",
+            "description": "The working day, in Europe/London, whose referral window the referral was sent in, which the window's cap counts; a reassignment keeps it. Null when it is not assigned."
+          },
+          "windowSlot": {
+            "type": ["string", "null"],
+            "description": "The morning (AM) or afternoon (PM) of windowDate. Null when it is not assigned.",
+            "enum": ["AM", "PM"]
+          }
+        }
+      },
+      "ReferralSendResponse": {
+        "type": "object",
+        "properties": {
+          "referrals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReferralQueueItem"
+            }
+          },
+          "window": {
+            "$ref": "#/components/schemas/ReferralQueueWindowResponse"
           }
         }
       },
@@ -4561,6 +5658,34 @@
           }
         }
       },
+      "SendReferralsRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "allocations": {
+            "type": "array",
+            "description": "The referrals to send together, each with its Master; no referralId twice.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "masterId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The Masters-list entry to send it to. An unknown or unavailable Master is a 400 on masterId: \"Select a Master who is available\"."
+                },
+                "referralId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "A referral waiting in the queue (Open)."
+                }
+              },
+              "required": ["masterId", "referralId"]
+            },
+            "maxItems": 100,
+            "minItems": 1
+          }
+        },
+        "required": ["allocations"]
+      },
       "SentEmailResponse": {
         "type": "object",
         "properties": {
@@ -4720,7 +5845,9 @@
             "enum": ["Approved", "Rejected", null]
           },
           "masterDirections": {
-            "type": ["string", "null"]
+            "type": ["string", "null"],
+            "description": "A line break counts as one character towards maxLength, whether it is sent as LF, CRLF or CR.",
+            "maxLength": 2000
           },
           "masterName": {
             "type": ["string", "null"]
@@ -4789,7 +5916,9 @@
             "enum": ["Yes", "No", null]
           },
           "referralNotes": {
-            "type": ["string", "null"]
+            "type": ["string", "null"],
+            "description": "A line break counts as one character towards maxLength, whether it is sent as LF, CRLF or CR.",
+            "maxLength": 2000
           },
           "refundAmount": {
             "type": ["number", "null"]
@@ -4828,7 +5957,9 @@
             "type": "boolean"
           },
           "returnReason": {
-            "type": ["string", "null"]
+            "type": ["string", "null"],
+            "description": "A line break counts as one character towards maxLength, whether it is sent as LF, CRLF or CR.",
+            "maxLength": 2000
           },
           "signatureReceivedDate": {
             "type": ["string", "null"],
@@ -4883,6 +6014,34 @@
         },
         "required": ["recipientEmail", "revision"]
       },
+      "UpdateMasterRequest": {
+        "additionalProperties": false,
+        "minProperties": 2,
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "False marks a Master who may not be assigned."
+          },
+          "email": {
+            "type": "string",
+            "description": "Trimmed and lower-cased; exactly one @ and no whitespace. An address another Master holds, in any case, returns 409. Changing a linked Master's email unlinks it until the new address signs in.",
+            "maxLength": 320
+          },
+          "name": {
+            "type": "string",
+            "description": "Trimmed first: the bounds hold for the trimmed value, so a blank is refused.",
+            "maxLength": 200,
+            "minLength": 1
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The revision returned by the list; stale values return 409.",
+            "minimum": 0
+          }
+        },
+        "required": ["revision"]
+      },
       "UpdateNoteRequest": {
         "additionalProperties": true,
         "description": "An empty patch is accepted and re-stamps modifiedBy. An explicit null for note is a 400, not a clear: the column is NOT NULL. Unknown keys are ignored.",
@@ -4893,6 +6052,59 @@
             "minLength": 1
           }
         }
+      },
+      "UpdateProcessSettingsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "afternoonWindowEnd": {
+            "type": "string",
+            "description": "A referral window time, Europe/London, HH:mm on the quarter hour. Each window starts before it ends, and the morning window ends before the afternoon one starts. Optional for one release; absent leaves it unchanged, null is refused.",
+            "pattern": "^([01][0-9]|2[0-3]):(00|15|30|45)$"
+          },
+          "afternoonWindowStart": {
+            "type": "string",
+            "description": "A referral window time, Europe/London, HH:mm on the quarter hour. Each window starts before it ends, and the morning window ends before the afternoon one starts. Optional for one release; absent leaves it unchanged, null is refused.",
+            "pattern": "^([01][0-9]|2[0-3]):(00|15|30|45)$"
+          },
+          "morningWindowEnd": {
+            "type": "string",
+            "description": "A referral window time, Europe/London, HH:mm on the quarter hour. Each window starts before it ends, and the morning window ends before the afternoon one starts. Optional for one release; absent leaves it unchanged, null is refused.",
+            "pattern": "^([01][0-9]|2[0-3]):(00|15|30|45)$"
+          },
+          "morningWindowStart": {
+            "type": "string",
+            "description": "A referral window time, Europe/London, HH:mm on the quarter hour. Each window starts before it ends, and the morning window ends before the afternoon one starts. Optional for one release; absent leaves it unchanged, null is refused.",
+            "pattern": "^([01][0-9]|2[0-3]):(00|15|30|45)$"
+          },
+          "referralClaimExpiryMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The processing window: how long a Master has to give a direction before the referral is unassigned, in whole minutes, from 1440 (1 day) to 43200 (30 days). Null, a fraction and a string are refused.",
+            "maximum": 43200,
+            "minimum": 1440
+          },
+          "reminderIntervalHours": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How often a Master is reminded of their undirected referrals, in whole hours, from 1 to 168. Optional for one release; absent leaves it unchanged, null is refused.",
+            "maximum": 168,
+            "minimum": 1
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The revision returned by the settings read; stale values return 409.",
+            "minimum": 0
+          },
+          "windowCap": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The most referrals that can be sent to Masters in one referral window, across all Masters, from 1 to 100. Optional for one release; absent leaves it unchanged, null is refused.",
+            "maximum": 100,
+            "minimum": 1
+          }
+        },
+        "required": ["referralClaimExpiryMinutes", "revision"]
       },
       "UpdateSavedQueryRequest": {
         "additionalProperties": true,
@@ -4951,16 +6163,21 @@
           },
           "witnessAddress": {
             "type": "string",
-            "description": "The whole address as one free-text field, exactly as the source form holds it.",
-            "maxLength": 250
+            "description": "The whole address as one free-text field, exactly as the source form holds it. Trimmed first: the bounds hold for the trimmed value, which is what is stored, so a blank is refused.",
+            "maxLength": 250,
+            "minLength": 1
           },
           "witnessName": {
             "type": "string",
-            "maxLength": 100
+            "description": "Trimmed first: the bounds hold for the trimmed value, which is what is stored, so a blank is refused.",
+            "maxLength": 100,
+            "minLength": 1
           },
           "witnessOccupation": {
             "type": "string",
-            "maxLength": 100
+            "description": "Trimmed first: the bounds hold for the trimmed value, which is what is stored, so a blank is refused.",
+            "maxLength": 100,
+            "minLength": 1
           }
         }
       },

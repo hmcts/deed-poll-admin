@@ -27,7 +27,7 @@ const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferr
     claimedAt: new Date("2026-09-04T09:00:00Z"),
     decision: null,
     directionsText: null,
-    publishToGazette: null,
+    changesToStandardPublication: null,
     decisionDate: null,
     decidedBy: null,
     application: {
@@ -61,7 +61,7 @@ const decided = (): JudicialReferralDetail =>
     state: "Decided",
     decision: "Approved",
     directionsText: "Grant the application.",
-    publishToGazette: true,
+    changesToStandardPublication: false,
     decisionDate: new Date("2026-09-05T16:05:00Z"),
     decidedBy: "a-judge"
   } as Partial<JudicialReferralDetail>);
@@ -70,7 +70,7 @@ const decided = (): JudicialReferralDetail =>
 const posted = (overrides: Record<string, unknown> = {}) => ({
   decision: "Approved",
   directionsText: "Grant the application.",
-  publishToGazette: "false",
+  changesToStandardPublication: "false",
   ...overrides
 });
 
@@ -211,10 +211,12 @@ describe("recording a judicial direction", () => {
     it("should re-render the form at 400 when the Gazette question was not answered", async () => {
       const res = pageResponse();
 
-      await POST(request(posted({ publishToGazette: undefined })), res);
+      await POST(request(posted({ changesToStandardPublication: undefined })), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.render.mock.calls[0][1].errors.publishToGazette).toBe("Select whether this direction is published in the Gazette");
+      expect(res.render.mock.calls[0][1].errors.changesToStandardPublication).toBe(
+        "Select whether there are any changes to the standard publications in the Gazette"
+      );
       expect(recordDirection).not.toHaveBeenCalled();
     });
 
@@ -224,7 +226,7 @@ describe("recording a judicial direction", () => {
       await POST(request(posted({ directionsText: "x".repeat(4001) })), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.render.mock.calls[0][1].errors.directionsText).toBe("Directions must be 4000 characters or fewer");
+      expect(res.render.mock.calls[0][1].errors.directionsText).toBe("Directions or reasons must be 4000 characters or fewer");
     });
 
     // The point of re-rendering rather than redirecting: up to 4,000 characters of a judge's directions are the
@@ -246,9 +248,23 @@ describe("recording a judicial direction", () => {
 
       expect(res.render.mock.calls[0][1].errorList).toEqual([
         { text: "Select whether the application is approved or rejected", href: "#decision" },
-        { text: "Directions must be 4000 characters or fewer", href: "#directionsText" },
-        { text: "Select whether this direction is published in the Gazette", href: "#publishToGazette" }
+        { text: "Select whether there are any changes to the standard publications in the Gazette", href: "#changesToStandardPublication" },
+        { text: "Directions or reasons must be 4000 characters or fewer", href: "#directionsText" }
       ]);
+    });
+
+    // Master Sullivan's feedback (Steve, 2026-10-27): "Yes" alone does not say whether to publish nothing or only the
+    // last name, so the text that says which is required, as api requires it.
+    it("should re-render at 400 asking for the directions when there are changes and none were given", async () => {
+      const res = pageResponse();
+
+      await POST(request(posted({ changesToStandardPublication: "true", directionsText: "  " })), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errorList).toEqual([
+        { text: "Enter the directions or reasons, saying what changes about the Gazette publication", href: "#directionsText" }
+      ]);
+      expect(recordDirection).not.toHaveBeenCalled();
     });
 
     it("should accept a direction with no directions text, because api does not require one", async () => {
@@ -265,13 +281,13 @@ describe("recording a judicial direction", () => {
     it("should show the entered direction back in the judge's words", async () => {
       const res = pageResponse();
 
-      await POST(request(posted({ decision: "Rejected", publishToGazette: "true" })), res);
+      await POST(request(posted({ decision: "Rejected", changesToStandardPublication: "true" })), res);
 
       expect(res.render.mock.calls[0][0]).toBe("judicial/referrals/direction-check");
       expect(res.render.mock.calls[0][1].answers).toEqual({
         decision: "Rejected",
         directionsText: "Grant the application.",
-        publishToGazette: true
+        changesToStandardPublication: true
       });
     });
 
@@ -285,7 +301,7 @@ describe("recording a judicial direction", () => {
       expect(res.render.mock.calls[0][1].values).toEqual({
         decision: "Approved",
         directionsText: "Grant the application.",
-        publishToGazette: "false"
+        changesToStandardPublication: "false"
       });
     });
 
@@ -348,16 +364,16 @@ describe("recording a judicial direction", () => {
       expect(recordDirection).toHaveBeenCalledTimes(1);
       expect(recordDirection).toHaveBeenCalledWith(
         "ref-1",
-        { decision: "Approved", directionsText: "Grant the application.", publishToGazette: false },
+        { decision: "Approved", directionsText: "Grant the application.", changesToStandardPublication: false },
         CALLER
       );
     });
 
-    // `Boolean("false")` is `true`, so this is the assertion that a judge's "no" is not silently a "yes".
+    // `Boolean("false")` is `true`, so this is the assertion that a Master's "no" is not silently a "yes".
     it("should send the Gazette answer the judge gave, not a coercion of it", async () => {
-      await POST(request({ ...posted({ publishToGazette: "true" }), action: "confirm" }), pageResponse());
+      await POST(request({ ...posted({ changesToStandardPublication: "false" }), action: "confirm" }), pageResponse());
 
-      expect(vi.mocked(recordDirection).mock.calls[0][1].publishToGazette).toBe(true);
+      expect(vi.mocked(recordDirection).mock.calls[0][1].changesToStandardPublication).toBe(false);
     });
 
     it("should send no directions text at all when the judge gave none", async () => {
@@ -562,18 +578,18 @@ describe("recording a judicial direction", () => {
 
       const model = res.render.mock.calls[0][1];
       expect(res.render.mock.calls[0][0]).toBe("judicial/referrals/direction-form");
-      expect(model.values).toEqual({ decision: "Approved", directionsText: "Grant the application.", publishToGazette: "true" });
+      expect(model.values).toEqual({ decision: "Approved", directionsText: "Grant the application.", changesToStandardPublication: "false" });
       expect(model.decisionItems.find((item: { checked: boolean }) => item.checked).value).toBe("Approved");
-      expect(model.gazetteItems.find((item: { checked: boolean }) => item.checked).value).toBe("true");
+      expect(model.gazetteItems.find((item: { checked: boolean }) => item.checked).value).toBe("false");
     });
 
     it("should prefill the Gazette answer as unanswered when api recorded none", async () => {
-      vi.mocked(getReferral).mockResolvedValue({ ...decided(), publishToGazette: null, directionsText: null } as never);
+      vi.mocked(getReferral).mockResolvedValue({ ...decided(), changesToStandardPublication: null, directionsText: null } as never);
       const res = pageResponse();
 
       await GET(changeRequest(), res);
 
-      expect(res.render.mock.calls[0][1].values).toEqual({ decision: "Approved", directionsText: "", publishToGazette: undefined });
+      expect(res.render.mock.calls[0][1].values).toEqual({ decision: "Approved", directionsText: "", changesToStandardPublication: undefined });
     });
 
     it("should say change in the heading and post back to the change route", async () => {
@@ -651,7 +667,7 @@ describe("recording a judicial direction", () => {
       expect(changeDirection).toHaveBeenCalledTimes(1);
       expect(changeDirection).toHaveBeenCalledWith(
         "ref-1",
-        { decision: "Rejected", directionsText: "Grant the application.", publishToGazette: false },
+        { decision: "Rejected", directionsText: "Grant the application.", changesToStandardPublication: false },
         CALLER
       );
       expect(recordDirection).not.toHaveBeenCalled();
