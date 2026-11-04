@@ -32,7 +32,91 @@ export const en = {
   rangeShowing: (from: string, to: string) => `Showing ${from} to ${to}`,
   groupedBy: { WEEK: "grouped by week", MONTH: "grouped by month", QUARTER: "grouped by quarter" },
   migratedIncluded: "Cases migrated from the previous system are included.",
-  migratedExcluded: "Cases migrated from the previous system are not included."
+  migratedExcluded: "Cases migrated from the previous system are not included.",
+  periodRange: (start: string, end: string) => `${start} to ${end}`,
+  periodHeadings: { WEEK: "Week", MONTH: "Month", QUARTER: "Quarter" },
+  noCases: "No cases",
+  noPeriods: "There are no periods in this range.",
+  unavailable: "These figures could not be loaded. Try again shortly.",
+  doesNotCountSummary: "What these figures do not count",
+  editedDates: "The figures use each case’s dates as they are now. Staff can edit those dates, so the figures are not a history of when a date was entered.",
+  volume: {
+    heading: "Cases received and open",
+    description: "Cases received in each period, by type, and the cases still open at the end of it.",
+    columns: {
+      received: "Received",
+      "received:Adult": "Adult",
+      "received:AdultTransgender": "Adult transgender",
+      "received:Minor": "Minor",
+      "received:MinorTransgender": "Minor transgender",
+      "received:DeedOfRelinquishment": "Deed of relinquishment",
+      "received:Unknown": "Unknown type",
+      openAtEnd: "Open at end"
+    },
+    unknownTypeNote: "A case with no type is counted as unknown type.",
+    exclusions: {
+      noDateReceived: "Cases with no date received, which no period can hold",
+      migrated: "Migrated cases left out"
+    }
+  },
+  stageDurations: {
+    heading: "How long each stage took",
+    description:
+      "Calendar days from one date to the next, counted in the period the stage ended in. Each median and 95th percentile is beside the number of cases it was taken over.",
+    intervals: {
+      RECEIVED_TO_READY_FOR_MASTER: "Received to ready for a Master",
+      READY_TO_REFERRED: "Ready for a Master to referred",
+      REFERRED_TO_DECISION: "Referred to the Master’s decision",
+      SIGNATURE_REQUESTED_TO_RECEIVED: "Signature requested to signature received",
+      SIGNATURE_RECEIVED_TO_ENROLED: "Signature received to enrolled"
+    },
+    columns: { count: "Cases", medianDays: "Median days", p95Days: "95th percentile days" },
+    missingDatesNote: "A stage with either of its dates missing is not counted, and is not listed below.",
+    furtherDocumentsNote:
+      "There is no figure for awaiting further documents: the case records when documents were asked for, but nothing records when they arrived.",
+    exclusionsHeading: "Stages left out",
+    exclusionColumns: { interval: "Stage", negativeInterval: "Ending before they started", migrated: "On migrated cases" }
+  },
+  referralOutcomes: {
+    heading: "Referral outcomes",
+    description: "The Masters’ decisions in each period, and the applicants’ responses to the Masters’ directions.",
+    columns: {
+      approved: "Approved",
+      approvedUrgent: "Approved, urgent",
+      rejected: "Rejected",
+      rejectedUrgent: "Rejected, urgent",
+      confirmed: "Applicant confirmed",
+      withdrawn: "Applicant withdrew"
+    },
+    staffWithdrawalNote: "A referral withdrawn by staff is not counted, because nothing records the day it was withdrawn.",
+    exclusions: {
+      decisionDateWithoutDecision: "Referrals with a decision date but no decision",
+      confirmationWithoutOutcome: "Referrals with a confirmation date but no response",
+      migratedDecisions: "Decisions on migrated cases left out",
+      migratedConfirmations: "Confirmations on migrated cases left out"
+    }
+  },
+  completion: {
+    heading: "Time from receipt to completion",
+    description: "Cases grouped by the period they were received in, with the calendar days from receipt to enrolment or return.",
+    stillOpenWarning: "Recent intake periods look faster because their slower cases are still open.",
+    columns: {
+      received: "Received",
+      completed: "Completed",
+      enroled: "Enrolled",
+      returned: "Returned",
+      stillOpen: "Still open",
+      timed: "Cases timed",
+      medianDays: "Median days",
+      p95Days: "95th percentile days"
+    },
+    exclusions: {
+      noDateReceived: "Cases with no date received, which no intake period can hold",
+      contradiction: "Cases with both a date enrolled and a date returned, counted in none of the columns",
+      negativeInterval: "Cases completed before their date received, counted as completed but not in the days",
+      migrated: "Migrated cases left out"
+    }
+  }
 };
 
 export const cy = {

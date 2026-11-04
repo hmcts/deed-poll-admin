@@ -1,8 +1,11 @@
 {% extends "layouts/app-full-width.njk" %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/details/macro.njk" import govukDetails %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
 {% from "govuk/components/input/macro.njk" import govukInput %}
+{% from "govuk/components/inset-text/macro.njk" import govukInsetText %}
 {% from "govuk/components/radios/macro.njk" import govukRadios %}
+{% from "govuk/components/table/macro.njk" import govukTable %}
 
 {% block page_content %}
   {% if errorList.length %}
@@ -76,5 +79,53 @@
   {% if range %}
     <p class="govuk-body govuk-!-font-weight-bold" id="range-summary">{{ range.showing }}, {{ range.groupedBy }}.</p>
     <p class="govuk-body">{{ range.migrated }}</p>
+  {% endif %}
+
+  {% if report %}
+    {% for section in [report.volume, report.stageDurations, report.referralOutcomes, report.completion] %}
+      <section class="govuk-!-margin-top-8" id="{{ section.id }}" aria-labelledby="{{ section.id }}-heading">
+        <h2 class="govuk-heading-l" id="{{ section.id }}-heading">{{ section.heading }}</h2>
+        <p class="govuk-body">{{ section.description }}</p>
+        {% if section.unavailable %}
+          {{ govukInsetText({ text: unavailable }) }}
+        {% elif section.tables[0].rows.length == 0 %}
+          <p class="govuk-body">{{ noPeriods }}</p>
+        {% else %}
+          {% if section.warning %}
+            {{ govukInsetText({ text: section.warning }) }}
+          {% endif %}
+          {% for table in section.tables %}
+            {# Scrolls on its own when wider than the page; focusable so a keyboard can scroll it. #}
+            <div class="app-table-scroll" role="region" aria-label="{{ table.caption }}" tabindex="0">
+              {{ govukTable({
+                caption: table.caption,
+                captionClasses: "govuk-visually-hidden" if section.tables.length == 1 else "govuk-table__caption--m",
+                firstCellIsHeader: true,
+                head: table.head,
+                rows: table.rows
+              }) }}
+            </div>
+          {% endfor %}
+        {% endif %}
+        {% if not section.unavailable %}
+          {% set doesNotCount %}
+            <ul class="govuk-list govuk-list--bullet">
+              {% for note in section.notes %}<li>{{ note }}</li>{% endfor %}
+              {% for item in section.exclusions %}<li>{{ item.label }}: {{ item.count }}</li>{% endfor %}
+            </ul>
+            {% if section.exclusionTable %}
+              {{ govukTable({
+                caption: section.exclusionTable.caption,
+                captionClasses: "govuk-table__caption--s",
+                firstCellIsHeader: true,
+                head: section.exclusionTable.head,
+                rows: section.exclusionTable.rows
+              }) }}
+            {% endif %}
+          {% endset %}
+          {{ govukDetails({ summaryText: doesNotCountSummary, html: doesNotCount }) }}
+        {% endif %}
+      </section>
+    {% endfor %}
   {% endif %}
 {% endblock %}

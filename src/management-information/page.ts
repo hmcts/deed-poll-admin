@@ -17,11 +17,7 @@ import {
   InvalidInputError,
   type ManagementInformationQuery,
   MI_PERIODS,
-  type MiCompletion,
   type MiFilterValues,
-  type MiReferralOutcomes,
-  type MiStageDurations,
-  type MiVolume,
   parseMiFilters,
   UnauthorizedError
 } from "@hmcts/deed-poll";
@@ -29,6 +25,7 @@ import type { Request, Response } from "express";
 import { callerFromRequest } from "../auth/current-user.js";
 import { forLog } from "../for-log.js";
 import { cy, en } from "./content.js";
+import { type Report, reportView } from "./report-view.js";
 
 export const MANAGEMENT_INFORMATION_PATH = "/deed-polls/management-information";
 
@@ -93,7 +90,7 @@ function render(res: Response, status: number, values: MiFilterValues, errors: F
     periodItems: MI_PERIODS.map((period) => ({ value: period, text: content.periods[period], checked: values.period === period })),
     errorList: errors.map((each) => ({ text: each.message, href: `#${each.field}` })),
     fieldErrors,
-    report,
+    report: report ? reportView(report, locale, content) : null,
     range: report
       ? {
           showing: content.rangeShowing(LONG_DAY[locale].format(utcDay(report.query.from)), LONG_DAY[locale].format(utcDay(report.query.to))),
@@ -111,13 +108,4 @@ function dayFormat(locale: string): Intl.DateTimeFormat {
 
 function utcDay(day: string): Date {
   return new Date(`${day}T00:00:00Z`);
-}
-
-/** Each KPI is api's answer, or null when its read failed and the page must say so. */
-interface Report {
-  query: ManagementInformationQuery;
-  volume: MiVolume | null;
-  stageDurations: MiStageDurations | null;
-  referralOutcomes: MiReferralOutcomes | null;
-  completion: MiCompletion | null;
 }

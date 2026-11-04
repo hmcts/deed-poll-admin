@@ -8,6 +8,7 @@ import {
   type MiGranularity,
   type MiReferralOutcomes,
   type MiStageDurations,
+  type MiStageInterval,
   type MiVolume
 } from "@hmcts/deed-poll-api-client";
 import { type Caller, callApi } from "../api/deed-poll-api.js";
@@ -28,4 +29,5 @@ export function findMiCompletion(query: ManagementInformationQuery, caller: Call
   return callApi(caller, (config) => getMiCompletion(query, config));
 }
 
-export type { ManagementInformationQuery, MiCompletion, MiGranularity, MiReferralOutcomes, MiStageDurations, MiVolume };
+export { MI_STAGE_INTERVAL } from "@hmcts/deed-poll-api-client";
+export type { ManagementInformationQuery, MiCompletion, MiGranularity, MiReferralOutcomes, MiStageDurations, MiStageInterval, MiVolume };

@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
 import { showManagementInformation } from "./page.js";
+import { miCompletion, miReferralOutcomes, miStageDurations, miVolume } from "./test-fixtures.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
@@ -27,7 +28,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-11-04T09:30:00Z"));
-  for (const read of READS) vi.mocked(read).mockResolvedValue({ parameters: DEFAULT_QUERY } as never);
+  vi.mocked(findMiVolume).mockResolvedValue(miVolume());
+  vi.mocked(findMiStageDurations).mockResolvedValue(miStageDurations());
+  vi.mocked(findMiReferralOutcomes).mockResolvedValue(miReferralOutcomes());
+  vi.mocked(findMiCompletion).mockResolvedValue(miCompletion());
 });
 
 afterEach(() => {
@@ -48,7 +52,6 @@ describe("showManagementInformation", () => {
     for (const read of READS) expect(read).toHaveBeenCalledExactlyOnceWith(DEFAULT_QUERY, CALLER);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.render).toHaveBeenCalledWith("deed-polls/management-information/index", expect.anything());
-    expect(model.report.query).toEqual(DEFAULT_QUERY);
     expect(model.range).toEqual({
       showing: "Showing 6 October 2026 to 4 November 2026",
       groupedBy: "grouped by week",
@@ -99,8 +102,8 @@ describe("showManagementInformation", () => {
     const { res, model } = await show();
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(model.report.completion).toBeNull();
-    expect(model.report.volume).toEqual({ parameters: DEFAULT_QUERY });
+    expect(model.report.completion).toMatchObject({ id: "completion", unavailable: true });
+    expect(model.report.volume).toMatchObject({ id: "volume", unavailable: false });
     expect(log).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("management information completion read failed"));
     expect(log.mock.calls[0][0]).not.toContain("\n");
   });

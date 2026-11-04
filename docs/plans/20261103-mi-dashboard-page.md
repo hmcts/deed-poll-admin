@@ -123,7 +123,7 @@ start it with `docker start deed-poll-redis` before running the tests; never dro
 
 ### Task 3: Tables and copy
 
-- [ ] The four tables, the A5 rendering, the A6 sentence and the A7 details, all in `src/locales`
+- [x] The four tables, the A5 rendering, the A6 sentence and the A7 details, all in `src/locales`
       (en + cy mirror); the page area added to the Welsh extractor's `INCLUDE`.
 
 ### Task 4: Charts
@@ -176,3 +176,14 @@ start it with `docker start deed-poll-redis` before running the tests; never dro
   London. The four KPIs are read concurrently and degrade one by one; any api 400 is shown against the form. The page
   handler lives in `src/management-information/` (added to the Welsh extractor's `INCLUDE`). Format, lint and
   `build --force` clean; tests `//:test:app` 3,379 (+33), `@hmcts/deed-poll` 1,767 (+28), all passing.
+- 2026-11-04, Task 3: the tables are word-free data in `libs/deed-poll/src/management-information/tables.ts` (columns as
+  keys, cells as api's number or null), so Task 5's CSVs can draw exactly the same rows; `src/management-information/report-view.ts`
+  names and formats them for `govukTable`. Stage durations are one captioned table per interval (fifteen columns would
+  not read), each count followed by its median and 95th percentile; a null percentile reads "No cases". Completion puts
+  Still open immediately before Cases timed and the percentiles, under the A6 sentence as inset text. Each section's
+  details list the edited-dates caveat, the KPI's own api caveats and api's excluded counts (stage durations as a small
+  table per interval); a `migrated` count is listed only when migrated cases were left out, since api reports 0
+  otherwise. The copy stays in `src/management-information/content.ts`, the settings page's pattern, rather than
+  `src/locales`, which holds only the layout's shared strings; notes are named keys because the Welsh extractor does
+  not read arrays. Wide tables scroll in a focusable region (`_management-information.scss`). Format, lint and
+  `build --force` clean; tests `//:test:app` 3,392 (+13), `@hmcts/deed-poll` 1,776 (+9), all passing.
