@@ -420,13 +420,15 @@ api owns the capability matrix (`RoleCapabilities.java`); the mock mirrors it, a
 | `caseworker-deedpoll-judicial` | No | No | No | No | Yes |
 
 `can(user, capability)` is the UI policy entry point (`libs/deed-poll/src/auth/capabilities.ts`); `staffAccess(user)`
-gives `{ staff, judicial }` for the future staff block, which this app does not yet enforce. CCD repair has no
+gives `{ staff, judicial }`. The IDAM callback refuses a sign-in whose answer has neither (403, the no-access
+sentence on `errors/403`) before any session exists (OWASP plan 01 Task 6); the global and `/deed-polls` gates
+(Tasks 7 and 8) are not built yet. CCD repair has no
 Admin UI control. `isAdmin` is derived from `OVERRIDE_PRIVACY` solely for the existing form/presentation
 interfaces, and `isJudicial` from `judicial`. `sessionUser` validates the stored answer on every read and
 recomputes the flags, ignoring stale booleans. The answer *is* persisted on the session; staleness is bounded by
 refreshing it with the token. A changed role assignment takes effect within one token lifetime, not at next
-login. If `/me` fails at sign-in the user is signed in with no access until the next refresh; if it fails on
-refresh the previous answer is kept.
+login. If `/me` fails at sign-in the login is refused with a 503 try-again page (`errors/access-unavailable`), because
+"we could not check" is not "you have no access"; if it fails on refresh the previous answer is kept.
 
 Deploy this Admin change only after API #105 (`GET /me`) is serving on every target instance, both new roles are
 registered with IDAM, and CCD reader mappings are imported. Assign Delivery Manager explicitly to
