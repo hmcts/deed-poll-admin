@@ -17,3 +17,71 @@
     margin-bottom: 0;
   }
 }
+
+/*
+ * The line charts above the tables, drawn as inline SVG (`line-chart.njk`). Each series is a GOV.UK colour whose
+ * contrast against white is at least 4.5:1, so the direct labels in it read as text and the lines exceed the 3:1
+ * non-text minimum; every series also has its own marker shape, so colour is never the only distinction.
+ */
+$app-chart-colours: (
+  1: govuk-colour("blue"),
+  2: govuk-colour("green"),
+  3: govuk-colour("purple"),
+  4: govuk-colour("red")
+);
+
+.app-chart {
+  max-width: 640px;
+  @include govuk-responsive-margin(4, "bottom");
+}
+
+.app-chart__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-family: $govuk-font-family;
+}
+
+.app-chart__gridline {
+  stroke: govuk-functional-colour(border);
+  stroke-width: 1;
+}
+
+.app-chart__tick {
+  font-size: 14px;
+  fill: govuk-functional-colour(text);
+}
+
+.app-chart__tick--y {
+  text-anchor: end;
+  dominant-baseline: middle;
+}
+
+.app-chart__tick--x {
+  text-anchor: middle;
+}
+
+.app-chart__line {
+  fill: none;
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+
+.app-chart__label {
+  font-size: 14px;
+  font-weight: $govuk-font-weight-bold;
+  dominant-baseline: middle;
+}
+
+@each $index, $colour in $app-chart-colours {
+  .app-chart__series--#{$index} {
+    .app-chart__line {
+      stroke: $colour;
+    }
+
+    .app-chart__marker,
+    .app-chart__label {
+      fill: $colour;
+    }
+  }
+}

@@ -6,6 +6,7 @@
 {% from "govuk/components/inset-text/macro.njk" import govukInsetText %}
 {% from "govuk/components/radios/macro.njk" import govukRadios %}
 {% from "govuk/components/table/macro.njk" import govukTable %}
+{% from "deed-polls/management-information/line-chart.njk" import lineChart %}
 
 {% block page_content %}
   {% if errorList.length %}
@@ -95,11 +96,16 @@
             {{ govukInsetText({ text: section.warning }) }}
           {% endif %}
           {% for table in section.tables %}
-            {# Scrolls on its own when wider than the page; focusable so a keyboard can scroll it. #}
-            <div class="app-table-scroll" role="region" aria-label="{{ table.caption }}" tabindex="0">
+            {% if section.tables.length > 1 %}
+              <h3 class="govuk-heading-m">{{ table.caption }}</h3>
+            {% endif %}
+            {% if table.chart %}{{ lineChart(table.chart) }}{% endif %}
+            {# Scrolls on its own when wider than the page; focusable so a keyboard can scroll it. Named apart from its
+               section, whose heading is often the same words, because two regions may not share a name. #}
+            <div class="app-table-scroll" role="region" aria-label="{{ tableRegion(table.caption) }}" tabindex="0">
               {{ govukTable({
                 caption: table.caption,
-                captionClasses: "govuk-visually-hidden" if section.tables.length == 1 else "govuk-table__caption--m",
+                captionClasses: "govuk-visually-hidden",
                 firstCellIsHeader: true,
                 head: table.head,
                 rows: table.rows

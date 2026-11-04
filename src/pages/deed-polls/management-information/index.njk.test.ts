@@ -1,6 +1,8 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { findMiCompletion, findMiReferralOutcomes, findMiStageDurations, findMiVolume, InvalidInputError } from "@hmcts/deed-poll";
+import axe from "axe-core";
+import { JSDOM } from "jsdom";
 import nunjucks from "nunjucks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
@@ -139,19 +141,21 @@ describe("management information page", () => {
       expect(rowCells(section(markup, "completion"), "19 Oct 2026 to 25 Oct 2026")[0]).toEqual(["1", "1", "1", "0", "0", "1", "9", "9"]);
     });
 
-    it("should give stage durations one captioned table per stage, in api's order", async () => {
+    it("should give stage durations one headed, captioned table per stage, in api's order", async () => {
       const markup = await render();
+      const durations = section(markup, "stage-durations");
 
-      const captions = [
-        ...section(markup, "stage-durations").matchAll(/<caption class="govuk-table__caption govuk-table__caption--m">([^<]+)<\/caption>/g)
-      ].map((match) => match[1]);
-      expect(captions).toEqual([
+      const stages = [
         "Received to ready for a Master",
         "Ready for a Master to referred",
         "Referred to the Master’s decision",
         "Signature requested to signature received",
         "Signature received to enrolled"
-      ]);
+      ];
+      expect([...durations.matchAll(/<h3 class="govuk-heading-m">([^<]+)<\/h3>/g)].map((match) => match[1])).toEqual(stages);
+      expect([...durations.matchAll(/<caption class="govuk-table__caption govuk-visually-hidden">([^<]+)<\/caption>/g)].map((match) => match[1])).toEqual(
+        stages
+      );
     });
 
     it("should say why recent cohorts look fast and show still open beside the percentiles", async () => {
@@ -232,7 +236,7 @@ describe("management information page", () => {
     it("should let a keyboard scroll each table's region, named by its caption", async () => {
       const markup = await render();
 
-      expect(markup).toContain('<div class="app-table-scroll" role="region" aria-label="Cases received and open" tabindex="0">');
+      expect(markup).toContain('<div class="app-table-scroll" role="region" aria-label="Cases received and open, table" tabindex="0">');
     });
 
     it("should render the same tables on the Welsh page", async () => {
@@ -242,7 +246,139 @@ describe("management information page", () => {
       expect(section(markup, "volume")).toContain("Hyd 2026");
     });
   });
+
+  describe("charts", () => {
+    it("should draw a chart above each table, named by its title and described by its summary", async () => {
+      const markup = await render();
+
+      for (const id of ["volume", "referral-outcomes", "completion"]) {
+        const body = section(markup, id);
+        expect(body.indexOf(`<svg class="app-chart__svg" role="img"`)).toBeGreaterThan(-1);
+        expect(body.indexOf("<svg")).toBeLessThan(body.indexOf("<table"));
+        expect(body).toContain(`aria-labelledby="${id}-chart-title" aria-describedby="${id}-chart-summary"`);
+        expect(body).toContain(`<title id="${id}-chart-title">`);
+        expect(body).toContain(`id="${id}-chart-summary"`);
+      }
+      expect(section(markup, "stage-durations").match(/<svg /g)).toHaveLength(5);
+    });
+
+    it("should say in one sentence what the chart shows, and that the table has every figure", async () => {
+      const markup = await render();
+
+      expect(section(markup, "volume")).toContain(
+        "Line chart of received and open at end for each week from 5 Oct 2026 to 25 Oct 2026, with every figure in the table below."
+      );
+      expect(section(markup, "referral-outcomes")).toContain("Line chart of approved, rejected, applicant confirmed and applicant withdrew for each week");
+    });
+
+    it("should say a gap means no cases when a line has one", async () => {
+      const markup = await render();
+
+      expect(section(markup, "completion")).toContain(
+        "Line chart of median days and 95th percentile days for each week from 5 Oct 2026 to 25 Oct 2026, with a gap where a week had no cases"
+      );
+    });
+
+    it("should break the line at an empty bucket rather than draw it at zero", async () => {
+      const markup = await render();
+      const completion = section(markup, "completion");
+
+      // Weeks one and three have days and week two has none, so each line is two lone markers and no polyline.
+      expect(completion).not.toContain("<polyline");
+      expect(completion.match(/<circle class="app-chart__marker"/g)).toHaveLength(3);
+      expect(section(markup, "volume").match(/<polyline/g)).toHaveLength(2);
+    });
+
+    it("should give every line a marker shape and a direct label, so colour is not the only distinction", async () => {
+      const markup = await render();
+      const outcomes = section(markup, "referral-outcomes");
+
+      for (const [index, shape] of [
+        [1, "circle"],
+        [2, "rect"],
+        [3, "path"],
+        [4, "path"]
+      ] as const) {
+        expect(outcomes).toMatch(new RegExp(`app-chart__series--${index}">[\\s\\S]*?<${shape} class="app-chart__marker"`));
+      }
+      for (const label of ["Approved", "Rejected", "Applicant confirmed", "Applicant withdrew"]) {
+        expect(outcomes).toMatch(new RegExp(`<text class="app-chart__label"[^>]*>${label}</text>`));
+      }
+    });
+
+    it("should label the axes with the page's own formatting", async () => {
+      const markup = await render();
+
+      expect(section(markup, "volume")).toMatch(/<text class="app-chart__tick app-chart__tick--y"[^>]*>3,000<\/text>/);
+      expect(section(markup, "volume")).toMatch(/<text class="app-chart__tick app-chart__tick--x"[^>]*>5 Oct<\/text>/);
+    });
+
+    it("should draw no chart for a table whose percentiles are all empty, leaving the table", async () => {
+      const empty = miCompletion();
+      vi.mocked(findMiCompletion).mockResolvedValue({
+        ...empty,
+        cohorts: empty.cohorts.map((cohort) => ({ ...cohort, daysToCompletion: { count: 0, medianDays: null, p95Days: null } }))
+      });
+
+      const markup = await render();
+
+      expect(section(markup, "completion")).not.toContain("<svg");
+      expect(section(markup, "completion")).toContain("<table");
+    });
+
+    it("should draw no chart when one KPI could not be loaded", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(findMiVolume).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+
+      const markup = await render();
+
+      expect(section(markup, "volume")).not.toContain("<svg");
+    });
+  });
+
+  describe("accessibility", () => {
+    it("should have no axe violations with the charts and tables drawn", async () => {
+      expect(await axeViolations(await render())).toEqual([]);
+    });
+
+    it("should have no axe violations with an empty bucket, a bucket of one and exclusions", async () => {
+      const excluded = { ...miVolume().parameters, includeMigrated: false };
+      vi.mocked(findMiVolume).mockResolvedValue(miVolume(excluded));
+      vi.mocked(findMiStageDurations).mockResolvedValue(miStageDurations(excluded));
+
+      expect(await axeViolations(await render({ includeMigrated: "false" }))).toEqual([]);
+    });
+
+    it("should have no axe violations with an error summary", async () => {
+      expect(await axeViolations(await render({ period: "custom", from: "2026-13-01", to: "" }))).toEqual([]);
+    });
+
+    it("should have no axe violations when api fails", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      for (const read of [findMiVolume, findMiStageDurations, findMiReferralOutcomes, findMiCompletion]) {
+        vi.mocked(read).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      }
+
+      expect(await axeViolations(await render())).toEqual([]);
+    });
+  });
 });
+
+/**
+ * axe-core over the page's main content in jsdom. The layout's shared strings are not loaded here, so the header and
+ * footer are left to the browser suite, as is colour contrast, which jsdom cannot compute without layout.
+ */
+async function axeViolations(markup: string): Promise<{ id: string; nodes: string[] }[]> {
+  const dom = new JSDOM(markup, { runScripts: "outside-only" });
+  dom.window.eval(axe.source);
+  const main = dom.window.document.getElementById("main-content");
+  if (!main) throw new Error("no main-content");
+  const results = await (dom.window as unknown as { axe: typeof axe }).axe.run(main, {
+    rules: { "color-contrast": { enabled: false } }
+  });
+  dom.window.close();
+  return results.violations.map((each) => ({ id: each.id, nodes: each.nodes.map((node) => node.html) }));
+}
 
 function section(markup: string, id: string): string {
   const match = markup.match(new RegExp(`<section[^>]*id="${id}"[\\s\\S]*?</section>`));

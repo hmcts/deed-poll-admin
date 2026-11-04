@@ -128,7 +128,7 @@ start it with `docker start deed-poll-redis` before running the tests; never dro
 
 ### Task 4: Charts
 
-- [ ] `chart-geometry.ts` and its tests; the SVG macro; the A3 accessibility rules; an axe check in
+- [x] `chart-geometry.ts` and its tests; the SVG macro; the A3 accessibility rules; an axe check in
       the template tests.
 
 ### Task 5: CSV downloads
@@ -187,3 +187,17 @@ start it with `docker start deed-poll-redis` before running the tests; never dro
   `src/locales`, which holds only the layout's shared strings; notes are named keys because the Welsh extractor does
   not read arrays. Wide tables scroll in a focusable region (`_management-information.scss`). Format, lint and
   `build --force` clean; tests `//:test:app` 3,392 (+13), `@hmcts/deed-poll` 1,776 (+9), all passing.
+- 2026-11-04, Task 4: `src/management-information/chart-geometry.ts` computes scales (a 1/2/5 step, about four ticks,
+  [0, 1] when every value is zero), at most six x labels, polyline runs broken at each null (a lone value is a marker
+  only) and direct labels pushed 18 apart inside the plot; it refuses a fifth line, which would have no marker of its
+  own. Every table gets a chart above it, drawn from its own rows by `report-view.ts`: volume (received, open at end),
+  each stage (median, 95th percentile), referral outcomes (approved, rejected, confirmed, withdrawn) and completion
+  (median, 95th percentile). A chart with no value at all (no periods, or every percentile empty) is not drawn. The
+  macro is `src/pages/deed-polls/management-information/line-chart.njk`: `<svg role="img">` named by its `<title>` and
+  described by a visible one-sentence summary that mentions gaps when there are any; circle, square, triangle and
+  diamond markers plus direct labels; GOV.UK blue, green, purple and red, all at least 4.5:1 on white. Stage tables
+  now get an `h3` with a visually hidden caption, so each chart sits under its stage's heading. axe-core 4.14.0 and
+  jsdom 30.1.3 (with `@types/jsdom` 30.0.0) are pinned devDependencies, and the template tests run axe over
+  `#main-content`, with colour contrast left out since jsdom has no layout. The first axe run found a Task 3 defect: each table's scroll
+  region had its section's name, which breaks `landmark-unique`, so regions are now "<caption>, table". Format, lint
+  and `build --force` clean; tests `//:test:app` 3,418 (+26), all passing.

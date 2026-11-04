@@ -26,34 +26,51 @@ import {
   stageDurationTables,
   volumeTable
 } from "@hmcts/deed-poll";
+import { type LineChartGeometry, lineChart } from "./chart-geometry.js";
 import type { en } from "./content.js";
 
 const LOCALE_TAG = { en: "en-GB", cy: "cy-GB" } as const;
+// What each chart draws: the table's headline figures, never more than it holds (A3).
+const PERCENTILES = ["medianDays", "p95Days"];
 
 export function reportView(report: Report, locale: keyof typeof LOCALE_TAG, content: Content): ReportView {
   const format = formatters(locale, content, report.query.granularity);
   return {
     volume: section("volume", content.volume, report.volume, (volume) => ({
-      tables: [table(format, volumeTable(volume), content.volume.columns, content.volume.heading)],
+      tables: [table(format, volumeTable(volume), content.volume.columns, content.volume.heading, chartOf("volume", ["received", "openAtEnd"]))],
       notes: [content.editedDates, content.volume.unknownTypeNote],
       exclusions: exclusionItems(miExclusions("volume", volume), content.volume.exclusions, format)
     })),
     stageDurations: section("stage-durations", content.stageDurations, report.stageDurations, (durations) => ({
-      tables: stageDurationTables(durations).map((each) =>
-        table(format, each, content.stageDurations.columns, content.stageDurations.intervals[each.interval])
+      tables: stageDurationTables(durations).map((each, index) =>
+        table(
+          format,
+          each,
+          content.stageDurations.columns,
+          content.stageDurations.intervals[each.interval],
+          chartOf(`stage-durations-${index + 1}`, PERCENTILES)
+        )
       ),
       notes: [content.editedDates, content.stageDurations.missingDatesNote, content.stageDurations.furtherDocumentsNote],
       exclusions: [],
       exclusionTable: stageExclusionTable(miExclusions("stage-durations", durations), content, format)
     })),
     referralOutcomes: section("referral-outcomes", content.referralOutcomes, report.referralOutcomes, (outcomes) => ({
-      tables: [table(format, referralOutcomesTable(outcomes), content.referralOutcomes.columns, content.referralOutcomes.heading)],
+      tables: [
+        table(
+          format,
+          referralOutcomesTable(outcomes),
+          content.referralOutcomes.columns,
+          content.referralOutcomes.heading,
+          chartOf("referral-outcomes", ["approved", "rejected", "confirmed", "withdrawn"])
+        )
+      ],
       notes: [content.editedDates, content.referralOutcomes.staffWithdrawalNote],
       exclusions: exclusionItems(miExclusions("referral-outcomes", outcomes), content.referralOutcomes.exclusions, format)
     })),
     completion: section("completion", content.completion, report.completion, (completion) => ({
       warning: content.completion.stillOpenWarning,
-      tables: [table(format, completionTable(completion), content.completion.columns, content.completion.heading)],
+      tables: [table(format, completionTable(completion), content.completion.columns, content.completion.heading, chartOf("completion", PERCENTILES))],
       notes: [content.editedDates],
       exclusions: exclusionItems(miExclusions("completion", completion), content.completion.exclusions, format)
     }))
@@ -63,14 +80,21 @@ export function reportView(report: Report, locale: keyof typeof LOCALE_TAG, cont
 function formatters(locale: keyof typeof LOCALE_TAG, content: Content, granularity: MiGranularity): Formatters {
   const count = new Intl.NumberFormat(LOCALE_TAG[locale]);
   const days = new Intl.NumberFormat(LOCALE_TAG[locale], { maximumFractionDigits: 1 });
-  // A period's days are calendar days with no zone, so they are formatted as UTC midnight to keep the day they name.
   const day = new Intl.DateTimeFormat(LOCALE_TAG[locale], { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  const tick = new Intl.DateTimeFormat(
+    LOCALE_TAG[locale],
+    granularity === "WEEK" ? { day: "numeric", month: "short", timeZone: "UTC" } : { month: "short", year: "numeric", timeZone: "UTC" }
+  );
   return {
     content,
+    unit: content.chartUnits[granularity],
+    day: (value) => day.format(utcDay(value)),
+    tick: (value) => tick.format(utcDay(value)),
     periodHeading: content.periodHeadings[granularity],
-    period: (start, end) => content.periodRange(day.format(new Date(`${start}T00:00:00Z`)), day.format(new Date(`${end}T00:00:00Z`))),
+    period: (start, end) => content.periodRange(day.format(utcDay(start)), day.format(utcDay(end))),
     cell: (column, value) => (value === null ? content.noCases : column.kind === "days" ? days.format(value) : count.format(value)),
-    count: (value) => count.format(value)
+    count: (value) => count.format(value),
+    days: (value) => days.format(value)
   };
 }
 
@@ -79,14 +103,46 @@ function section<T>(id: string, copy: SectionCopy, answer: T | null, build: (ans
   return answer === null ? { ...base, unavailable: true } : { ...base, unavailable: false, ...build(answer) };
 }
 
-function table(format: Formatters, data: MiTable, headings: Record<string, string>, caption: string): TableView {
+function chartOf(id: string, keys: string[]): ChartChoice {
+  return { id: `${id}-chart`, keys };
+}
+
+function table(format: Formatters, data: MiTable, headings: Record<string, string>, caption: string, choice: ChartChoice): TableView {
   return {
     caption,
+    chart: chart(format, data, headings, caption, choice),
     head: [{ text: format.periodHeading }, ...data.columns.map((column) => ({ text: headings[column.key], format: "numeric" }))],
     rows: data.rows.map((row) => [
       { text: format.period(row.start, row.end) },
       ...data.columns.map((column, index) => ({ text: format.cell(column, row.cells[index]), format: "numeric" }))
     ])
+  };
+}
+
+/** The chart above a table, drawn from the table's own rows, or null when it would show nothing but empty periods. */
+function chart(format: Formatters, data: MiTable, headings: Record<string, string>, title: string, choice: ChartChoice): ChartView | null {
+  const columns = choice.keys.map((key) => data.columns.findIndex((column) => column.key === key));
+  const series = columns.map((column, index) => ({ key: choice.keys[index], values: data.rows.map((row) => row.cells[column]) }));
+  const geometry = lineChart(data.rows.length, series);
+  if (geometry === null) return null;
+
+  const kind = data.columns[columns[0]].kind;
+  const labels = choice.keys.map((key) => headings[key]);
+  const listed = labels.map((label) => label.toLowerCase());
+  const seriesText = listed.length === 1 ? listed[0] : `${listed.slice(0, -1).join(", ")} ${format.content.and} ${listed.at(-1)}`;
+  const first = format.day(data.rows[0].start);
+  const last = format.day(data.rows[data.rows.length - 1].end);
+  const hasGaps = series.some((each) => each.values.includes(null));
+  return {
+    id: choice.id,
+    title,
+    summary: (hasGaps ? format.content.chartSummaryWithGaps : format.content.chartSummary)(seriesText, format.unit, first, last),
+    width: geometry.width,
+    height: geometry.height,
+    plot: geometry.plot,
+    yTicks: geometry.yTicks.map((each) => ({ y: each.y, text: kind === "days" ? format.days(each.value) : format.count(each.value) })),
+    xTicks: geometry.xTicks.map((each) => ({ x: each.x, text: format.tick(data.rows[each.index].start) })),
+    series: geometry.series.map((each, index) => ({ ...each, label: each.label && { ...each.label, text: labels[index] } }))
   };
 }
 
@@ -111,6 +167,11 @@ function stageExclusionTable(exclusions: MiExclusion[], content: Content, format
   };
 }
 
+function utcDay(day: string): Date {
+  // A period's days are calendar days with no zone, so they are formatted as UTC midnight to keep the day they name.
+  return new Date(`${day}T00:00:00Z`);
+}
+
 type Content = typeof en;
 
 /** Each KPI is api's answer, or null when its read failed and the page must say so. */
@@ -131,6 +192,10 @@ export interface ReportView {
 
 interface Formatters {
   content: Content;
+  unit: string;
+  day: (value: string) => string;
+  tick: (value: string) => string;
+  days: (value: number) => string;
   periodHeading: string;
   period: (start: string, end: string) => string;
   cell: (column: MiColumn, value: number | null) => string;
@@ -154,8 +219,27 @@ type SectionView = SectionCopy & { id: string } & ({ unavailable: true } | ({ un
 
 interface TableView {
   caption: string;
+  chart?: ChartView | null;
   head: { text: string; format?: string }[];
   rows: { text: string; format?: string }[][];
+}
+
+interface ChartChoice {
+  id: string;
+  keys: string[];
+}
+
+interface ChartView {
+  /** Unique on the page, for the SVG's title and summary ids. */
+  id: string;
+  title: string;
+  summary: string;
+  width: number;
+  height: number;
+  plot: LineChartGeometry["plot"];
+  yTicks: { y: number; text: string }[];
+  xTicks: { x: number; text: string }[];
+  series: (Omit<LineChartGeometry["series"][number], "label"> & { label: { x: number; y: number; text: string } | null })[];
 }
 
 interface ExclusionItem {

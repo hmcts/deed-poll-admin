@@ -38,6 +38,13 @@ export const en = {
   noCases: "No cases",
   noPeriods: "There are no periods in this range.",
   unavailable: "These figures could not be loaded. Try again shortly.",
+  tableRegion: (caption: string) => `${caption}, table`,
+  and: "and",
+  chartUnits: { WEEK: "week", MONTH: "month", QUARTER: "quarter" },
+  chartSummary: (series: string, unit: string, from: string, to: string) =>
+    `Line chart of ${series} for each ${unit} from ${from} to ${to}, with every figure in the table below.`,
+  chartSummaryWithGaps: (series: string, unit: string, from: string, to: string) =>
+    `Line chart of ${series} for each ${unit} from ${from} to ${to}, with a gap where a ${unit} had no cases and every figure in the table below.`,
   doesNotCountSummary: "What these figures do not count",
   editedDates: "The figures use each case’s dates as they are now. Staff can edit those dates, so the figures are not a history of when a date was entered.",
   volume: {

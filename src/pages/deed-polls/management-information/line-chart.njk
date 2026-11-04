@@ -1,0 +1,44 @@
+{#
+  A management information line chart (plan docs/plans/20261103-mi-dashboard-page.md, A3 and A4), drawn from the
+  numbers `src/management-information/chart-geometry.ts` computed. The SVG is one image to assistive technology, named
+  by its title and described by the visible summary; the table that follows holds every figure. Each line has its own
+  marker shape and a direct label, so colour is never the only thing telling two lines apart.
+#}
+{% macro marker(shape, x, y) %}
+  {%- if shape == "circle" -%}
+    <circle class="app-chart__marker" cx="{{ x }}" cy="{{ y }}" r="4.5"></circle>
+  {%- elif shape == "square" -%}
+    <rect class="app-chart__marker" x="{{ x - 4 }}" y="{{ y - 4 }}" width="8" height="8"></rect>
+  {%- elif shape == "triangle" -%}
+    <path class="app-chart__marker" d="M{{ x }} {{ y - 5.5 }}L{{ x + 5.5 }} {{ y + 4.5 }}L{{ x - 5.5 }} {{ y + 4.5 }}Z"></path>
+  {%- else -%}
+    <path class="app-chart__marker" d="M{{ x }} {{ y - 6 }}L{{ x + 6 }} {{ y }}L{{ x }} {{ y + 6 }}L{{ x - 6 }} {{ y }}Z"></path>
+  {%- endif -%}
+{% endmacro %}
+
+{% macro lineChart(chart) %}
+  <div class="app-chart">
+    <svg class="app-chart__svg" role="img" focusable="false" viewBox="0 0 {{ chart.width }} {{ chart.height }}"
+      aria-labelledby="{{ chart.id }}-title" aria-describedby="{{ chart.id }}-summary" xmlns="http://www.w3.org/2000/svg">
+      <title id="{{ chart.id }}-title">{{ chart.title }}</title>
+      {% for tick in chart.yTicks %}
+        <line class="app-chart__gridline" x1="{{ chart.plot.left }}" x2="{{ chart.plot.right }}" y1="{{ tick.y }}" y2="{{ tick.y }}"></line>
+        <text class="app-chart__tick app-chart__tick--y" x="{{ chart.plot.left - 8 }}" y="{{ tick.y }}">{{ tick.text }}</text>
+      {% endfor %}
+      {% for tick in chart.xTicks %}
+        <text class="app-chart__tick app-chart__tick--x" x="{{ tick.x }}" y="{{ chart.plot.bottom + 24 }}">{{ tick.text }}</text>
+      {% endfor %}
+      {% for series in chart.series %}
+        <g class="app-chart__series app-chart__series--{{ loop.index }}">
+          {% for points in series.segments %}<polyline class="app-chart__line" points="{{ points }}"></polyline>{% endfor %}
+          {% for point in series.points %}{{ marker(series.marker, point.x, point.y) }}{% endfor %}
+          {% if series.label %}
+            {{ marker(series.marker, series.label.x, series.label.y) }}
+            <text class="app-chart__label" x="{{ series.label.x + 10 }}" y="{{ series.label.y }}">{{ series.label.text }}</text>
+          {% endif %}
+        </g>
+      {% endfor %}
+    </svg>
+    <p class="govuk-body-s app-chart__summary" id="{{ chart.id }}-summary">{{ chart.summary }}</p>
+  </div>
+{% endmacro %}

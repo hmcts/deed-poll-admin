@@ -26,7 +26,7 @@
 // a class only the widget emits.
 @use "components/document-type-autocomplete";
 
-// The management information tables' scrolling regions. Inert elsewhere: its one class is emitted only by that page.
+// The management information tables' scrolling regions and charts. Inert elsewhere: every class is emitted only by that page.
 @use "components/management-information";
 
 /*
