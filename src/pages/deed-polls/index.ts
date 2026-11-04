@@ -61,6 +61,7 @@ import {
   serialiseConditions,
   serialiseSort,
   unusedConditionRows,
+  VIEW_MANAGEMENT_INFORMATION,
   WAITING_COLUMN_LABEL,
   waitingForAssignmentConditions
 } from "@hmcts/deed-poll";
@@ -109,6 +110,7 @@ const en = {
   gazetteLink: "View London Gazette applications",
   settingsLink: "Service settings",
   referralsLink: "Referrals",
+  managementInformationLink: "Management information",
   gazetteCountFor: (count: number) => `Applications ready for the London Gazette: ${count}`,
   gazetteUnavailable: "The number of applications ready for the London Gazette could not be loaded. Try opening the ready list.",
   title: "Deed poll cases",
@@ -292,6 +294,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
   // From the session's capability alone: the link needs no api read, and the area gate decides entry.
   const showSettings = can(userFromRequest(req), MANAGE_PROCESS_CONFIG);
   const showReferrals = can(userFromRequest(req), ALLOCATE_REFERRALS);
+  const showManagementInformation = can(userFromRequest(req), VIEW_MANAGEMENT_INFORMATION);
 
   try {
     const results = await findDeedPolls({ filter: filter.key, q, conditions, sort: serialiseSort(sort), page }, caller);
@@ -310,6 +313,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
       counts: await counts,
       showSettings,
       showReferrals,
+      showManagementInformation,
       cases: buildCaseList(results.cases),
       paging,
       rowErrors,
@@ -330,6 +334,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
       counts: await counts,
       showSettings,
       showReferrals,
+      showManagementInformation,
       cases: [],
       paging: null,
       rowErrors: [...rowErrors, ...refusals.rows],
@@ -421,7 +426,7 @@ async function worklistCount(name: string, read: () => Promise<number>): Promise
 function render(
   res: Response,
   view: ListView,
-  { savedQueries, counts, showSettings, showReferrals, cases, paging, rowErrors, unaddressed, submitted }: ListRenderData
+  { savedQueries, counts, showSettings, showReferrals, showManagementInformation, cases, paging, rowErrors, unaddressed, submitted }: ListRenderData
 ) {
   // Resolved here as well as by the render interceptor, because the row builder needs the words before
   // the template does — the pattern `.claude/rules/frontend.md` gives for a schema's messages.
@@ -436,6 +441,7 @@ function render(
     showSettings,
     // The referral queue's link, from the session's capability as the settings link is (plan Fa1).
     showReferrals,
+    showManagementInformation,
     showGazette: counts.gazette !== undefined,
     gazetteCount: counts.gazette === undefined || counts.gazette === null ? "" : content.gazetteCountFor(counts.gazette),
     gazetteFailed: counts.gazette === null,
@@ -666,6 +672,8 @@ interface ListRenderData {
   showSettings: boolean;
   /** Whether the caller holds ALLOCATE_REFERRALS, and so is offered the referral queue link and the count links to it. */
   showReferrals: boolean;
+  /** Whether the caller holds VIEW_MANAGEMENT_INFORMATION, and so is offered the management information link. */
+  showManagementInformation: boolean;
   cases: CaseListRow[];
   paging: CaseListPaging | null;
   rowErrors: QueryRowError[];

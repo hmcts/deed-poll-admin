@@ -1,7 +1,15 @@
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { ACCESS_GAZETTE, ALLOCATE_REFERRALS, assertDeedPollApiSettings, deedPollApiStatus, MANAGE_PROCESS_CONFIG, plainHttpPermitted } from "@hmcts/deed-poll";
+import {
+  ACCESS_GAZETTE,
+  ALLOCATE_REFERRALS,
+  assertDeedPollApiSettings,
+  deedPollApiStatus,
+  MANAGE_PROCESS_CONFIG,
+  plainHttpPermitted,
+  VIEW_MANAGEMENT_INFORMATION
+} from "@hmcts/deed-poll";
 import { type HealthStatus, healthcheck, monitoringMiddleware } from "@hmcts-cft/cloud-native-platform";
 import { configureCookieManager, configureGovuk, configureHelmet, configureNonce, errorHandler, notFoundHandler } from "@hmcts-cft/express-govuk-starter";
 import { expressSessionRedis } from "@hmcts-cft/express-session-redis";
@@ -250,6 +258,8 @@ export async function createApp(): Promise<Express> {
   app.use("/deed-polls/gazette", requireCapability(ACCESS_GAZETTE));
   app.use("/deed-polls/settings", requireCapability(MANAGE_PROCESS_CONFIG));
   app.use("/deed-polls/referrals", requireCapability(ALLOCATE_REFERRALS));
+  // The page and its CSV downloads alike, since both live under the prefix.
+  app.use("/deed-polls/management-information", requireCapability(VIEW_MANAGEMENT_INFORMATION));
 
   // After the gates, so a refused user is not counted, and before the router, so the cap and the limiter run
   // before the upload page's multipart parser. See ./rate-limit/routes.ts. api is authoritative; this is UX.

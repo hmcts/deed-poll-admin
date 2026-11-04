@@ -1,0 +1,80 @@
+{% extends "layouts/app-full-width.njk" %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/input/macro.njk" import govukInput %}
+{% from "govuk/components/radios/macro.njk" import govukRadios %}
+
+{% block page_content %}
+  {% if errorList.length %}
+    {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
+  {% endif %}
+
+  <h1 class="govuk-heading-xl">{{ heading }}</h1>
+  <p class="govuk-body">{{ intro }}</p>
+
+  {% set customRange %}
+    {{ govukInput({
+      id: "from", name: "from", label: { text: fromLabel }, hint: { text: dateHint }, value: values.from,
+      classes: "govuk-input--width-10", spellcheck: false, autocomplete: "off",
+      errorMessage: fieldErrors.from
+    }) }}
+    {{ govukInput({
+      id: "to", name: "to", label: { text: toLabel }, hint: { text: dateHint }, value: values.to,
+      classes: "govuk-input--width-10", spellcheck: false, autocomplete: "off",
+      errorMessage: fieldErrors.to
+    }) }}
+  {% endset %}
+
+  {% set periodRadios = [] %}
+  {% for item in periodItems %}
+    {% if item.value == "custom" %}
+      {% set periodRadios = (periodRadios.push({ value: item.value, text: item.text, checked: item.checked, conditional: { html: customRange } }), periodRadios) %}
+    {% else %}
+      {% set periodRadios = (periodRadios.push(item), periodRadios) %}
+    {% endif %}
+  {% endfor %}
+
+  <form method="get" action="{{ action }}" novalidate>
+    <h2 class="govuk-heading-m">{{ filtersHeading }}</h2>
+    <div class="govuk-grid-row">
+      <div class="govuk-grid-column-one-third">
+        {{ govukRadios({
+          idPrefix: "period", name: "period", classes: "govuk-radios--small",
+          fieldset: { legend: { text: periodLegend, classes: "govuk-fieldset__legend--s" } },
+          items: periodRadios,
+          errorMessage: fieldErrors.period
+        }) }}
+      </div>
+      <div class="govuk-grid-column-one-third">
+        {{ govukRadios({
+          idPrefix: "granularity", name: "granularity", classes: "govuk-radios--small",
+          fieldset: { legend: { text: granularityLegend, classes: "govuk-fieldset__legend--s" } },
+          hint: { text: granularityHint },
+          items: [
+            { value: "WEEK", text: granularities.WEEK, checked: values.granularity == "WEEK" },
+            { value: "MONTH", text: granularities.MONTH, checked: values.granularity == "MONTH" },
+            { value: "QUARTER", text: granularities.QUARTER, checked: values.granularity == "QUARTER" }
+          ],
+          errorMessage: fieldErrors.granularity
+        }) }}
+      </div>
+      <div class="govuk-grid-column-one-third">
+        {{ govukRadios({
+          idPrefix: "includeMigrated", name: "includeMigrated", classes: "govuk-radios--small govuk-radios--inline",
+          fieldset: { legend: { text: includeMigratedLegend, classes: "govuk-fieldset__legend--s" } },
+          items: [
+            { value: "true", text: yes, checked: values.includeMigrated != "false" },
+            { value: "false", text: no, checked: values.includeMigrated == "false" }
+          ],
+          errorMessage: fieldErrors.includeMigrated
+        }) }}
+      </div>
+    </div>
+    {{ govukButton({ text: submit, classes: "govuk-button--secondary" }) }}
+  </form>
+
+  {% if range %}
+    <p class="govuk-body govuk-!-font-weight-bold" id="range-summary">{{ range.showing }}, {{ range.groupedBy }}.</p>
+    <p class="govuk-body">{{ range.migrated }}</p>
+  {% endif %}
+{% endblock %}

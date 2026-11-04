@@ -145,6 +145,21 @@ describe("deed-polls list page", () => {
     expect(res.render.mock.calls[0][1]).toMatchObject({ showReferrals: shown });
   });
 
+  it.each([
+    ["teamLeader", true],
+    ["deliveryManager", true],
+    ["legacyAdmin", false],
+    ["caseworker", false],
+    ["judge", false],
+    ["none", false]
+  ] as const)("should offer %s the management information link: %s, from the session alone", async (persona, shown) => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ persona }), res);
+
+    expect(res.render.mock.calls[0][1]).toMatchObject({ showManagementInformation: shown });
+  });
+
   it.each(["legacyAdmin", "teamLeader", "caseworker", "judge", "none"] as const)("should not offer the service settings link to %s", async (persona) => {
     const res = pageResponse();
 

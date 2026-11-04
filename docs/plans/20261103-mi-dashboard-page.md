@@ -117,9 +117,9 @@ start it with `docker start deed-poll-redis` before running the tests; never dro
 
 ### Task 2: Gate and route
 
-- [ ] Failing `app.test.ts` case: the page and every CSV route require `VIEW_MANAGEMENT_INFORMATION`
+- [x] Failing `app.test.ts` case: the page and every CSV route require `VIEW_MANAGEMENT_INFORMATION`
       after authentication and before routing; a caseworker gets the standard 403 page.
-- [ ] Route, filter parsing and validation (A2), with a link shown only to capability holders.
+- [x] Route, filter parsing and validation (A2), with a link shown only to capability holders.
 
 ### Task 3: Tables and copy
 
@@ -167,3 +167,12 @@ start it with `docker start deed-poll-redis` before running the tests; never dro
   nested records are pinned strict (see `STRICT_RESPONSE_PROPERTIES`); the mock's 400s restate api's `MiParameters`
   at `e7ee862`, since the document publishes none. Format, lint and `build --force` clean; tests
   `@hmcts/deed-poll-api-client` 1,538 (+90), `@hmcts/deed-poll` 1,739, `//:test:app` 3,346, all passing.
+- 2026-11-04, Task 2: gate mounted on the `/deed-polls/management-information` prefix (page and CSVs alike), pinned in
+  `app.test.ts`; `require-role.test.ts` pins who is refused. Filters are `parseMiFilters`
+  (`libs/deed-poll/src/management-information/filters.ts`): `period` (`7-days` … `year`, `custom`), `from`/`to` as
+  `yyyy-MM-dd` text inputs (so api's own sentences apply verbatim and the CSV routes can reuse the query string),
+  `granularity` (api's `WEEK`/`MONTH`/`QUARTER`, unchecked unless chosen, otherwise weekly up to 90 days and monthly
+  beyond) and `includeMigrated` as Yes/No radios, absent meaning Yes. "Last year" is the 365/366 days ending today in
+  London. The four KPIs are read concurrently and degrade one by one; any api 400 is shown against the form. The page
+  handler lives in `src/management-information/` (added to the Welsh extractor's `INCLUDE`). Format, lint and
+  `build --force` clean; tests `//:test:app` 3,379 (+33), `@hmcts/deed-poll` 1,767 (+28), all passing.

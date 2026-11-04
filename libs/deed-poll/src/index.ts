@@ -60,6 +60,8 @@ export * from "./gazette/view.js";
 export * from "./judicial/schemas.js";
 export * from "./judicial/service.js";
 export * from "./judicial/view.js";
+export * from "./management-information/filters.js";
+export * from "./management-information/service.js";
 export * from "./notes/delete-policy.js";
 export * from "./notes/note-form.js";
 export * from "./notes/notes-view.js";

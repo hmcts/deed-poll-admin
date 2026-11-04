@@ -337,6 +337,9 @@ const gates = vi.hoisted(() => ({
   referrals: function requireReferralsDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
+  managementInformation: function requireManagementInformationDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
   judicial: function requireJudicialDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
@@ -364,7 +367,13 @@ const gates = vi.hoisted(() => ({
 vi.mock("./auth/require-auth.js", () => ({ requireAuth: () => gates.auth, isPublicPath: () => false }));
 vi.mock("./auth/require-role.js", () => ({
   requireCapability: vi.fn((capability: string) =>
-    capability === "MANAGE_PROCESS_CONFIG" ? gates.settings : capability === "ALLOCATE_REFERRALS" ? gates.referrals : gates.gazette
+    capability === "MANAGE_PROCESS_CONFIG"
+      ? gates.settings
+      : capability === "ALLOCATE_REFERRALS"
+        ? gates.referrals
+        : capability === "VIEW_MANAGEMENT_INFORMATION"
+          ? gates.managementInformation
+          : gates.gazette
   ),
   requireJudicial: () => gates.judicial
 }));
@@ -675,6 +684,38 @@ describe("createApp's settings gate", () => {
       ).toBe(true);
     }
     for (const url of ["/deed-polls", "/deed-polls/abc", "/deed-polls/settings-other", "/deed-polls/gazette", "/login"]) {
+      expect(
+        stack[index].matchers.every((matches) => matches(url) === false),
+        url
+      ).toBe(true);
+    }
+  });
+});
+
+describe("createApp's management information gate", () => {
+  it("should require VIEW_MANAGEMENT_INFORMATION after authentication and before routing for the page and every CSV", async () => {
+    const { requireCapability } = await import("./auth/require-role.js");
+    const { VIEW_MANAGEMENT_INFORMATION } = await import("@hmcts/deed-poll");
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    const stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+    const index = stack.findIndex((entry) => entry.handle === gates.managementInformation);
+    const paths = judicialPagePaths("deed-polls/management-information");
+
+    expect(requireCapability).toHaveBeenCalledWith(VIEW_MANAGEMENT_INFORMATION);
+    expect(stack.filter((entry) => entry.handle === gates.managementInformation)).toHaveLength(1);
+    expect(index).toBeGreaterThan(stack.findIndex((entry) => entry.handle === gates.auth));
+    expect(index).toBeGreaterThan(stack.findIndex((entry) => entry.handle === gates.persona));
+    expect(index).toBeLessThan(stack.findIndex((entry) => entry.handle === gates.router));
+    expect(paths).toContain("/deed-polls/management-information");
+    const csvs = ["volume", "stage-durations", "referral-outcomes", "completion"].map((kpi) => `/deed-polls/management-information/${kpi}.csv`);
+    for (const url of [...paths, ...csvs, "/deed-polls/management-information/future-page"]) {
+      expect(
+        stack[index].matchers.some((matches) => matches(url) !== false),
+        url
+      ).toBe(true);
+    }
+    for (const url of ["/deed-polls", "/deed-polls/abc", "/deed-polls/management-information-other", "/deed-polls/settings", "/login"]) {
       expect(
         stack[index].matchers.every((matches) => matches(url) === false),
         url

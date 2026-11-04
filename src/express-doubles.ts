@@ -22,7 +22,8 @@ import {
   MANAGE_PROCESS_CONFIG,
   MANAGE_SHARED_QUERIES,
   OVERRIDE_PRIVACY,
-  REPAIR_CCD
+  REPAIR_CCD,
+  VIEW_MANAGEMENT_INFORMATION
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { vi } from "vitest";
@@ -39,8 +40,8 @@ const CASEWORK = [OVERRIDE_PRIVACY, DELETE_NOTE, DELETE_WITNESS, MANAGE_SHARED_Q
  * and never the Gazette.
  */
 export const PERSONA_ACCESS = {
-  teamLeader: { staff: true, judicial: false, capabilities: CASEWORK },
-  deliveryManager: { staff: true, judicial: false, capabilities: [...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG] },
+  teamLeader: { staff: true, judicial: false, capabilities: [...CASEWORK, VIEW_MANAGEMENT_INFORMATION] },
+  deliveryManager: { staff: true, judicial: false, capabilities: [...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG, VIEW_MANAGEMENT_INFORMATION] },
   legacyAdmin: { staff: true, judicial: false, capabilities: CASEWORK },
   caseworker: { staff: true, judicial: false, capabilities: [] },
   judge: { staff: false, judicial: true, capabilities: [] },
