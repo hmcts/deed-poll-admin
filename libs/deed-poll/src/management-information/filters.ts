@@ -93,7 +93,8 @@ function rangeOf(period: MiPeriod, query: Record<string, unknown>, now: Date, er
     errors.push({ field: "to", message: MESSAGES.toBeforeFrom });
     return null;
   }
-  if (to > plusYears(from, MAX_SPAN_YEARS)) {
+  // By day number, not text: two years past 9998 is a five-digit year, which sorts before every four-digit one.
+  if (dayNumber(to) > dayNumber(plusYears(from, MAX_SPAN_YEARS))) {
     errors.push({ field: "to", message: MESSAGES.tooLong });
     return null;
   }

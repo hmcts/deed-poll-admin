@@ -330,6 +330,21 @@ describe("management information page", () => {
       expect(section(markup, "volume")).toMatch(/<text class="app-chart__tick app-chart__tick--x"[^>]*>5 Oct<\/text>/);
     });
 
+    it("should give fractional-day ticks enough digits to tell them apart", async () => {
+      const small = miCompletion();
+      vi.mocked(findMiCompletion).mockResolvedValue({
+        ...small,
+        cohorts: small.cohorts.map((cohort) => ({ ...cohort, daysToCompletion: { count: 1, medianDays: 0.05, p95Days: 0.05 } }))
+      });
+
+      const markup = await render();
+      const ticks = [...section(markup, "completion").matchAll(/<text class="app-chart__tick app-chart__tick--y"[^>]*>([^<]*)<\/text>/g)].map(
+        (match) => match[1]
+      );
+
+      expect(ticks).toEqual(["0", "0.02", "0.04", "0.06"]);
+    });
+
     it("should draw no chart for a table whose percentiles are all empty, leaving the table", async () => {
       const empty = miCompletion();
       vi.mocked(findMiCompletion).mockResolvedValue({

@@ -104,7 +104,10 @@ function formatters(locale: keyof typeof LOCALE_TAG, content: Content, granulari
     period: (start, end) => content.periodRange(day.format(utcDay(start)), day.format(utcDay(end))),
     cell: (column, value) => (value === null ? content.noCases : column.kind === "days" ? days.format(value) : count.format(value)),
     count: (value) => count.format(value),
-    days: (value) => days.format(value)
+    days: (value) => days.format(value),
+    // A step under a tenth of a day needs its own digits, or 0.02 and 0.04 both read 0 (the table's one place is enough there).
+    tickDays: (value, step) =>
+      new Intl.NumberFormat(LOCALE_TAG[locale], { maximumFractionDigits: Math.max(1, Math.ceil(-Math.log10(step) - 1e-9)) }).format(value)
   };
 }
 
@@ -150,6 +153,7 @@ function chart(format: Formatters, data: MiTable, headings: Record<string, strin
   const first = format.day(data.rows[0].start);
   const last = format.day(data.rows[data.rows.length - 1].end);
   const hasGaps = series.some((each) => each.values.includes(null));
+  const tickStep = geometry.yTicks[1].value - geometry.yTicks[0].value;
   return {
     id: choice.id,
     title,
@@ -157,7 +161,7 @@ function chart(format: Formatters, data: MiTable, headings: Record<string, strin
     width: geometry.width,
     height: geometry.height,
     plot: geometry.plot,
-    yTicks: geometry.yTicks.map((each) => ({ y: each.y, text: kind === "days" ? format.days(each.value) : format.count(each.value) })),
+    yTicks: geometry.yTicks.map((each) => ({ y: each.y, text: kind === "days" ? format.tickDays(each.value, tickStep) : format.count(each.value) })),
     xTicks: geometry.xTicks.map((each) => ({ x: each.x, text: format.tick(data.rows[each.index].start) })),
     series: geometry.series.map((each, index) => ({ ...each, label: each.label && { ...each.label, text: labels[index] } }))
   };
@@ -208,6 +212,7 @@ interface Formatters {
   day: (value: string) => string;
   tick: (value: string) => string;
   days: (value: number) => string;
+  tickDays: (value: number, step: number) => string;
   periodHeading: string;
   period: (start: string, end: string) => string;
   cell: (column: MiColumn, value: number | null) => string;

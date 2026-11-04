@@ -94,6 +94,11 @@ describe("management-information/filters", () => {
       ]);
     });
 
+    it("should allow a short range in 9998, whose two-year limit falls in a five-digit year", () => {
+      expect(parseMiFilters({ period: "custom", from: "9998-01-01", to: "9998-01-02" }, NOW).errors).toEqual([]);
+      expect(parseMiFilters({ period: "custom", from: "9999-01-01", to: "9999-12-31" }, NOW).errors).toEqual([]);
+    });
+
     it("should end two years from 29 February on the 28th, as api's plusYears does", () => {
       expect(parseMiFilters({ period: "custom", from: "2024-02-29", to: "2026-02-28" }, NOW).errors).toEqual([]);
       expect(parseMiFilters({ period: "custom", from: "2024-02-29", to: "2026-03-01" }, NOW).errors).toEqual([
