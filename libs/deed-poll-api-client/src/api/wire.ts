@@ -1297,7 +1297,7 @@ export const MI_STAGE_INTERVAL = [
 const miParametersSchema = z.object({
   from: z.iso.date(),
   to: z.iso.date(),
-  granularity: z.enum(MI_GRANULARITY).nullish(),
+  granularity: z.enum(MI_GRANULARITY),
   includeMigrated: z.boolean()
 });
 
@@ -1306,18 +1306,25 @@ const miCount = z.number().int().nonnegative();
 /** A bucket's percentiles beside its count. Both are null exactly when `count` is 0, which is not zero days. */
 const miDurationSchema = z.object({
   count: miCount,
-  medianDays: z.number().nullish(),
-  p95Days: z.number().nullish()
+  medianDays: z.number().nullable(),
+  p95Days: z.number().nullable()
 });
 
 const miPeriodShape = { start: z.iso.date(), end: z.iso.date() };
+
+/**
+ * api publishes every member of the enum, in declaration order, zeros included. A missing or repeated member would
+ * otherwise reach the tables as a silent zero or "No cases", so the answer is refused as an invalid response instead.
+ */
+const everyMemberInOrder = <T extends z.ZodType<{ [key in K]: string }>, K extends string>(item: T, key: K, members: readonly string[]) =>
+  z.array(item).refine((entries) => entries.length === members.length && entries.every((entry, index) => entry[key] === members[index]));
 
 const miVolumeTypeCountSchema = z.object({ type: z.enum(DEED_POLL_TYPE), count: miCount });
 
 const miVolumePeriodSchema = z.object({
   ...miPeriodShape,
   received: miCount,
-  receivedByType: z.array(miVolumeTypeCountSchema),
+  receivedByType: everyMemberInOrder(miVolumeTypeCountSchema, "type", DEED_POLL_TYPE),
   openAtEnd: miCount
 });
 
@@ -1333,17 +1340,17 @@ const miVolumeSchema = z.object({
 const miStageIntervalFiguresSchema = z.object({
   interval: z.enum(MI_STAGE_INTERVAL),
   count: miCount,
-  medianDays: z.number().nullish(),
-  p95Days: z.number().nullish()
+  medianDays: z.number().nullable(),
+  p95Days: z.number().nullable()
 });
 
 const miStageIntervalCountSchema = z.object({ interval: z.enum(MI_STAGE_INTERVAL), count: miCount });
 
-const miStageDurationsPeriodSchema = z.object({ ...miPeriodShape, intervals: z.array(miStageIntervalFiguresSchema) });
+const miStageDurationsPeriodSchema = z.object({ ...miPeriodShape, intervals: everyMemberInOrder(miStageIntervalFiguresSchema, "interval", MI_STAGE_INTERVAL) });
 
 const miStageDurationsExcludedSchema = z.object({
-  negativeInterval: z.array(miStageIntervalCountSchema),
-  migrated: z.array(miStageIntervalCountSchema)
+  negativeInterval: everyMemberInOrder(miStageIntervalCountSchema, "interval", MI_STAGE_INTERVAL),
+  migrated: everyMemberInOrder(miStageIntervalCountSchema, "interval", MI_STAGE_INTERVAL)
 });
 
 /** K2: how long each stage took, per period, each interval bucketed by the period its end falls in. */
@@ -1678,9 +1685,8 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   // reason; `from` and `to` likewise name the request. `interval` and `type` are each row's key, strict by choice as
   // an id is. **The nested records are strict too, unlike `application`'s**: api's service builds every one on every
   // answer (an empty bucket is `count` 0, never a missing record), and a table row without its figures is not a
-  // partial row a page can draw. The percentiles and `granularity` are the only nullable members: null percentiles
-  // are api's empty bucket, and nothing reads the echoed granularity.
-  MiParametersResponse: ["from", "to", "includeMigrated"],
+  // partial row a page can draw. The percentiles are the only nullable members, and null is api's empty bucket.
+  MiParametersResponse: ["from", "to", "granularity", "includeMigrated"],
   MiDurationResponse: ["count"],
   MiVolumeTypeCount: ["type", "count"],
   MiVolumePeriod: ["start", "end", "received", "receivedByType", "openAtEnd"],

@@ -402,6 +402,113 @@ describe("management information", () => {
     expect(queries).toEqual(["?from=2026-10-07&to=2026-10-27&granularity=WEEK", "?from=2026-10-07&to=2026-10-27&granularity=WEEK&includeMigrated=false"]);
   });
 
+  describe("an answer that breaks the contract", () => {
+    const PARAMETERS = { ...QUERY, includeMigrated: true };
+    const PERIOD = { start: "2026-10-05", end: "2026-10-11" };
+    const TYPES = ["Adult", "AdultTransgender", "Minor", "MinorTransgender", "DeedOfRelinquishment", "Unknown"];
+    const INTERVALS = [
+      "RECEIVED_TO_READY_FOR_MASTER",
+      "READY_TO_REFERRED",
+      "REFERRED_TO_DECISION",
+      "SIGNATURE_REQUESTED_TO_RECEIVED",
+      "SIGNATURE_RECEIVED_TO_ENROLED"
+    ];
+    const volume = (receivedByType: string[]) => ({
+      parameters: PARAMETERS,
+      periods: [{ ...PERIOD, received: 0, openAtEnd: 0, receivedByType: receivedByType.map((type) => ({ type, count: 0 })) }],
+      excluded: { noDateReceived: 0, migrated: 0 }
+    });
+    const durations = (intervals: string[], figures: Record<string, unknown> = { medianDays: null, p95Days: null }) => ({
+      parameters: PARAMETERS,
+      periods: [{ ...PERIOD, intervals: intervals.map((interval) => ({ interval, count: 0, ...figures })) }],
+      excluded: {
+        negativeInterval: INTERVALS.map((interval) => ({ interval, count: 0 })),
+        migrated: INTERVALS.map((interval) => ({ interval, count: 0 }))
+      }
+    });
+    const answering = async (body: unknown) => {
+      const server = await listen(
+        createServer((_req, res) => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify(body));
+        })
+      );
+      return { config: { ...config, baseUrl: server.url }, close: server.close };
+    };
+
+    it("should accept every type and interval in declaration order", async () => {
+      // Arrange
+      const volumeServer = await answering(volume(TYPES));
+      const durationsServer = await answering(durations(INTERVALS));
+
+      // Act
+      const volumeResult = await getMiVolume(QUERY, volumeServer.config);
+      const durationsResult = await getMiStageDurations(QUERY, durationsServer.config);
+      await volumeServer.close();
+      await durationsServer.close();
+
+      // Assert
+      expect(volumeResult.ok).toBe(true);
+      expect(durationsResult.ok).toBe(true);
+    });
+
+    it.each([
+      ["a missing type", TYPES.slice(1)],
+      ["a repeated type", [...TYPES.slice(0, -1), "Adult"]],
+      ["the types out of order", [...TYPES].reverse()]
+    ])("should refuse a volume answer with %s rather than read it as zero", async (_name, types) => {
+      // Arrange
+      const server = await answering(volume(types));
+
+      // Act
+      const result = await getMiVolume(QUERY, server.config);
+      await server.close();
+
+      // Assert
+      expect(result).toMatchObject({ ok: false, error: { kind: "invalid-response" } });
+    });
+
+    it.each([
+      ["a missing interval", INTERVALS.slice(1)],
+      ["a repeated interval", [...INTERVALS.slice(0, -1), INTERVALS[0]]]
+    ])("should refuse a stage durations answer with %s rather than read it as no cases", async (_name, intervals) => {
+      // Arrange
+      const server = await answering(durations(intervals));
+
+      // Act
+      const result = await getMiStageDurations(QUERY, server.config);
+      await server.close();
+
+      // Assert
+      expect(result).toMatchObject({ ok: false, error: { kind: "invalid-response" } });
+    });
+
+    it("should refuse a missing percentile, which api publishes as null rather than omits", async () => {
+      // Arrange
+      const server = await answering(durations(INTERVALS, { p95Days: null }));
+
+      // Act
+      const result = await getMiStageDurations(QUERY, server.config);
+      await server.close();
+
+      // Assert
+      expect(result).toMatchObject({ ok: false, error: { kind: "invalid-response" } });
+    });
+
+    it("should refuse parameters with no granularity", async () => {
+      // Arrange
+      const { granularity: _granularity, ...withoutGranularity } = PARAMETERS;
+      const server = await answering({ ...volume(TYPES), parameters: withoutGranularity });
+
+      // Act
+      const result = await getMiVolume(QUERY, server.config);
+      await server.close();
+
+      // Assert
+      expect(result).toMatchObject({ ok: false, error: { kind: "invalid-response" } });
+    });
+  });
+
   it("should carry api's refusal of a range as a validation error on the field at fault", async () => {
     // Act
     const result = await getMiCompletion({ from: "2026-10-27", to: "2026-10-07", granularity: "MONTH" }, asTeamLeader());
