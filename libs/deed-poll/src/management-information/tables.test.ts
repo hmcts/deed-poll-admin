@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { MiCompletion, MiReferralOutcomes, MiStageDurations, MiVolume } from "./service.js";
-import { completionTable, miExclusions, referralOutcomesTable, stageDurationTables, volumeTable } from "./tables.js";
+import {
+  completionExclusions,
+  completionTable,
+  referralOutcomeExclusions,
+  referralOutcomesTable,
+  stageDurationExclusions,
+  stageDurationTables,
+  volumeExclusions,
+  volumeTable
+} from "./tables.js";
 
 const PARAMETERS = { from: "2026-10-05", to: "2026-10-18", granularity: "WEEK" as const, includeMigrated: true };
 const WEEK_1 = { start: "2026-10-05", end: "2026-10-11" };
@@ -135,11 +144,11 @@ describe("management-information/tables", () => {
     });
   });
 
-  describe("miExclusions", () => {
+  describe("exclusions", () => {
     it("should list a KPI's exclusions without the migrated count when migrated cases were included", () => {
       const volume: MiVolume = { parameters: PARAMETERS, periods: [], excluded: { noDateReceived: 3, migrated: 0 } };
 
-      expect(miExclusions("volume", volume)).toEqual([{ key: "noDateReceived", count: 3 }]);
+      expect(volumeExclusions(volume)).toEqual([{ key: "noDateReceived", count: 3 }]);
     });
 
     it("should list the migrated counts when migrated cases were left out", () => {
@@ -149,7 +158,7 @@ describe("management-information/tables", () => {
         excluded: { migratedDecisions: 2, migratedConfirmations: 1, decisionDateWithoutDecision: 1, confirmationWithoutOutcome: 0 }
       };
 
-      expect(miExclusions("referral-outcomes", outcomes)).toEqual([
+      expect(referralOutcomeExclusions(outcomes)).toEqual([
         { key: "decisionDateWithoutDecision", count: 1 },
         { key: "confirmationWithoutOutcome", count: 0 },
         { key: "migratedDecisions", count: 2 },
@@ -164,7 +173,7 @@ describe("management-information/tables", () => {
         excluded: { negativeInterval: [{ interval: "READY_TO_REFERRED", count: 2 }], migrated: [{ interval: "READY_TO_REFERRED", count: 9 }] }
       };
 
-      const exclusions = miExclusions("stage-durations", durations);
+      const exclusions = stageDurationExclusions(durations);
 
       expect(exclusions).toHaveLength(5);
       expect(exclusions[0]).toEqual({ key: "negativeInterval", interval: "RECEIVED_TO_READY_FOR_MASTER", count: 0 });
@@ -178,7 +187,7 @@ describe("management-information/tables", () => {
         excluded: { noDateReceived: 3, contradiction: 1, negativeInterval: 2, migrated: 4 }
       };
 
-      expect(miExclusions("completion", completion).map((each) => [each.key, each.count])).toEqual([
+      expect(completionExclusions(completion).map((each) => [each.key, each.count])).toEqual([
         ["noDateReceived", 3],
         ["contradiction", 1],
         ["negativeInterval", 2],

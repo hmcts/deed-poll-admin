@@ -1,5 +1,5 @@
 /**
- * The management information page's filters (plan `docs/plans/20261103-mi-dashboard-page.md`, decision A2): a period
+ * The management information page's filters (plan `docs/plans/completed/20261103-mi-dashboard-page.md`, decision A2): a period
  * preset or a custom range, a granularity and whether migrated cases count. One GET form, so every control arrives in
  * the query string, and the CSV routes read the same string the same way.
  *

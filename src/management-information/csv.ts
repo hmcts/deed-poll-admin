@@ -1,5 +1,5 @@
 /**
- * CSV for the management information downloads (plan `docs/plans/20261103-mi-dashboard-page.md`, decision A8):
+ * CSV for the management information downloads (plan `docs/plans/completed/20261103-mi-dashboard-page.md`, decision A8):
  * RFC 4180 quoting, CRLF line ends and a byte order mark, because Excel reads UTF-8 without one as its own code page.
  *
  * A text cell starting with `=`, `+`, `-`, `@`, a tab or a CR is one a spreadsheet would run as a formula, so it gets

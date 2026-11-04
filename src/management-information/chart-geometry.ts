@@ -1,5 +1,5 @@
 /**
- * The geometry of the management information line charts (plan `docs/plans/20261103-mi-dashboard-page.md`, decisions
+ * The geometry of the management information line charts (plan `docs/plans/completed/20261103-mi-dashboard-page.md`, decisions
  * A3 and A4): scales, ticks, polyline points and label positions, as numbers for `line-chart.njk` to draw. No
  * charting library, so nothing reaches the browser bundle or the CSP.
  *

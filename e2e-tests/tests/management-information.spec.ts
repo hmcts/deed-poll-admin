@@ -1,5 +1,5 @@
 /**
- * Management information, end to end in a browser (plan `docs/plans/20261103-mi-dashboard-page.md`).
+ * Management information, end to end in a browser (plan `docs/plans/completed/20261103-mi-dashboard-page.md`).
  *
  * A Team leader opens the page from the case list, changes the period, sees the four tables and downloads one CSV;
  * a caseworker is refused the page and its downloads.

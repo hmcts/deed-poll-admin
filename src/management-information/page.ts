@@ -1,5 +1,5 @@
 /**
- * The management information page (plan `docs/plans/20261103-mi-dashboard-page.md`): one GET form of filters and the
+ * The management information page (plan `docs/plans/completed/20261103-mi-dashboard-page.md`): one GET form of filters and the
  * four KPIs api publishes for them. The area is gated on `VIEW_MANAGEMENT_INFORMATION` in `app.ts`.
  *
  * The four reads are independent, so each degrades on its own to `null` and a log line, and the page says that KPI

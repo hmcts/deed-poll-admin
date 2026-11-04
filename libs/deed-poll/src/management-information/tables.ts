@@ -1,5 +1,5 @@
 /**
- * The management information tables (plan `docs/plans/20261103-mi-dashboard-page.md`, decisions A5 to A7), as data
+ * The management information tables (plan `docs/plans/completed/20261103-mi-dashboard-page.md`, decisions A5 to A7), as data
  * with no words: each column is a key the page names in its own language, and each cell is api's number or null.
  * The page's tables and the CSV downloads are both drawn from these, so a download holds exactly the table's rows.
  *
@@ -93,40 +93,36 @@ export function completionTable(completion: MiCompletion): MiTable {
  * What each KPI left out, as api counts it, in the order its details list them (A7). A `migrated` count is api's 0
  * whenever migrated cases are included, so it is listed only when they were left out.
  */
-export function miExclusions(kpi: MiKpi, answer: MiVolume | MiStageDurations | MiReferralOutcomes | MiCompletion): MiExclusion[] {
-  const includeMigrated = answer.parameters.includeMigrated;
-  const keep = (each: MiExclusion) => !each.key.startsWith("migrated") || !includeMigrated;
-  switch (kpi) {
-    case "volume": {
-      const { excluded } = answer as MiVolume;
-      return [
-        { key: "noDateReceived", count: excluded.noDateReceived },
-        { key: "migrated", count: excluded.migrated }
-      ].filter(keep);
-    }
-    case "stage-durations": {
-      const { excluded } = answer as MiStageDurations;
-      return [...intervalCounts("negativeInterval", excluded.negativeInterval), ...intervalCounts("migrated", excluded.migrated)].filter(keep);
-    }
-    case "referral-outcomes": {
-      const { excluded } = answer as MiReferralOutcomes;
-      return [
-        { key: "decisionDateWithoutDecision", count: excluded.decisionDateWithoutDecision },
-        { key: "confirmationWithoutOutcome", count: excluded.confirmationWithoutOutcome },
-        { key: "migratedDecisions", count: excluded.migratedDecisions },
-        { key: "migratedConfirmations", count: excluded.migratedConfirmations }
-      ].filter(keep);
-    }
-    case "completion": {
-      const { excluded } = answer as MiCompletion;
-      return [
-        { key: "noDateReceived", count: excluded.noDateReceived },
-        { key: "contradiction", count: excluded.contradiction },
-        { key: "negativeInterval", count: excluded.negativeInterval },
-        { key: "migrated", count: excluded.migrated }
-      ].filter(keep);
-    }
-  }
+export function volumeExclusions({ parameters, excluded }: MiVolume): MiExclusion[] {
+  return listed(parameters.includeMigrated, [
+    { key: "noDateReceived", count: excluded.noDateReceived },
+    { key: "migrated", count: excluded.migrated }
+  ]);
+}
+
+export function stageDurationExclusions({ parameters, excluded }: MiStageDurations): MiExclusion[] {
+  return listed(parameters.includeMigrated, [
+    ...intervalCounts("negativeInterval", excluded.negativeInterval),
+    ...intervalCounts("migrated", excluded.migrated)
+  ]);
+}
+
+export function referralOutcomeExclusions({ parameters, excluded }: MiReferralOutcomes): MiExclusion[] {
+  return listed(parameters.includeMigrated, [
+    { key: "decisionDateWithoutDecision", count: excluded.decisionDateWithoutDecision },
+    { key: "confirmationWithoutOutcome", count: excluded.confirmationWithoutOutcome },
+    { key: "migratedDecisions", count: excluded.migratedDecisions },
+    { key: "migratedConfirmations", count: excluded.migratedConfirmations }
+  ]);
+}
+
+export function completionExclusions({ parameters, excluded }: MiCompletion): MiExclusion[] {
+  return listed(parameters.includeMigrated, [
+    { key: "noDateReceived", count: excluded.noDateReceived },
+    { key: "contradiction", count: excluded.contradiction },
+    { key: "negativeInterval", count: excluded.negativeInterval },
+    { key: "migrated", count: excluded.migrated }
+  ]);
 }
 
 function count(key: string): MiColumn {
@@ -135,6 +131,11 @@ function count(key: string): MiColumn {
 
 function days(key: string): MiColumn {
   return { key, kind: "days" };
+}
+
+// Every migrated key starts "migrated", and each is api's 0 when migrated cases were included.
+function listed(includeMigrated: boolean, exclusions: MiExclusion[]): MiExclusion[] {
+  return includeMigrated ? exclusions.filter((each) => !each.key.startsWith("migrated")) : exclusions;
 }
 
 /** Every interval, zeros included, in api's order, whatever order the answer listed them in. */

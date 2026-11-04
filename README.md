@@ -233,7 +233,7 @@ two years, grouped weekly, monthly or quarterly, with migrated cases included un
 30 days, weekly. Each KPI is a table with a chart above it that adds nothing the table lacks, and a CSV download of
 exactly the table's rows; the page needs no JavaScript. Deploy api #165/#166 to every replica before this admin
 version; see [DEPLOYMENT.md](docs/DEPLOYMENT.md#what-a-deploy-of-this-app-needs-from-api) and
-[the plan](docs/plans/20261103-mi-dashboard-page.md).
+[the plan](docs/plans/completed/20261103-mi-dashboard-page.md).
 
 The seed includes 26 ready cases, cases excluded by the publication/sent-date rules, and 26 frozen
 history batches. The newest batch has 101 cases and a sorted 100-reference preview. No email is sent.

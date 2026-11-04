@@ -495,6 +495,22 @@ describe("management information", () => {
       expect(result).toMatchObject({ ok: false, error: { kind: "invalid-response" } });
     });
 
+    it.each([
+      ["no percentiles beside a non-zero count", { count: 5, medianDays: null, p95Days: null }],
+      ["percentiles beside a count of 0", { count: 0, medianDays: 2, p95Days: 4 }],
+      ["one percentile beside a non-zero count", { count: 5, medianDays: 2, p95Days: null }]
+    ])("should refuse a stage durations answer with %s rather than draw No cases beside a count", async (_name, figures) => {
+      // Arrange
+      const server = await answering(durations(INTERVALS, figures));
+
+      // Act
+      const result = await getMiStageDurations(QUERY, server.config);
+      await server.close();
+
+      // Assert
+      expect(result).toMatchObject({ ok: false, error: { kind: "invalid-response" } });
+    });
+
     it("should refuse parameters with no granularity", async () => {
       // Arrange
       const { granularity: _granularity, ...withoutGranularity } = PARAMETERS;

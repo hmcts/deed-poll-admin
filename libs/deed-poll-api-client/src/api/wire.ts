@@ -1303,12 +1303,20 @@ const miParametersSchema = z.object({
 
 const miCount = z.number().int().nonnegative();
 
-/** A bucket's percentiles beside its count. Both are null exactly when `count` is 0, which is not zero days. */
-const miDurationSchema = z.object({
-  count: miCount,
-  medianDays: z.number().nullable(),
-  p95Days: z.number().nullable()
-});
+/**
+ * A bucket's percentiles beside its count. Both are null exactly when `count` is 0, which is not zero days; an answer
+ * breaking that would draw "No cases" beside a non-zero count, so it is refused as an invalid response instead.
+ */
+const percentilesMatchCount = (bucket: { count: number; medianDays: number | null; p95Days: number | null }) =>
+  (bucket.count === 0) === (bucket.medianDays === null) && (bucket.count === 0) === (bucket.p95Days === null);
+
+const miDurationSchema = z
+  .object({
+    count: miCount,
+    medianDays: z.number().nullable(),
+    p95Days: z.number().nullable()
+  })
+  .refine(percentilesMatchCount);
 
 const miPeriodShape = { start: z.iso.date(), end: z.iso.date() };
 
@@ -1337,12 +1345,14 @@ const miVolumeSchema = z.object({
   excluded: miVolumeExcludedSchema
 });
 
-const miStageIntervalFiguresSchema = z.object({
-  interval: z.enum(MI_STAGE_INTERVAL),
-  count: miCount,
-  medianDays: z.number().nullable(),
-  p95Days: z.number().nullable()
-});
+const miStageIntervalFiguresSchema = z
+  .object({
+    interval: z.enum(MI_STAGE_INTERVAL),
+    count: miCount,
+    medianDays: z.number().nullable(),
+    p95Days: z.number().nullable()
+  })
+  .refine(percentilesMatchCount);
 
 const miStageIntervalCountSchema = z.object({ interval: z.enum(MI_STAGE_INTERVAL), count: miCount });
 

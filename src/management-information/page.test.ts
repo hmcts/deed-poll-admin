@@ -139,6 +139,26 @@ describe("showManagementInformation", () => {
     }
   );
 
+  it("should answer a 429 from one read even when another read refused the filters", async () => {
+    const limited = new TooManyRequestsError("slow down", 60);
+    vi.mocked(findMiVolume).mockRejectedValue(new InvalidInputError("The range is not usable.", [{ field: "to", message: "The range is not usable." }]));
+    vi.mocked(findMiCompletion).mockRejectedValue(limited);
+
+    await expect(show()).rejects.toBe(limited);
+  });
+
+  it("should show api's 400 against the form when another read failed outright, with no figures", async () => {
+    const message = "The range is not usable.";
+    vi.mocked(findMiVolume).mockRejectedValue(new InvalidInputError(message, [{ field: "to", message }]));
+    vi.mocked(findMiCompletion).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+
+    const { res, model } = await show();
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(model.report).toBeNull();
+    expect(model.errorList).toEqual([{ text: message, href: "#to" }]);
+  });
+
   it("should check the chosen period's radio and keep the custom days as typed", async () => {
     const { model } = await show({ period: "year", from: "x" });
 

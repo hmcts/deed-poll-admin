@@ -33,7 +33,10 @@ beforeEach(async () => {
 
   const pages = path.join(fileURLToPath(import.meta.url), "../../pages");
   app = express();
-  app.engine("njk", (file, _options, callback) => callback(null, path.relative(pages, file)));
+  // A refusal's page is rendered as the parts of its model the refusal decides, so a test can read them back.
+  app.engine("njk", (file, options: { errorList?: unknown; report?: unknown }, callback) =>
+    callback(null, JSON.stringify({ view: path.relative(pages, file), errorList: options.errorList, report: options.report }))
+  );
   app.set("view engine", "njk");
   app.set("views", pages);
   // The session `requireAuth` guarantees, and the gate `app.ts` mounts in front of the area (pinned in `app.test.ts`).
@@ -131,7 +134,11 @@ describe("management information downloads", () => {
     const response = await supertest(app).get(`${AREA}/volume.csv?period=custom&from=2026-10-02&to=2026-10-01`);
 
     expect(response.status).toBe(400);
-    expect(response.text).toBe("deed-polls/management-information/index.njk");
+    expect(JSON.parse(response.text)).toEqual({
+      view: "deed-polls/management-information/index.njk",
+      errorList: [{ text: "The last day of the range cannot be before the first.", href: "#to" }],
+      report: null
+    });
     expect(findMiVolume).not.toHaveBeenCalled();
   });
 
@@ -142,7 +149,11 @@ describe("management information downloads", () => {
     const response = await supertest(app).get(`${AREA}/completion.csv?${RANGE}`);
 
     expect(response.status).toBe(400);
-    expect(response.text).toBe("deed-polls/management-information/index.njk");
+    expect(JSON.parse(response.text)).toEqual({
+      view: "deed-polls/management-information/index.njk",
+      errorList: [{ text: message, href: "#to" }],
+      report: null
+    });
   });
 
   it("should not answer a partial file when api cannot be read", async () => {

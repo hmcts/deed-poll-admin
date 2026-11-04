@@ -1,5 +1,5 @@
 /**
- * The management information page's words (plan `docs/plans/20261103-mi-dashboard-page.md`). New copy awaiting
+ * The management information page's words (plan `docs/plans/completed/20261103-mi-dashboard-page.md`). New copy awaiting
  * translation, so `cy` mirrors it and `yarn welsh:check` counts it. The filter errors are api's sentences and live
  * with the parser in `@hmcts/deed-poll`, like the case form's field errors.
  */

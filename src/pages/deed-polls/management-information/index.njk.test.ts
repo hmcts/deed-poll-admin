@@ -60,6 +60,23 @@ describe("management information page", () => {
     expect(markup).toContain('<h1 class="govuk-heading-xl">Management information</h1>');
   });
 
+  it("should head the periods by month, and label the chart's ticks with the month, for the last year", async () => {
+    const markup = await render({ period: "year" });
+
+    expect(markup).toContain("grouped by month.");
+    expect(markup).toMatch(/<th scope="col" class="govuk-table__header">Month<\/th>/);
+    expect(markup).toContain(">Oct 2026</text>");
+    expect(markup).toContain("Line chart of");
+    expect(markup).toContain("for each month from");
+  });
+
+  it("should check the granularity that was chosen", async () => {
+    const markup = await render({ granularity: "QUARTER" });
+
+    expect(markup).toMatch(/name="granularity" type="radio" value="QUARTER" checked/);
+    expect(markup).toContain("grouped by quarter.");
+  });
+
   it("should check the last 30 days and migrated cases, and no granularity, when nothing is chosen", async () => {
     const markup = await render();
 

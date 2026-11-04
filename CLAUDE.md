@@ -859,7 +859,7 @@ files:
 ## Management information
 
 `/deed-polls/management-information` shows api's four aggregate KPIs (volume, stage durations, referral outcomes,
-time to completion) for a chosen period (plan `docs/plans/20261103-mi-dashboard-page.md`; the KPI definitions are
+time to completion) for a chosen period (plan `docs/plans/completed/20261103-mi-dashboard-page.md`; the KPI definitions are
 api's). **Deploy order:** api #165/#166 on every replica first. Facts that span several files:
 
 - **The area is gated once, on `VIEW_MANAGEMENT_INFORMATION`** (Team leaders and Delivery Managers; not the legacy

@@ -1,6 +1,6 @@
 /**
  * The management information page's four sections, in the page's language, from the word-free tables in
- * `@hmcts/deed-poll` (plan `docs/plans/20261103-mi-dashboard-page.md`, decisions A5 to A7). Each table's rows go to
+ * `@hmcts/deed-poll` (plan `docs/plans/completed/20261103-mi-dashboard-page.md`, decisions A5 to A7). Each table's rows go to
  * `govukTable` as they are.
  *
  * - **A5:** a percentile column always follows the count it was taken over, and a null percentile reads "No cases",
@@ -10,6 +10,7 @@
  * - **A7:** every section's details list what it leaves out, with api's excluded counts.
  */
 import {
+  completionExclusions,
   completionTable,
   type ManagementInformationQuery,
   MI_STAGE_INTERVAL,
@@ -22,9 +23,11 @@ import {
   type MiStageDurations,
   type MiTable,
   type MiVolume,
-  miExclusions,
+  referralOutcomeExclusions,
   referralOutcomesTable,
+  stageDurationExclusions,
   stageDurationTables,
+  volumeExclusions,
   volumeTable
 } from "@hmcts/deed-poll";
 import { type LineChartGeometry, lineChart } from "./chart-geometry.js";
@@ -41,7 +44,7 @@ export function reportView(report: Report, locale: keyof typeof LOCALE_TAG, cont
     volume: section("volume", report.query, content.volume, report.volume, (volume) => ({
       tables: [table(format, volumeTable(volume), content.volume.columns, content.volume.heading, chartOf("volume", ["received", "openAtEnd"]))],
       notes: [content.editedDates, content.volume.unknownTypeNote],
-      exclusions: exclusionItems(miExclusions("volume", volume), content.volume.exclusions, format)
+      exclusions: exclusionItems(volumeExclusions(volume), content.volume.exclusions, format)
     })),
     stageDurations: section("stage-durations", report.query, content.stageDurations, report.stageDurations, (durations) => ({
       tables: stageDurationTables(durations).map((each, index) =>
@@ -55,7 +58,7 @@ export function reportView(report: Report, locale: keyof typeof LOCALE_TAG, cont
       ),
       notes: [content.editedDates, content.stageDurations.missingDatesNote, content.stageDurations.furtherDocumentsNote],
       exclusions: [],
-      exclusionTable: stageExclusionTable(miExclusions("stage-durations", durations), content, format)
+      exclusionTable: stageExclusionTable(stageDurationExclusions(durations), content, format)
     })),
     referralOutcomes: section("referral-outcomes", report.query, content.referralOutcomes, report.referralOutcomes, (outcomes) => ({
       tables: [
@@ -68,13 +71,13 @@ export function reportView(report: Report, locale: keyof typeof LOCALE_TAG, cont
         )
       ],
       notes: [content.editedDates, content.referralOutcomes.staffWithdrawalNote],
-      exclusions: exclusionItems(miExclusions("referral-outcomes", outcomes), content.referralOutcomes.exclusions, format)
+      exclusions: exclusionItems(referralOutcomeExclusions(outcomes), content.referralOutcomes.exclusions, format)
     })),
     completion: section("completion", report.query, content.completion, report.completion, (completion) => ({
       warning: content.completion.stillOpenWarning,
       tables: [table(format, completionTable(completion), content.completion.columns, content.completion.heading, chartOf("completion", PERCENTILES))],
       notes: [content.editedDates],
-      exclusions: exclusionItems(miExclusions("completion", completion), content.completion.exclusions, format)
+      exclusions: exclusionItems(completionExclusions(completion), content.completion.exclusions, format)
     }))
   };
 }

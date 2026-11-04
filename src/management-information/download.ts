@@ -1,5 +1,5 @@
 /**
- * The management information downloads (plan `docs/plans/20261103-mi-dashboard-page.md`, decision A8): one route per
+ * The management information downloads (plan `docs/plans/completed/20261103-mi-dashboard-page.md`, decision A8): one route per
  * KPI, behind the page's gate, reading the page's query string and holding exactly its table's rows. Each figure is
  * api's, unformatted; a percentile keeps the count it was taken over beside it, and an empty bucket is an empty cell.
  *
