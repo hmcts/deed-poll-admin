@@ -2874,13 +2874,13 @@ async function get(path: string, headers: Record<string, string> = {}): Promise<
  * The mock reads a name out of the token and no roles, so this is what tells a judge's referral from another
  * judge's — and the `caseworker-deedpoll-judicial` role gate is api's rather than something to arrange here.
  */
+function as(subject: string): Record<string, string> {
+  return { authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: subject }), "utf8").toString("base64url")}.signature` };
+}
+
 /** A token carrying IDAM roles, for the gates the mock reads from them. */
 function withRoles(roles: string[]): Record<string, string> {
   return { authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: "tester", roles }), "utf8").toString("base64url")}.signature` };
-}
-
-function as(subject: string): Record<string, string> {
-  return { authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: subject }), "utf8").toString("base64url")}.signature` };
 }
 
 /**

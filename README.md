@@ -226,6 +226,15 @@ see [DEPLOYMENT.md](docs/DEPLOYMENT.md#what-a-deploy-of-this-app-needs-from-api)
 [the Db1 plan](docs/plans/completed/20261028-db1-assignment-contract-mock-and-pages.md) and
 [the Fa1 plan](docs/plans/20261030-fa1-referral-queue-screen.md).
 
+Team leaders and Delivery Managers (`VIEW_MANAGEMENT_INFORMATION`) open **Management information**
+(`/deed-polls/management-information`) from the case list. It shows api's four KPIs (volume, stage durations, referral
+outcomes and time to completion by cohort) for the last 7, 30, 60 or 90 days, the last year, or a custom range of up to
+two years, grouped weekly, monthly or quarterly, with migrated cases included unless left out. The default is the last
+30 days, weekly. Each KPI is a table with a chart above it that adds nothing the table lacks, and a CSV download of
+exactly the table's rows; the page needs no JavaScript. Deploy api #165/#166 to every replica before this admin
+version; see [DEPLOYMENT.md](docs/DEPLOYMENT.md#what-a-deploy-of-this-app-needs-from-api) and
+[the plan](docs/plans/20261103-mi-dashboard-page.md).
+
 The seed includes 26 ready cases, cases excluded by the publication/sent-date rules, and 26 frozen
 history batches. The newest batch has 101 cases and a sorted 100-reference preview. No email is sent.
 `DEED_POLL_API_MOCK_URL=http://localhost:3216 yarn mock:seed` targets an isolated mock;
@@ -325,8 +334,9 @@ needs `yarn idam:users` to have seeded the simulator, since the personas are fou
 Team leaders (`caseworker-deedpoll-team-leader`) can override privacy, delete notes/witnesses,
 manage shared queries, perform API CCD repair, and send referrals from the queue to Masters and reassign them
 (`ALLOCATE_REFERRALS`, `/deed-polls/referrals`). Delivery Managers (`caseworker-deedpoll-delivery-manager`)
-have those capabilities plus Gazette access and the service settings page (`MANAGE_PROCESS_CONFIG`, `/deed-polls/settings`). Neither role grants judicial access. The temporary legacy
-admin role retains Team leader capabilities and cannot use Gazette; its seeded account is only for
+have those capabilities plus Gazette access and the service settings page (`MANAGE_PROCESS_CONFIG`, `/deed-polls/settings`). Both roles can view management information (`VIEW_MANAGEMENT_INFORMATION`,
+`/deed-polls/management-information`). Neither role grants judicial access. The temporary legacy
+admin role keeps the Team leader's casework and referral capabilities, but not management information, and cannot use Gazette; its seeded account is only for
 migration-refusal checks. Ordinary caseworker and judge permissions are unchanged.
 
 The app reads none of these roles. It asks api's `GET /me` for the caller's `staff`, `judicial` and
@@ -488,7 +498,7 @@ Each handler imports its lib's domain functions directly (`import { … } from "
 |------|------|----------|---------|
 | **Unit Tests** | Vitest | Co-located `*.test.ts` | Business logic validation |
 | **E2E Tests** | Playwright | `e2e-tests/` | User journey validation |
-| **Accessibility Tests** | Axe-core + Playwright | `e2e-tests/` | WCAG 2.1 AA compliance |
+| **Accessibility Tests** | Axe-core + Playwright, and axe-core over jsdom in a template test | `e2e-tests/`, `*.njk.test.ts` | WCAG 2.1 AA compliance |
 
 ```bash
 # Run specific test suites

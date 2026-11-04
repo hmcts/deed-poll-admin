@@ -79,6 +79,11 @@ export function reportView(report: Report, locale: keyof typeof LOCALE_TAG, cont
   };
 }
 
+export function utcDay(day: string): Date {
+  // A period's days are calendar days with no zone, so they are formatted as UTC midnight to keep the day they name.
+  return new Date(`${day}T00:00:00Z`);
+}
+
 function formatters(locale: keyof typeof LOCALE_TAG, content: Content, granularity: MiGranularity): Formatters {
   const count = new Intl.NumberFormat(LOCALE_TAG[locale]);
   const days = new Intl.NumberFormat(LOCALE_TAG[locale], { maximumFractionDigits: 1 });
@@ -174,11 +179,6 @@ function stageExclusionTable(exclusions: MiExclusion[], content: Content, format
       }))
     ])
   };
-}
-
-function utcDay(day: string): Date {
-  // A period's days are calendar days with no zone, so they are formatted as UTC midnight to keep the day they name.
-  return new Date(`${day}T00:00:00Z`);
 }
 
 type Content = typeof en;

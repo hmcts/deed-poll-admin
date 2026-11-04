@@ -114,7 +114,7 @@
           {% endfor %}
         {% endif %}
         {% if not section.unavailable %}
-          <p class="govuk-body"><a class="govuk-link" href="{{ section.download.href }}" download>{{ section.download.text }}</a></p>
+          <p class="govuk-body"><a class="govuk-link" href="{{ section.download.href }}">{{ section.download.text }}</a></p>
           {% set doesNotCount %}
             <ul class="govuk-list govuk-list--bullet">
               {% for note in section.notes %}<li>{{ note }}</li>{% endfor %}

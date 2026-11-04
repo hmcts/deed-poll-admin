@@ -90,6 +90,15 @@ describe("management information downloads", () => {
     expect(csv.at(-1)).toBe("Signature received to enrolled,2026-10-19,2026-10-25,1,6,6");
   });
 
+  it("should answer a range with no periods with the header row alone", async () => {
+    vi.mocked(findMiStageDurations).mockResolvedValue({ ...miStageDurations(), periods: [] });
+
+    const response = await supertest(app).get(`${AREA}/stage-durations.csv?${RANGE}`);
+
+    expect(response.status).toBe(200);
+    expect(lines(response.text)).toEqual(["Stage,Period start,Period end,Cases,Median days,95th percentile days"]);
+  });
+
   it("should answer referral outcomes with counts only", async () => {
     const response = await supertest(app).get(`${AREA}/referral-outcomes.csv?${RANGE}`);
 

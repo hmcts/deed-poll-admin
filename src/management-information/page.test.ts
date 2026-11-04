@@ -5,6 +5,7 @@ import {
   findMiStageDurations,
   findMiVolume,
   InvalidInputError,
+  TooManyRequestsError,
   UnauthorizedError
 } from "@hmcts/deed-poll";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -95,6 +96,27 @@ describe("showManagementInformation", () => {
     expect(model.errorList).toEqual([{ text: "Something is wrong.", href: "#period" }]);
   });
 
+  it("should point an api 400 naming a field the form does not have at the first control", async () => {
+    const message = "The range is not usable.";
+    vi.mocked(findMiVolume).mockRejectedValue(new InvalidInputError(message, [{ field: "range", message }]));
+
+    const { model } = await show();
+
+    expect(model.errorList).toEqual([{ text: message, href: "#period" }]);
+  });
+
+  it("should start all four reads before waiting for any of them", async () => {
+    let release: (value: Awaited<ReturnType<typeof miVolume>>) => void = () => {};
+    vi.mocked(findMiVolume).mockReturnValue(new Promise((resolve) => (release = resolve)));
+
+    const shown = show();
+    await Promise.resolve();
+
+    for (const read of READS) expect(read).toHaveBeenCalledOnce();
+    release(miVolume());
+    await shown;
+  });
+
   it("should degrade only the KPI whose read failed, and log it", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(findMiCompletion).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)\nforged"));
@@ -108,11 +130,14 @@ describe("showManagementInformation", () => {
     expect(log.mock.calls[0][0]).not.toContain("\n");
   });
 
-  it.each([new UnauthorizedError("expired"), new ForbiddenError("no capability")])("should not degrade a %s", async (error) => {
-    vi.mocked(findMiVolume).mockRejectedValue(error);
+  it.each([new UnauthorizedError("expired"), new ForbiddenError("no capability"), new TooManyRequestsError("slow down", 60)])(
+    "should not degrade a %s",
+    async (error) => {
+      vi.mocked(findMiVolume).mockRejectedValue(error);
 
-    await expect(show()).rejects.toBe(error);
-  });
+      await expect(show()).rejects.toBe(error);
+    }
+  );
 
   it("should check the chosen period's radio and keep the custom days as typed", async () => {
     const { model } = await show({ period: "year", from: "x" });

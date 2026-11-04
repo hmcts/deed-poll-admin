@@ -411,13 +411,13 @@ The judicial gate still requires `judicial` in the `/me` answer.
 
 api owns the capability matrix (`RoleCapabilities.java`); the mock mirrors it, and admin holds no copy:
 
-| Role | Privacy override, note/witness deletion, shared-query management, CCD repair | Send referrals | Gazette | Process settings | Judicial |
-|---|---|---|---|---|---|
-| `caseworker-deedpoll` | No | No | No | No | No |
-| `caseworker-deedpoll-team-leader` | Yes | Yes | No | No | No |
-| `caseworker-deedpoll-delivery-manager` | Yes | Yes | Yes | Yes | No |
-| `caseworker-deedpoll-admin` (temporary compatibility) | Yes | Yes | No | No | No |
-| `caseworker-deedpoll-judicial` | No | No | No | No | Yes |
+| Role | Privacy override, note/witness deletion, shared-query management, CCD repair | Send referrals | Management information | Gazette | Process settings | Judicial |
+|---|---|---|---|---|---|---|
+| `caseworker-deedpoll` | No | No | No | No | No | No |
+| `caseworker-deedpoll-team-leader` | Yes | Yes | Yes | No | No | No |
+| `caseworker-deedpoll-delivery-manager` | Yes | Yes | Yes | Yes | Yes | No |
+| `caseworker-deedpoll-admin` (temporary compatibility) | Yes | Yes | No | No | No | No |
+| `caseworker-deedpoll-judicial` | No | No | No | No | No | Yes |
 
 `can(user, capability)` is the UI policy entry point (`libs/deed-poll/src/auth/capabilities.ts`); `staffAccess(user)`
 gives `{ staff, judicial }` for the future staff block, which this app does not yet enforce. CCD repair has no
@@ -875,9 +875,14 @@ api's). **Deploy order:** api #165/#166 on every replica first. Facts that span 
   page's tables, its charts and the CSVs are all drawn, so the three cannot disagree. Every percentile sits beside its
   case count; a bucket with no cases reads "No cases", is a gap in the chart and an empty CSV cell, never zero.
 - **The charts add nothing the table lacks, and use no library.** `src/management-information/chart-geometry.ts`
-  computes the scales and points, and the Nunjucks macro `line-chart.njk` draws an inline `<svg role="img">` with a
+  computes the scales and points, and the Nunjucks macro `src/pages/deed-polls/management-information/line-chart.njk` draws an inline `<svg role="img">` with a
   title, a visible one-sentence summary, a marker shape and a direct label per line (at most four). Nothing is added to
   the bundle or the CSP, and the page needs no JavaScript.
+- **The handlers live outside `src/pages`**, because every `.ts` there is a route: the page is
+  `src/management-information/page.ts`, and each `src/pages/deed-polls/management-information/<kpi>.csv.ts` only calls
+  `downloadManagementInformation` (`src/management-information/download.ts`). The download link carries no `download`
+  attribute, so a refused or failed read shows its page rather than saving it as a file. A 429 from any read is the 429
+  page, not a degraded section.
 - **The CSV guard.** `toCsv` (`src/management-information/csv.ts`) writes a UTF-8 BOM, CRLF and RFC 4180 quoting, and
   prefixes `'` to any text cell starting with `=`, `+`, `-`, `@`, tab or CR (formula injection); numbers are left
   alone. Downloads are `deed-poll-mi-<kpi>-<from>-<to>.csv` with `Cache-Control: no-store`, and each page link carries

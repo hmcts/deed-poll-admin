@@ -10,7 +10,7 @@ import { type ManagementInformationQuery, MI_GRANULARITY, type MiGranularity } f
 import type { FieldError } from "../errors.js";
 
 export const MI_PERIODS = ["7-days", "30-days", "60-days", "90-days", "year", "custom"] as const;
-export const DEFAULT_MI_PERIOD: MiPeriod = "30-days";
+const DEFAULT_MI_PERIOD: MiPeriod = "30-days";
 
 const PRESET_DAYS: Readonly<Record<Exclude<MiPeriod, "year" | "custom">, number>> = {
   "7-days": 7,

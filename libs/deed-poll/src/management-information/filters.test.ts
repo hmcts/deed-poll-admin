@@ -94,6 +94,19 @@ describe("management-information/filters", () => {
       ]);
     });
 
+    it("should end two years from 29 February on the 28th, as api's plusYears does", () => {
+      expect(parseMiFilters({ period: "custom", from: "2024-02-29", to: "2026-02-28" }, NOW).errors).toEqual([]);
+      expect(parseMiFilters({ period: "custom", from: "2024-02-29", to: "2026-03-01" }, NOW).errors).toEqual([
+        { field: "to", message: "The range cannot be longer than 2 years." }
+      ]);
+    });
+
+    it("should start the last year on 1 March when today is 29 February", () => {
+      const filters = parseMiFilters({ period: "year" }, new Date("2028-02-29T12:00:00Z"));
+
+      expect(filters.query).toMatchObject({ from: "2027-03-01", to: "2028-02-29" });
+    });
+
     it("should refuse a period, granularity or migrated answer the form does not offer", () => {
       const filters = parseMiFilters({ period: "forever", granularity: "DAY", includeMigrated: "yes" }, NOW);
 
@@ -103,9 +116,12 @@ describe("management-information/filters", () => {
     });
 
     it("should refuse a repeated control rather than read its first value", () => {
-      const filters = parseMiFilters({ period: ["custom", "custom"], from: ["2026-10-01"], to: "2026-10-02", granularity: ["WEEK", "MONTH"] }, NOW);
+      const filters = parseMiFilters(
+        { period: ["custom", "custom"], from: ["2026-10-01"], to: "2026-10-02", granularity: ["WEEK", "MONTH"], includeMigrated: ["true", "false"] },
+        NOW
+      );
 
-      expect(filters.errors.map((error) => error.field)).toEqual(["period", "granularity"]);
+      expect(filters.errors.map((error) => error.field)).toEqual(["period", "granularity", "includeMigrated"]);
       expect(filters.values.period).toBe("custom");
     });
 

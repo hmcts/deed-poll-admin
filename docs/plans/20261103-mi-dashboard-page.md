@@ -1,9 +1,9 @@
 # Plan: Management information, admin half (tables, charts, CSV)
 
 > **Reviewed by Steve 2026-11-03; every decision is settled (Wren).** This is the admin half of `mi-dashboard-api.md`,
-> and that plan holds the KPI definitions. This plan needs the api half **merged, deployed to AAT and
-> its `openapi.json` available** before Task 1. Do not execute it until then, and until it has been
-> copied to `deed-poll-admin/docs/plans/` on its own branch.
+> and that plan holds the KPI definitions. **Status (2026-11-04): implemented on
+> `feat/mi-dashboard-page`, Tasks 1 to 6 done; only the manual "After merge" checks in AAT remain.** It needed
+> the api half merged, deployed to AAT and its `openapi.json` available before Task 1, which it was.
 
 ## Overview
 
@@ -123,7 +123,7 @@ start it with `docker start deed-poll-redis` before running the tests; never dro
 
 ### Task 3: Tables and copy
 
-- [x] The four tables, the A5 rendering, the A6 sentence and the A7 details, all in `src/locales`
+- [x] The four tables, the A5 rendering, the A6 sentence and the A7 details, all in `src/management-information/content.ts` (see the execution note)
       (en + cy mirror); the page area added to the Welsh extractor's `INCLUDE`.
 
 ### Task 4: Charts

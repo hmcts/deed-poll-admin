@@ -342,7 +342,7 @@ describe("management information page", () => {
       const query = "period=custom&amp;from=2026-10-06&amp;to=2026-11-04&amp;granularity=WEEK&amp;includeMigrated=true";
 
       expect(section(markup, "volume")).toContain(
-        `<a class="govuk-link" href="/deed-polls/management-information/volume.csv?${query}" download>Download cases received and open (CSV)</a>`
+        `<a class="govuk-link" href="/deed-polls/management-information/volume.csv?${query}">Download cases received and open (CSV)</a>`
       );
       expect(section(markup, "stage-durations")).toContain(`href="/deed-polls/management-information/stage-durations.csv?${query}"`);
       expect(section(markup, "referral-outcomes")).toContain(`href="/deed-polls/management-information/referral-outcomes.csv?${query}"`);

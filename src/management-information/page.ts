@@ -4,7 +4,8 @@
  *
  * The four reads are independent, so each degrades on its own to `null` and a log line, and the page says that KPI
  * could not be loaded. A 400 from any of them is the filters' fault and is shown against the form in api's words,
- * as the page's own validation is. A 401 or 403 is not a KPI's to degrade.
+ * as the page's own validation is. A 401, 403 or 429 is not a KPI's to degrade: a 429 means "slow down", and renders
+ * the 429 page with its `Retry-After` as every other page does.
  */
 import {
   type Caller,
@@ -19,6 +20,7 @@ import {
   MI_PERIODS,
   type MiFilterValues,
   parseMiFilters,
+  TooManyRequestsError,
   UnauthorizedError
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
@@ -26,11 +28,12 @@ import { callerFromRequest } from "../auth/current-user.js";
 import { forLog } from "../for-log.js";
 import { cy, en } from "./content.js";
 import { MANAGEMENT_INFORMATION_PATH } from "./paths.js";
-import { type Report, reportView } from "./report-view.js";
+import { type Report, reportView, utcDay } from "./report-view.js";
 
 // The form's controls in its order; an api error naming anything else is shown against the first.
 const CONTROLS = ["period", "from", "to", "granularity", "includeMigrated"] as const;
 const LONG_DAY = { en: dayFormat("en-GB"), cy: dayFormat("cy-GB") };
+const NOT_DEGRADED = [UnauthorizedError, ForbiddenError, TooManyRequestsError];
 
 export async function showManagementInformation(req: Request, res: Response) {
   const filters = parseMiFilters(req.query as Record<string, unknown>, new Date());
@@ -61,7 +64,7 @@ async function readReport(query: ManagementInformationQuery, caller: Caller): Pr
   ]);
   const settled = [volume, stageDurations, referralOutcomes, completion];
   for (const each of settled) {
-    if (each.status === "rejected" && (each.reason instanceof UnauthorizedError || each.reason instanceof ForbiddenError)) throw each.reason;
+    if (each.status === "rejected" && NOT_DEGRADED.some((kind) => each.reason instanceof kind)) throw each.reason;
   }
   const refused = settled.find((each) => each.status === "rejected" && each.reason instanceof InvalidInputError);
   if (refused?.status === "rejected") return { errors: apiFilterErrors(refused.reason as InvalidInputError) };
@@ -108,8 +111,4 @@ function render(res: Response, status: number, values: MiFilterValues, errors: F
 function dayFormat(locale: string): Intl.DateTimeFormat {
   // A range's days are calendar days with no zone, so they are formatted as UTC midnight to keep the day they name.
   return new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
-}
-
-function utcDay(day: string): Date {
-  return new Date(`${day}T00:00:00Z`);
 }

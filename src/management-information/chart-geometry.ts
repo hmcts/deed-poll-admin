@@ -7,10 +7,10 @@
  * value with no neighbour is a marker on its own.
  */
 
-export const CHART_WIDTH = 640;
-export const CHART_HEIGHT = 240;
+const CHART_WIDTH = 640;
+const CHART_HEIGHT = 240;
 /** One shape per series, in order, so colour is never the only thing telling two lines apart (A3). */
-export const CHART_MARKERS = ["circle", "square", "triangle", "diamond"] as const;
+const CHART_MARKERS = ["circle", "square", "triangle", "diamond"] as const;
 
 // The right margin holds each line's direct label.
 const PLOT = { left: 56, right: CHART_WIDTH - 168, top: 12, bottom: CHART_HEIGHT - 36 };
@@ -100,7 +100,7 @@ function round(value: number, places = 1): number {
   return Math.round(value * factor) / factor;
 }
 
-export type ChartMarker = (typeof CHART_MARKERS)[number];
+type ChartMarker = (typeof CHART_MARKERS)[number];
 
 type Point = { index: number; x: number; y: number };
 
