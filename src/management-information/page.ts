@@ -25,9 +25,8 @@ import type { Request, Response } from "express";
 import { callerFromRequest } from "../auth/current-user.js";
 import { forLog } from "../for-log.js";
 import { cy, en } from "./content.js";
+import { MANAGEMENT_INFORMATION_PATH } from "./paths.js";
 import { type Report, reportView } from "./report-view.js";
-
-export const MANAGEMENT_INFORMATION_PATH = "/deed-polls/management-information";
 
 // The form's controls in its order; an api error naming anything else is shown against the first.
 const CONTROLS = ["period", "from", "to", "granularity", "includeMigrated"] as const;
@@ -35,11 +34,22 @@ const LONG_DAY = { en: dayFormat("en-GB"), cy: dayFormat("cy-GB") };
 
 export async function showManagementInformation(req: Request, res: Response) {
   const filters = parseMiFilters(req.query as Record<string, unknown>, new Date());
-  if (filters.query === null) return render(res, 400, filters.values, filters.errors, null);
+  if (filters.query === null) return refuseFilters(res, filters.values, filters.errors);
 
   const report = await readReport(filters.query, callerFromRequest(req));
-  if ("errors" in report) return render(res, 400, filters.values, report.errors, null);
+  if ("errors" in report) return refuseFilters(res, filters.values, report.errors);
   return render(res, 200, filters.values, [], report);
+}
+
+/** The form redrawn as submitted with its errors and no figures, which a refused download answers with too. */
+export function refuseFilters(res: Response, values: MiFilterValues, errors: FieldError[]) {
+  render(res, 400, values, errors, null);
+}
+
+/** api names its fields as the form does; a refusal naming none, or another, still needs somewhere to point. */
+export function apiFilterErrors(error: InvalidInputError): FieldError[] {
+  if (error.errors.length === 0) return [{ field: CONTROLS[0], message: error.message }];
+  return error.errors.map((each) => ((CONTROLS as readonly string[]).includes(each.field) ? each : { field: CONTROLS[0], message: each.message }));
 }
 
 async function readReport(query: ManagementInformationQuery, caller: Caller): Promise<Report | { errors: FieldError[] }> {
@@ -54,7 +64,7 @@ async function readReport(query: ManagementInformationQuery, caller: Caller): Pr
     if (each.status === "rejected" && (each.reason instanceof UnauthorizedError || each.reason instanceof ForbiddenError)) throw each.reason;
   }
   const refused = settled.find((each) => each.status === "rejected" && each.reason instanceof InvalidInputError);
-  if (refused?.status === "rejected") return { errors: apiErrors(refused.reason as InvalidInputError) };
+  if (refused?.status === "rejected") return { errors: apiFilterErrors(refused.reason as InvalidInputError) };
 
   return {
     query,
@@ -63,12 +73,6 @@ async function readReport(query: ManagementInformationQuery, caller: Caller): Pr
     referralOutcomes: degraded("referral outcomes", referralOutcomes),
     completion: degraded("completion", completion)
   };
-}
-
-/** api names its fields as the form does; a refusal naming none, or another, still needs somewhere to point. */
-function apiErrors(error: InvalidInputError): FieldError[] {
-  if (error.errors.length === 0) return [{ field: CONTROLS[0], message: error.message }];
-  return error.errors.map((each) => ((CONTROLS as readonly string[]).includes(each.field) ? each : { field: CONTROLS[0], message: each.message }));
 }
 
 function degraded<T>(name: string, result: PromiseSettledResult<T>): T | null {

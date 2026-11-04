@@ -336,6 +336,36 @@ describe("management information page", () => {
     });
   });
 
+  describe("downloads", () => {
+    it("should link each section to its CSV for the range the page resolved, so a later download holds the same rows", async () => {
+      const markup = await render({ period: "30-days" });
+      const query = "period=custom&amp;from=2026-10-06&amp;to=2026-11-04&amp;granularity=WEEK&amp;includeMigrated=true";
+
+      expect(section(markup, "volume")).toContain(
+        `<a class="govuk-link" href="/deed-polls/management-information/volume.csv?${query}" download>Download cases received and open (CSV)</a>`
+      );
+      expect(section(markup, "stage-durations")).toContain(`href="/deed-polls/management-information/stage-durations.csv?${query}"`);
+      expect(section(markup, "referral-outcomes")).toContain(`href="/deed-polls/management-information/referral-outcomes.csv?${query}"`);
+      expect(section(markup, "completion")).toContain(`href="/deed-polls/management-information/completion.csv?${query}"`);
+    });
+
+    it("should carry the migrated choice into the download", async () => {
+      const markup = await render({ includeMigrated: "false" });
+
+      expect(section(markup, "volume")).toContain("includeMigrated=false");
+    });
+
+    it("should offer no download for a KPI that could not be loaded", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(findMiCompletion).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+
+      const markup = await render();
+
+      expect(section(markup, "completion")).not.toContain(".csv");
+      expect(section(markup, "volume")).toContain("volume.csv");
+    });
+  });
+
   describe("accessibility", () => {
     it("should have no axe violations with the charts and tables drawn", async () => {
       expect(await axeViolations(await render())).toEqual([]);

@@ -17,6 +17,7 @@ import {
   type MiCompletion,
   type MiExclusion,
   type MiGranularity,
+  type MiKpi,
   type MiReferralOutcomes,
   type MiStageDurations,
   type MiTable,
@@ -28,6 +29,7 @@ import {
 } from "@hmcts/deed-poll";
 import { type LineChartGeometry, lineChart } from "./chart-geometry.js";
 import type { en } from "./content.js";
+import { csvHref } from "./paths.js";
 
 const LOCALE_TAG = { en: "en-GB", cy: "cy-GB" } as const;
 // What each chart draws: the table's headline figures, never more than it holds (A3).
@@ -36,12 +38,12 @@ const PERCENTILES = ["medianDays", "p95Days"];
 export function reportView(report: Report, locale: keyof typeof LOCALE_TAG, content: Content): ReportView {
   const format = formatters(locale, content, report.query.granularity);
   return {
-    volume: section("volume", content.volume, report.volume, (volume) => ({
+    volume: section("volume", report.query, content.volume, report.volume, (volume) => ({
       tables: [table(format, volumeTable(volume), content.volume.columns, content.volume.heading, chartOf("volume", ["received", "openAtEnd"]))],
       notes: [content.editedDates, content.volume.unknownTypeNote],
       exclusions: exclusionItems(miExclusions("volume", volume), content.volume.exclusions, format)
     })),
-    stageDurations: section("stage-durations", content.stageDurations, report.stageDurations, (durations) => ({
+    stageDurations: section("stage-durations", report.query, content.stageDurations, report.stageDurations, (durations) => ({
       tables: stageDurationTables(durations).map((each, index) =>
         table(
           format,
@@ -55,7 +57,7 @@ export function reportView(report: Report, locale: keyof typeof LOCALE_TAG, cont
       exclusions: [],
       exclusionTable: stageExclusionTable(miExclusions("stage-durations", durations), content, format)
     })),
-    referralOutcomes: section("referral-outcomes", content.referralOutcomes, report.referralOutcomes, (outcomes) => ({
+    referralOutcomes: section("referral-outcomes", report.query, content.referralOutcomes, report.referralOutcomes, (outcomes) => ({
       tables: [
         table(
           format,
@@ -68,7 +70,7 @@ export function reportView(report: Report, locale: keyof typeof LOCALE_TAG, cont
       notes: [content.editedDates, content.referralOutcomes.staffWithdrawalNote],
       exclusions: exclusionItems(miExclusions("referral-outcomes", outcomes), content.referralOutcomes.exclusions, format)
     })),
-    completion: section("completion", content.completion, report.completion, (completion) => ({
+    completion: section("completion", report.query, content.completion, report.completion, (completion) => ({
       warning: content.completion.stillOpenWarning,
       tables: [table(format, completionTable(completion), content.completion.columns, content.completion.heading, chartOf("completion", PERCENTILES))],
       notes: [content.editedDates],
@@ -98,9 +100,16 @@ function formatters(locale: keyof typeof LOCALE_TAG, content: Content, granulari
   };
 }
 
-function section<T>(id: string, copy: SectionCopy, answer: T | null, build: (answer: T) => SectionBody): SectionView {
+function section<T>(
+  id: MiKpi,
+  query: ManagementInformationQuery,
+  copy: SectionCopy & { download: string },
+  answer: T | null,
+  build: (answer: T) => SectionBody
+): SectionView {
   const base = { id, heading: copy.heading, description: copy.description };
-  return answer === null ? { ...base, unavailable: true } : { ...base, unavailable: false, ...build(answer) };
+  if (answer === null) return { ...base, unavailable: true };
+  return { ...base, unavailable: false, ...build(answer), download: { href: csvHref(id, query), text: copy.download } };
 }
 
 function chartOf(id: string, keys: string[]): ChartChoice {
@@ -215,7 +224,7 @@ interface SectionBody {
   exclusionTable?: TableView;
 }
 
-type SectionView = SectionCopy & { id: string } & ({ unavailable: true } | ({ unavailable: false } & SectionBody));
+type SectionView = SectionCopy & { id: string } & ({ unavailable: true } | ({ unavailable: false; download: { href: string; text: string } } & SectionBody));
 
 interface TableView {
   caption: string;

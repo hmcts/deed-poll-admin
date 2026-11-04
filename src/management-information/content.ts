@@ -7,7 +7,7 @@
 export const en = {
   title: "Management information",
   heading: "Management information",
-  intro: "Figures for the deed poll service over a period you choose. Each table is followed by a download of the same rows.",
+  intro: "Figures for the deed poll service over a period you choose. Each section ends with a download of its figures.",
   errorSummaryTitle: "There is a problem",
   filtersHeading: "Choose the figures",
   periodLegend: "Period",
@@ -45,11 +45,13 @@ export const en = {
     `Line chart of ${series} for each ${unit} from ${from} to ${to}, with every figure in the table below.`,
   chartSummaryWithGaps: (series: string, unit: string, from: string, to: string) =>
     `Line chart of ${series} for each ${unit} from ${from} to ${to}, with a gap where a ${unit} had no cases and every figure in the table below.`,
+  csv: { periodStart: "Period start", periodEnd: "Period end", stage: "Stage" },
   doesNotCountSummary: "What these figures do not count",
   editedDates: "The figures use each case’s dates as they are now. Staff can edit those dates, so the figures are not a history of when a date was entered.",
   volume: {
     heading: "Cases received and open",
     description: "Cases received in each period, by type, and the cases still open at the end of it.",
+    download: "Download cases received and open (CSV)",
     columns: {
       received: "Received",
       "received:Adult": "Adult",
@@ -70,6 +72,7 @@ export const en = {
     heading: "How long each stage took",
     description:
       "Calendar days from one date to the next, counted in the period the stage ended in. Each median and 95th percentile is beside the number of cases it was taken over.",
+    download: "Download stage durations (CSV)",
     intervals: {
       RECEIVED_TO_READY_FOR_MASTER: "Received to ready for a Master",
       READY_TO_REFERRED: "Ready for a Master to referred",
@@ -87,6 +90,7 @@ export const en = {
   referralOutcomes: {
     heading: "Referral outcomes",
     description: "The Masters’ decisions in each period, and the applicants’ responses to the Masters’ directions.",
+    download: "Download referral outcomes (CSV)",
     columns: {
       approved: "Approved",
       approvedUrgent: "Approved, urgent",
@@ -106,6 +110,7 @@ export const en = {
   completion: {
     heading: "Time from receipt to completion",
     description: "Cases grouped by the period they were received in, with the calendar days from receipt to enrolment or return.",
+    download: "Download time to completion (CSV)",
     stillOpenWarning: "Recent intake periods look faster because their slower cases are still open.",
     columns: {
       received: "Received",

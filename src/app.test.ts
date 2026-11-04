@@ -709,6 +709,7 @@ describe("createApp's management information gate", () => {
     expect(index).toBeLessThan(stack.findIndex((entry) => entry.handle === gates.router));
     expect(paths).toContain("/deed-polls/management-information");
     const csvs = ["volume", "stage-durations", "referral-outcomes", "completion"].map((kpi) => `/deed-polls/management-information/${kpi}.csv`);
+    expect(paths).toEqual(expect.arrayContaining(csvs));
     for (const url of [...paths, ...csvs, "/deed-polls/management-information/future-page"]) {
       expect(
         stack[index].matchers.some((matches) => matches(url) !== false),

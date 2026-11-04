@@ -133,7 +133,7 @@ start it with `docker start deed-poll-redis` before running the tests; never dro
 
 ### Task 5: CSV downloads
 
-- [ ] The four routes (A8), with tests for the header row, the BOM, an empty-bucket cell, the count column, a
+- [x] The four routes (A8), with tests for the header row, the BOM, an empty-bucket cell, the count column, a
       formula-injection value, the filename and the gate.
 
 ### Task 6: e2e, documentation and final verification
@@ -201,3 +201,13 @@ start it with `docker start deed-poll-redis` before running the tests; never dro
   `#main-content`, with colour contrast left out since jsdom has no layout. The first axe run found a Task 3 defect: each table's scroll
   region had its section's name, which breaks `landmark-unique`, so regions are now "<caption>, table". Format, lint
   and `build --force` clean; tests `//:test:app` 3,418 (+26), all passing.
+- 2026-11-04, Task 5: one route file per KPI (`src/pages/deed-polls/management-information/<kpi>.csv.ts`), all calling
+  `downloadManagementInformation` (`src/management-information/download.ts`), which draws the rows from the same
+  word-free tables as the page, headed in the page's language, with api's unformatted figures, ISO dates and an empty
+  cell for a null percentile. Stage durations is one file with a leading Stage column. `toCsv`
+  (`src/management-information/csv.ts`) writes the BOM, CRLF, RFC 4180 quoting and the formula guard on text cells
+  only. `Cache-Control: no-store`. Unusable filters, this app's or api's 400, redraw the page's form (`refuseFilters`,
+  now exported from `page.ts`); any other failure is the error page, never a partial file. Each available section links
+  to its CSV with the **resolved** range (`period=custom` and the page's dates, `paths.ts`), so a download after
+  midnight holds the rows the page showed. `download.test.ts` routes through the real simple-router to prove the
+  `.csv` paths resolve. Format, lint and `build --force` clean; tests `//:test:app` 3,444 (+26), all passing.
