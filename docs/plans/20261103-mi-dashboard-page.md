@@ -138,12 +138,12 @@ start it with `docker start deed-poll-redis` before running the tests; never dro
 
 ### Task 6: e2e, documentation and final verification
 
-- [ ] One Playwright spec: a Team leader persona opens the page, changes the period, sees the tables
+- [x] One Playwright spec: a Team leader persona opens the page, changes the period, sees the tables
       and downloads one CSV; a caseworker persona gets 403. Run it on a temporary private-port config,
       not the default one, which reuses whatever is listening on 3000/3200.
-- [ ] Add a "Management information" section to `CLAUDE.md`: the gate, table-first, no charting
+- [x] Add a "Management information" section to `CLAUDE.md`: the gate, table-first, no charting
       library, the CSV guard.
-- [ ] Full Validation Commands, forced; record counts against the baseline; `git status` clean apart
+- [x] Full Validation Commands, forced; record counts against the baseline; `git status` clean apart
       from the task commits.
 ## After merge (manual, NOT ralphex)
 
@@ -211,3 +211,14 @@ start it with `docker start deed-poll-redis` before running the tests; never dro
   to its CSV with the **resolved** range (`period=custom` and the page's dates, `paths.ts`), so a download after
   midnight holds the rows the page showed. `download.test.ts` routes through the real simple-router to prove the
   `.csv` paths resolve. Format, lint and `build --force` clean; tests `//:test:app` 3,444 (+26), all passing.
+- 2026-11-04, Task 6: `e2e-tests/tests/management-information.spec.ts`, two journeys (a Team leader from the case
+  list's link: the default 30 days weekly, then the last year monthly, the four sections' tables, axe on both views and
+  the volume CSV's filename, BOM and header; a caseworker: no link, and 403 on the page and a CSV). It signs itself in
+  and only reads the mock's fixed figures, so it stays in `yarn test:e2e`. Run once on a temporary config (mock 3220, app
+  3320, Redis database 6, local IDAM 5556), deleted afterwards: 2 passed. The one axe waiver is govuk-frontend's
+  `aria-expanded` on the custom-period radio (`aria-allowed-attr: #period-6`), waived by rule and element as
+  `deed-polls.spec.ts` does. CLAUDE.md gains "Management information". Full validation, forced: format and `build
+  --force` clean, lint clean apart from the existing biome.json schema-version info; tests **7,183 passed, 0 failed, 0
+  skipped** (+225 on the 6,958 baseline): `//:test:app` 3,444 (+98), `@hmcts/deed-poll` 1,776 (+37),
+  `@hmcts/deed-poll-api-client` 1,538 (+90), `cloud-native-platform` 156, `express-govuk-starter` 132,
+  `express-session-postgres` 85, `simple-router` 45, `express-session-redis` 7.

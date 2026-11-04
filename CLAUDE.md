@@ -856,6 +856,38 @@ files:
 - **The page's Welsh is pending.** `src/service-settings` is on the extractor's `INCLUDE`; the new copy's `cy` mirrors
   its `en`, so it adds to `yarn welsh:check`'s identical count.
 
+## Management information
+
+`/deed-polls/management-information` shows api's four aggregate KPIs (volume, stage durations, referral outcomes,
+time to completion) for a chosen period (plan `docs/plans/20261103-mi-dashboard-page.md`; the KPI definitions are
+api's). **Deploy order:** api #165/#166 on every replica first. Facts that span several files:
+
+- **The area is gated once, on `VIEW_MANAGEMENT_INFORMATION`** (Team leaders and Delivery Managers; not the legacy
+  admin role). `src/app.ts` mounts `requireCapability(VIEW_MANAGEMENT_INFORMATION)` on the prefix after `requireAuth`,
+  so the page and its four CSV routes share it, and `src/app.test.ts` reads the directory off the filesystem. The case
+  list's link is drawn from the session's capability alone.
+- **The filters are one GET form, parsed by `parseMiFilters`** (`libs/deed-poll/src/management-information/filters.ts`):
+  a preset (7, 30, 60, 90 days or the last year, in London) or custom `from`/`to`, a granularity (weekly up to 90 days,
+  monthly beyond, unless chosen) and include-migrated (absent means Yes). The default is the last 30 days, weekly.
+  This app's errors and api's 400 render against the form in api's words. The four reads run concurrently and each
+  section degrades on its own.
+- **Table first, and no number is computed here.** `libs/deed-poll/src/management-information/tables.ts` holds word-free rows of api's figures, from which the
+  page's tables, its charts and the CSVs are all drawn, so the three cannot disagree. Every percentile sits beside its
+  case count; a bucket with no cases reads "No cases", is a gap in the chart and an empty CSV cell, never zero.
+- **The charts add nothing the table lacks, and use no library.** `src/management-information/chart-geometry.ts`
+  computes the scales and points, and the Nunjucks macro `line-chart.njk` draws an inline `<svg role="img">` with a
+  title, a visible one-sentence summary, a marker shape and a direct label per line (at most four). Nothing is added to
+  the bundle or the CSP, and the page needs no JavaScript.
+- **The CSV guard.** `toCsv` (`src/management-information/csv.ts`) writes a UTF-8 BOM, CRLF and RFC 4180 quoting, and
+  prefixes `'` to any text cell starting with `=`, `+`, `-`, `@`, tab or CR (formula injection); numbers are left
+  alone. Downloads are `deed-poll-mi-<kpi>-<from>-<to>.csv` with `Cache-Control: no-store`, and each page link carries
+  the **resolved** range rather than the preset, so a download after midnight holds the rows the page showed. A failed
+  read is the error page, never a partial file.
+- **The mock's figures are fixed, not computed from its cases** (`libs/deed-poll-api-client/src/mock/management-information.ts`):
+  the second period is always empty and the third holds one case, so every edge a page must draw turns up. It is
+  read-only, so `e2e-tests/tests/management-information.spec.ts` stays in `yarn test:e2e`.
+- **Welsh is pending**: `src/management-information` is on the extractor's `INCLUDE`, and its `cy` mirrors `en`.
+
 ## Redirect paths
 
 A redirect that names a case builds its path with `casePath(id)` (`src/case-path.ts`), and one that names a judicial
