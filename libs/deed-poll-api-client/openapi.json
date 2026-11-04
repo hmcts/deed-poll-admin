@@ -1952,6 +1952,266 @@
         "tags": ["caseworker-gazette-settings-controller"]
       }
     },
+    "/caseworker/management-information/completion": {
+      "get": {
+        "description": "Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (VIEW_MANAGEMENT_INFORMATION); anyone else is 403 before any parameter is read. from and to (yyyy-MM-dd, both inclusive and required, to no earlier than from and no more than 2 years after it) and granularity (WEEK, an ISO week from Monday; MONTH; QUARTER) are required; includeMigrated (default true) false leaves migrated cases out and counts them under excluded. Every period of the range is reported in order, empty ones included, the first and last clipped to the range. A date is bucketed by its stored value's calendar day, with no time-zone conversion. Aggregates only: no case or referral is identified. The figures reflect the case's dates as they stand now, which staff can edit; they are not a history of when a date was entered. A cohort is the period dateReceived falls in. Per cohort: received; completed (cases with dateEnroled or dateReturned), split into enroled and returned; stillOpen (neither); and daysToCompletion, calendar days from dateReceived to the completion date (count, medianDays, p95Days as stage-durations publishes them). A recent cohort looks fast because its slow cases are still open, so show stillOpen beside the percentiles. Not counted: a case with no dateReceived (excluded.noDateReceived, over all time, migrated or not); a case with both dateEnroled and dateReturned, a contradiction counted in none of completed, enroled, returned or stillOpen (excluded.contradiction); and, in daysToCompletion only, a completion dated before receipt (excluded.negativeInterval), which still counts as completed.",
+        "operationId": "getMiCompletion",
+        "parameters": [
+          {
+            "description": "The first day of the range, yyyy-MM-dd, inclusive.",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "description": "The last day of the range, yyyy-MM-dd, inclusive: no earlier than from and no more than 2 years after it.",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "description": "WEEK (an ISO week from Monday), MONTH or QUARTER.",
+            "in": "query",
+            "name": "granularity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["WEEK", "MONTH", "QUARTER"]
+            }
+          },
+          {
+            "description": "Whether migrated cases count (default true); false leaves them out and counts them under excluded.",
+            "in": "query",
+            "name": "includeMigrated",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiCompletionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Time from receipt to completion, by intake cohort",
+        "tags": ["caseworker-management-information-controller"]
+      }
+    },
+    "/caseworker/management-information/referral-outcomes": {
+      "get": {
+        "description": "Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (VIEW_MANAGEMENT_INFORMATION); anyone else is 403 before any parameter is read. from and to (yyyy-MM-dd, both inclusive and required, to no earlier than from and no more than 2 years after it) and granularity (WEEK, an ISO week from Monday; MONTH; QUARTER) are required; includeMigrated (default true) false leaves migrated cases out and counts them under excluded. Every period of the range is reported in order, empty ones included, the first and last clipped to the range. A date is bucketed by its stored value's calendar day, with no time-zone conversion. Aggregates only: no case or referral is identified. The figures reflect the case's dates as they stand now, which staff can edit; they are not a history of when a date was entered. decisions counts referrals whose decisionDate falls in the period by decision (Approved or Rejected), with how many of each were urgent. confirmations counts referrals whose confirmationReceivedAt falls in the period by confirmationOutcome (Confirmed or Withdrawn: the applicant's response to the Master's directions). Counts only; percentages are the reader's. Not counted: staff withdrawing a referral, which no column dates; a decisionDate with no decision (excluded.decisionDateWithoutDecision); a confirmationReceivedAt with no outcome (excluded.confirmationWithoutOutcome).",
+        "operationId": "getMiReferralOutcomes",
+        "parameters": [
+          {
+            "description": "The first day of the range, yyyy-MM-dd, inclusive.",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "description": "The last day of the range, yyyy-MM-dd, inclusive: no earlier than from and no more than 2 years after it.",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "description": "WEEK (an ISO week from Monday), MONTH or QUARTER.",
+            "in": "query",
+            "name": "granularity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["WEEK", "MONTH", "QUARTER"]
+            }
+          },
+          {
+            "description": "Whether migrated cases count (default true); false leaves them out and counts them under excluded.",
+            "in": "query",
+            "name": "includeMigrated",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiReferralOutcomesResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Masters' decisions and applicants' confirmations, per period",
+        "tags": ["caseworker-management-information-controller"]
+      }
+    },
+    "/caseworker/management-information/stage-durations": {
+      "get": {
+        "description": "Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (VIEW_MANAGEMENT_INFORMATION); anyone else is 403 before any parameter is read. from and to (yyyy-MM-dd, both inclusive and required, to no earlier than from and no more than 2 years after it) and granularity (WEEK, an ISO week from Monday; MONTH; QUARTER) are required; includeMigrated (default true) false leaves migrated cases out and counts them under excluded. Every period of the range is reported in order, empty ones included, the first and last clipped to the range. A date is bucketed by its stored value's calendar day, with no time-zone conversion. Aggregates only: no case or referral is identified. The figures reflect the case's dates as they stand now, which staff can edit; they are not a history of when a date was entered. Durations are whole calendar days from date to date, each cast to a day before subtracting, so 23:00 to 09:00 the next day is 1. Each interval is bucketed by the period its end falls in, with count, medianDays and p95Days (percentile_cont, interpolated; published however small count is, and null when it is 0). RECEIVED_TO_READY_FOR_MASTER is dateReceived to dateReadyForMaster; READY_TO_REFERRED is dateReadyForMaster to dateReferred; REFERRED_TO_DECISION is dateReferred to the latest decisionDate of the case's referrals on or after that day, or the case's own masterDateOfDecision when no referral of it is decided at all (for every case, migrated or not); a case re-referred whose new referral is not yet decided has no interval, not a negative one; SIGNATURE_REQUESTED_TO_RECEIVED is signatureRequestedDate to signaturerecieveddate; SIGNATURE_RECEIVED_TO_ENROLED is signaturerecieveddate to dateEnroled. Not counted: an interval with either end missing, which is not an interval and is not reported as excluded; an interval ending before it starts (excluded.negativeInterval). There is no duration for Awaiting further documents: awaitingFurtherDocsInfo records when documents were asked for, and nothing records when they arrived.",
+        "operationId": "getMiStageDurations",
+        "parameters": [
+          {
+            "description": "The first day of the range, yyyy-MM-dd, inclusive.",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "description": "The last day of the range, yyyy-MM-dd, inclusive: no earlier than from and no more than 2 years after it.",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "description": "WEEK (an ISO week from Monday), MONTH or QUARTER.",
+            "in": "query",
+            "name": "granularity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["WEEK", "MONTH", "QUARTER"]
+            }
+          },
+          {
+            "description": "Whether migrated cases count (default true); false leaves them out and counts them under excluded.",
+            "in": "query",
+            "name": "includeMigrated",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiStageDurationsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "How long each stage took, per period",
+        "tags": ["caseworker-management-information-controller"]
+      }
+    },
+    "/caseworker/management-information/volume": {
+      "get": {
+        "description": "Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (VIEW_MANAGEMENT_INFORMATION); anyone else is 403 before any parameter is read. from and to (yyyy-MM-dd, both inclusive and required, to no earlier than from and no more than 2 years after it) and granularity (WEEK, an ISO week from Monday; MONTH; QUARTER) are required; includeMigrated (default true) false leaves migrated cases out and counts them under excluded. Every period of the range is reported in order, empty ones included, the first and last clipped to the range. A date is bucketed by its stored value's calendar day, with no time-zone conversion. Aggregates only: no case or referral is identified. The figures reflect the case's dates as they stand now, which staff can edit; they are not a history of when a date was entered. received counts cases whose dateReceived falls in the period, split by type (a case with no type counts as Unknown). openAtEnd counts cases received on or before the period's end with neither dateEnroled nor dateReturned on or before it. Not counted: a case with no dateReceived, in any period (excluded.noDateReceived, over all time, migrated or not).",
+        "operationId": "getMiVolume",
+        "parameters": [
+          {
+            "description": "The first day of the range, yyyy-MM-dd, inclusive.",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "description": "The last day of the range, yyyy-MM-dd, inclusive: no earlier than from and no more than 2 years after it.",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "description": "WEEK (an ISO week from Monday), MONTH or QUARTER.",
+            "in": "query",
+            "name": "granularity",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["WEEK", "MONTH", "QUARTER"]
+            }
+          },
+          {
+            "description": "Whether migrated cases count (default true); false leaves them out and counts them under excluded.",
+            "in": "query",
+            "name": "includeMigrated",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiVolumeResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Cases received, and the open caseload, per period",
+        "tags": ["caseworker-management-information-controller"]
+      }
+    },
     "/caseworker/masters": {
       "get": {
         "description": "Any deed poll staff role. Every Master, available or not, ordered by name and then id. linked says whether the Master has signed in and been linked to their IDAM account; the account itself is never published. The current window, the cap and each Master's count in it are the referral queue's (GET /caseworker/referral-queue).",
@@ -3049,7 +3309,8 @@
                 "REPAIR_CCD",
                 "ACCESS_GAZETTE",
                 "MANAGE_PROCESS_CONFIG",
-                "ALLOCATE_REFERRALS"
+                "ALLOCATE_REFERRALS",
+                "VIEW_MANAGEMENT_INFORMATION"
               ]
             }
           },
@@ -4836,6 +5097,444 @@
             "description": "Supply it with a change; a stale revision returns 409."
           }
         }
+      },
+      "MiCompletionCohort": {
+        "type": "object",
+        "properties": {
+          "completed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Of those, cases with dateEnroled or dateReturned (not both)."
+          },
+          "daysToCompletion": {
+            "$ref": "#/components/schemas/MiDurationResponse",
+            "description": "From dateReceived to the completion date, over the completed cases whose completion is not before their receipt."
+          },
+          "end": {
+            "type": "string",
+            "format": "date",
+            "description": "The cohort's last day, inclusive."
+          },
+          "enroled": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "received": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Cases whose dateReceived falls in the cohort."
+          },
+          "returned": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "start": {
+            "type": "string",
+            "format": "date",
+            "description": "The cohort's first day, inclusive."
+          },
+          "stillOpen": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Cases with neither completion date. Show it beside the percentiles: a recent cohort looks fast because its slow cases are still open."
+          }
+        },
+        "required": ["completed", "daysToCompletion", "end", "enroled", "received", "returned", "start", "stillOpen"]
+      },
+      "MiCompletionExcluded": {
+        "type": "object",
+        "properties": {
+          "contradiction": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Cases received in the range with both dateEnroled and dateReturned, counted in none of completed, enroled, returned or stillOpen."
+          },
+          "migrated": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Migrated cases received in the range, left out because includeMigrated is false; 0 otherwise."
+          },
+          "negativeInterval": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Completed cases whose completion date is before their dateReceived: counted as completed, but not in daysToCompletion."
+          },
+          "noDateReceived": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Cases with no dateReceived, which no cohort can hold, whatever their dates."
+          }
+        },
+        "required": ["contradiction", "migrated", "negativeInterval", "noDateReceived"]
+      },
+      "MiCompletionResponse": {
+        "type": "object",
+        "properties": {
+          "cohorts": {
+            "type": "array",
+            "description": "Every cohort of the range in order, empty ones included.",
+            "items": {
+              "$ref": "#/components/schemas/MiCompletionCohort"
+            }
+          },
+          "excluded": {
+            "$ref": "#/components/schemas/MiCompletionExcluded"
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/MiParametersResponse"
+          }
+        },
+        "required": ["cohorts", "excluded", "parameters"]
+      },
+      "MiConfirmations": {
+        "type": "object",
+        "properties": {
+          "confirmed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "withdrawn": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": ["confirmed", "withdrawn"]
+      },
+      "MiDecisionCount": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "urgent": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many of count were urgent referrals."
+          }
+        },
+        "required": ["count", "urgent"]
+      },
+      "MiDecisions": {
+        "type": "object",
+        "properties": {
+          "approved": {
+            "$ref": "#/components/schemas/MiDecisionCount"
+          },
+          "rejected": {
+            "$ref": "#/components/schemas/MiDecisionCount"
+          }
+        },
+        "required": ["approved", "rejected"]
+      },
+      "MiDurationResponse": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many intervals the bucket holds."
+          },
+          "medianDays": {
+            "type": ["number", "null"],
+            "format": "double",
+            "description": "The median, in calendar days, interpolated between the two middle values (percentile_cont); null when count is 0, which is not the same as zero days."
+          },
+          "p95Days": {
+            "type": ["number", "null"],
+            "format": "double",
+            "description": "The 95th percentile, in calendar days, interpolated likewise; published however small count is, and null when it is 0."
+          }
+        },
+        "required": ["count", "medianDays", "p95Days"]
+      },
+      "MiParametersResponse": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "description": "The first day of the range, inclusive."
+          },
+          "granularity": {
+            "type": "string",
+            "description": "How the range was divided into periods.",
+            "enum": ["WEEK", "MONTH", "QUARTER"]
+          },
+          "includeMigrated": {
+            "type": "boolean",
+            "description": "Whether migrated cases were counted; true unless the request said false."
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "description": "The last day of the range, inclusive."
+          }
+        },
+        "required": ["from", "granularity", "includeMigrated", "to"]
+      },
+      "MiReferralOutcomesExcluded": {
+        "type": "object",
+        "properties": {
+          "confirmationWithoutOutcome": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Referrals with a confirmationReceivedAt in the range but no confirmationOutcome."
+          },
+          "decisionDateWithoutDecision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Referrals with a decisionDate in the range but no decision."
+          },
+          "migratedConfirmations": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Confirmations on migrated cases, likewise."
+          },
+          "migratedDecisions": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Decisions on migrated cases, left out because includeMigrated is false; 0 otherwise."
+          }
+        },
+        "required": ["confirmationWithoutOutcome", "decisionDateWithoutDecision", "migratedConfirmations", "migratedDecisions"]
+      },
+      "MiReferralOutcomesPeriod": {
+        "type": "object",
+        "properties": {
+          "confirmations": {
+            "$ref": "#/components/schemas/MiConfirmations",
+            "description": "Referrals whose confirmationReceivedAt falls in the period, by the applicant's confirmationOutcome."
+          },
+          "decisions": {
+            "$ref": "#/components/schemas/MiDecisions",
+            "description": "Referrals whose decisionDate falls in the period, by decision."
+          },
+          "end": {
+            "type": "string",
+            "format": "date",
+            "description": "The period's last day, inclusive."
+          },
+          "start": {
+            "type": "string",
+            "format": "date",
+            "description": "The period's first day, inclusive."
+          }
+        },
+        "required": ["confirmations", "decisions", "end", "start"]
+      },
+      "MiReferralOutcomesResponse": {
+        "type": "object",
+        "properties": {
+          "excluded": {
+            "$ref": "#/components/schemas/MiReferralOutcomesExcluded"
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/MiParametersResponse"
+          },
+          "periods": {
+            "type": "array",
+            "description": "Every period of the range in order, empty ones included.",
+            "items": {
+              "$ref": "#/components/schemas/MiReferralOutcomesPeriod"
+            }
+          }
+        },
+        "required": ["excluded", "parameters", "periods"]
+      },
+      "MiStageDurationsExcluded": {
+        "type": "object",
+        "properties": {
+          "migrated": {
+            "type": "array",
+            "description": "Intervals of migrated cases, left out because includeMigrated is false; every interval, zeros included.",
+            "items": {
+              "$ref": "#/components/schemas/MiStageIntervalCount"
+            }
+          },
+          "negativeInterval": {
+            "type": "array",
+            "description": "Intervals whose end date is before their start date, a data-quality problem, never in the figures; every interval, zeros included.",
+            "items": {
+              "$ref": "#/components/schemas/MiStageIntervalCount"
+            }
+          }
+        },
+        "required": ["migrated", "negativeInterval"]
+      },
+      "MiStageDurationsPeriod": {
+        "type": "object",
+        "properties": {
+          "end": {
+            "type": "string",
+            "format": "date",
+            "description": "The period's last day, inclusive."
+          },
+          "intervals": {
+            "type": "array",
+            "description": "Every interval in declaration order, by the period its end date falls in; an empty one has count 0 and null percentiles.",
+            "items": {
+              "$ref": "#/components/schemas/MiStageIntervalFigures"
+            }
+          },
+          "start": {
+            "type": "string",
+            "format": "date",
+            "description": "The period's first day, inclusive."
+          }
+        },
+        "required": ["end", "intervals", "start"]
+      },
+      "MiStageDurationsResponse": {
+        "type": "object",
+        "properties": {
+          "excluded": {
+            "$ref": "#/components/schemas/MiStageDurationsExcluded"
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/MiParametersResponse"
+          },
+          "periods": {
+            "type": "array",
+            "description": "Every period of the range in order, empty ones included.",
+            "items": {
+              "$ref": "#/components/schemas/MiStageDurationsPeriod"
+            }
+          }
+        },
+        "required": ["excluded", "parameters", "periods"]
+      },
+      "MiStageIntervalCount": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "interval": {
+            "type": "string",
+            "enum": [
+              "RECEIVED_TO_READY_FOR_MASTER",
+              "READY_TO_REFERRED",
+              "REFERRED_TO_DECISION",
+              "SIGNATURE_REQUESTED_TO_RECEIVED",
+              "SIGNATURE_RECEIVED_TO_ENROLED"
+            ]
+          }
+        },
+        "required": ["count", "interval"]
+      },
+      "MiStageIntervalFigures": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "interval": {
+            "type": "string",
+            "enum": [
+              "RECEIVED_TO_READY_FOR_MASTER",
+              "READY_TO_REFERRED",
+              "REFERRED_TO_DECISION",
+              "SIGNATURE_REQUESTED_TO_RECEIVED",
+              "SIGNATURE_RECEIVED_TO_ENROLED"
+            ]
+          },
+          "medianDays": {
+            "type": ["number", "null"],
+            "format": "double",
+            "description": "The median in calendar days (percentile_cont), null when count is 0."
+          },
+          "p95Days": {
+            "type": ["number", "null"],
+            "format": "double",
+            "description": "The 95th percentile in calendar days (percentile_cont), null when count is 0."
+          }
+        },
+        "required": ["count", "interval", "medianDays", "p95Days"]
+      },
+      "MiVolumeExcluded": {
+        "type": "object",
+        "properties": {
+          "migrated": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Migrated cases left out because includeMigrated is false: those received in the range, and those received before it and still open at the end of its first period, which openAtEnd would otherwise have counted; 0 otherwise."
+          },
+          "noDateReceived": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Cases with no dateReceived, which no period can hold, whatever their dates."
+          }
+        },
+        "required": ["migrated", "noDateReceived"]
+      },
+      "MiVolumePeriod": {
+        "type": "object",
+        "properties": {
+          "end": {
+            "type": "string",
+            "format": "date",
+            "description": "The period's last day, inclusive."
+          },
+          "openAtEnd": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Cases received on or before the period's end with neither dateEnroled nor dateReturned on or before it."
+          },
+          "received": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Cases whose dateReceived falls in the period."
+          },
+          "receivedByType": {
+            "type": "array",
+            "description": "received by type, every type in declaration order, zeros included; a case with no type counts as Unknown.",
+            "items": {
+              "$ref": "#/components/schemas/MiVolumeTypeCount"
+            }
+          },
+          "start": {
+            "type": "string",
+            "format": "date",
+            "description": "The period's first day, inclusive."
+          }
+        },
+        "required": ["end", "openAtEnd", "received", "receivedByType", "start"]
+      },
+      "MiVolumeResponse": {
+        "type": "object",
+        "properties": {
+          "excluded": {
+            "$ref": "#/components/schemas/MiVolumeExcluded"
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/MiParametersResponse"
+          },
+          "periods": {
+            "type": "array",
+            "description": "Every period of the range in order, empty ones included.",
+            "items": {
+              "$ref": "#/components/schemas/MiVolumePeriod"
+            }
+          }
+        },
+        "required": ["excluded", "parameters", "periods"]
+      },
+      "MiVolumeTypeCount": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["Adult", "AdultTransgender", "Minor", "MinorTransgender", "DeedOfRelinquishment", "Unknown"]
+          }
+        },
+        "required": ["count", "type"]
       },
       "NextWindow": {
         "type": "object",

@@ -97,7 +97,7 @@ start it with `docker start deed-poll-redis` before running the tests; never dro
 
 ### Task 1: Spec refresh, adapter and mock
 
-- [ ] Refresh `openapi.json` from the merged api. **The spec is already generated; do not build the api.** Copy
+- [x] Refresh `openapi.json` from the merged api. **The spec is already generated; do not build the api.** Copy
       `/Users/steve.newman/Documents/GitHub/deed-poll-admin-workspace/cft-workspace/.context/deed-poll-admin/mi-spec/openapi-e7ee862.json`
       (SHA-256 `b4034cd9980268e6381b1dce4aa730b8dc04fde63660d7a3cf1a46aa37cac49d`) over
       `libs/deed-poll-api-client/openapi.json` byte for byte, keeping the file's existing formatting rules if the repo
@@ -108,11 +108,11 @@ start it with `docker start deed-poll-redis` before running the tests; never dro
       `Mi*` schemas added, and `CallerAccessResponse` changed (its `capabilities` enum gains
       `VIEW_MANAGEMENT_INFORMATION`); nothing removed, nothing else changed. Record all of this as a new top row in
       `SPEC-PROVENANCE.md`, in its existing table style, and make `contract.test.ts` pass.
-- [ ] Add `VIEW_MANAGEMENT_INFORMATION` to `libs/deed-poll/src/auth/capabilities.ts` **and** to the mock's table
+- [x] Add `VIEW_MANAGEMENT_INFORMATION` to `libs/deed-poll/src/auth/capabilities.ts` **and** to the mock's table
       (`libs/deed-poll-api-client/src/mock/caller-access.ts`), whose test pins it to `CallerAccessResponse`'s enum
       (CLAUDE.md, "Personas and role gating"). Team leader and Delivery Manager hold it; the deprecated
       `caseworker-deedpoll-admin` does not (api `RoleCapabilities`).
-- [ ] Mock: the four operations with fixed, realistic data (including an empty bucket, a 1-case bucket and
+- [x] Mock: the four operations with fixed, realistic data (including an empty bucket, a 1-case bucket and
       a negative-interval exclusion), plus the api's 400 rules, with `server.test.ts` cases.
 
 ### Task 2: Gate and route
@@ -163,3 +163,7 @@ start it with `docker start deed-poll-redis` before running the tests; never dro
 - 2026-11-04: plan copied from `.context/plans/mi-dashboard-admin.md` onto branch `feat/mi-dashboard-page` from
   admin master `e3d5045`; Task 1's spec pre-generated (above) so no task builds the api. Run with
   `ralphex -b origin/master docs/plans/20261103-mi-dashboard-page.md`.
+- 2026-11-04, Task 1: spec copied (parsed equal to the artefact; 72 operations, 53 paths, 98 schemas). The `Mi*`
+  nested records are pinned strict (see `STRICT_RESPONSE_PROPERTIES`); the mock's 400s restate api's `MiParameters`
+  at `e7ee862`, since the document publishes none. Format, lint and `build --force` clean; tests
+  `@hmcts/deed-poll-api-client` 1,538 (+90), `@hmcts/deed-poll` 1,739, `//:test:app` 3,346, all passing.

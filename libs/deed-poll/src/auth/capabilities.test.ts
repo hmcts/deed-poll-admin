@@ -13,18 +13,24 @@ import {
   NO_ACCESS,
   OVERRIDE_PRIVACY,
   REPAIR_CCD,
-  staffAccess
+  staffAccess,
+  VIEW_MANAGEMENT_INFORMATION
 } from "./capabilities.js";
 import { currentUser } from "./current-user.js";
 
 const CASEWORK = [OVERRIDE_PRIVACY, DELETE_NOTE, DELETE_WITNESS, MANAGE_SHARED_QUERIES, REPAIR_CCD];
 
-// What api's `GET /me` answers for each persona, restated from its RoleCapabilities.
+// What api's `GET /me` answers for each persona, restated from its RoleCapabilities. The legacy admin does not
+// inherit the Team leader's management information.
 const PERSONAS = [
-  { persona: "Team leader", access: { staff: true, judicial: false, capabilities: [...CASEWORK, ALLOCATE_REFERRALS] } },
+  { persona: "Team leader", access: { staff: true, judicial: false, capabilities: [...CASEWORK, ALLOCATE_REFERRALS, VIEW_MANAGEMENT_INFORMATION] } },
   {
     persona: "Delivery Manager",
-    access: { staff: true, judicial: false, capabilities: [...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG, ALLOCATE_REFERRALS] }
+    access: {
+      staff: true,
+      judicial: false,
+      capabilities: [...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG, ALLOCATE_REFERRALS, VIEW_MANAGEMENT_INFORMATION]
+    }
   },
   { persona: "legacy admin", access: { staff: true, judicial: false, capabilities: [...CASEWORK, ALLOCATE_REFERRALS] } },
   { persona: "caseworker", access: { staff: true, judicial: false, capabilities: [] } },
@@ -45,7 +51,7 @@ describe("staff capability contract", () => {
   });
 
   it("should name every capability api publishes, so a gate cannot key on a string api never sends", () => {
-    expect([...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG, ALLOCATE_REFERRALS]).toEqual([...CAPABILITY]);
+    expect([...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG, ALLOCATE_REFERRALS, VIEW_MANAGEMENT_INFORMATION]).toEqual([...CAPABILITY]);
   });
 });
 

@@ -2646,6 +2646,194 @@ describe("the email routes", () => {
   });
 });
 
+describe("the management-information routes", () => {
+  const TEAM_LEADER = withRoles(["caseworker-deedpoll-team-leader"]);
+  const RESPONSES = {
+    volume: WIRE_SCHEMAS.MiVolumeResponse,
+    "stage-durations": WIRE_SCHEMAS.MiStageDurationsResponse,
+    "referral-outcomes": WIRE_SCHEMAS.MiReferralOutcomesResponse,
+    completion: WIRE_SCHEMAS.MiCompletionResponse
+  };
+  // A Wednesday to a Tuesday: four ISO weeks, the first and last clipped.
+  const WEEKS = "from=2026-10-07&to=2026-10-27&granularity=WEEK";
+
+  it.each(Object.entries(RESPONSES))("should answer %s in the published shape for a Team leader and a Delivery Manager", async (kpi, schema) => {
+    // Act
+    const answers = await Promise.all(
+      [TEAM_LEADER, DELIVERY_MANAGER].map((headers) => fetch(`${mock.url}/caseworker/management-information/${kpi}?${WEEKS}`, { headers }))
+    );
+
+    // Assert
+    for (const answer of answers) {
+      expect(answer.status).toBe(200);
+      expect(schema.safeParse(await answer.json()).success).toBe(true);
+    }
+  });
+
+  it.each([
+    ["a caseworker", withRoles(["caseworker-deedpoll"])],
+    ["the legacy admin", withRoles(["caseworker-deedpoll-admin"])],
+    ["a judge", withRoles(["caseworker-deedpoll-judicial"])]
+  ])("should refuse %s 403 before reading any parameter", async (_persona, headers) => {
+    // Act
+    const answer = await fetch(`${mock.url}/caseworker/management-information/volume?from=nonsense`, { headers });
+
+    // Assert
+    expect(answer.status).toBe(403);
+  });
+
+  it("should answer 401 with no token, 404 for an unknown read and 405 for anything but GET", async () => {
+    // Act
+    const anonymous = await fetch(`${mock.url}/caseworker/management-information/volume?${WEEKS}`);
+    const unknown = await fetch(`${mock.url}/caseworker/management-information/escalations?${WEEKS}`, { headers: TEAM_LEADER });
+    const written = await post(`/caseworker/management-information/volume?${WEEKS}`, {}, TEAM_LEADER);
+
+    // Assert
+    expect([anonymous.status, unknown.status, written.status]).toEqual([401, 404, 405]);
+  });
+
+  it("should name every missing parameter in api's words, the first as the error", async () => {
+    // Act
+    const answer = await fetch(`${mock.url}/caseworker/management-information/volume`, { headers: TEAM_LEADER });
+
+    // Assert
+    expect(answer.status).toBe(400);
+    expect(await answer.json()).toEqual({
+      error: "Enter the first day of the range.",
+      errors: [
+        { field: "from", message: "Enter the first day of the range." },
+        { field: "to", message: "Enter the last day of the range." },
+        { field: "granularity", message: "Choose WEEK, MONTH or QUARTER." }
+      ]
+    });
+  });
+
+  it.each([
+    ["an unparsable from", "from=07/10/2026&to=2026-10-27&granularity=WEEK", "from", "Enter the first day of the range as yyyy-MM-dd."],
+    ["a to that is not a calendar day", "from=2026-10-07&to=2026-02-30&granularity=WEEK", "to", "Enter the last day of the range as yyyy-MM-dd."],
+    ["year zero", "from=0000-01-01&to=2026-10-27&granularity=WEEK", "from", "Enter the first day of the range as yyyy-MM-dd."],
+    ["a lower-case granularity", "from=2026-10-07&to=2026-10-27&granularity=week", "granularity", "Choose WEEK, MONTH or QUARTER."],
+    ["an includeMigrated that is not a boolean", `${WEEKS}&includeMigrated=yes`, "includeMigrated", "includeMigrated is true or false."],
+    ["a to before from", "from=2026-10-27&to=2026-10-07&granularity=WEEK", "to", "The last day of the range cannot be before the first."],
+    ["a range over two years", "from=2024-02-29&to=2026-03-01&granularity=MONTH", "to", "The range cannot be longer than 2 years."]
+  ])("should refuse %s on its own field without echoing it", async (_case, query, field, message) => {
+    // Act
+    const answer = await fetch(`${mock.url}/caseworker/management-information/completion?${query}`, { headers: TEAM_LEADER });
+
+    // Assert
+    expect(answer.status).toBe(400);
+    expect(await answer.json()).toEqual({ error: message, errors: [{ field, message }] });
+  });
+
+  it("should admit a range of exactly two years, 29 February landing on the 28th as Java's plusYears does", async () => {
+    // Act
+    const answer = await fetch(`${mock.url}/caseworker/management-information/volume?from=2024-02-29&to=2026-02-28&granularity=QUARTER`, {
+      headers: TEAM_LEADER
+    });
+
+    // Assert
+    expect(answer.status).toBe(200);
+    const body = await answer.json();
+    expect(body.parameters).toEqual({ from: "2024-02-29", to: "2026-02-28", granularity: "QUARTER", includeMigrated: true });
+    expect(body.periods.map((period: { start: string }) => period.start)).toEqual([
+      "2024-02-29",
+      "2024-04-01",
+      "2024-07-01",
+      "2024-10-01",
+      "2025-01-01",
+      "2025-04-01",
+      "2025-07-01",
+      "2025-10-01",
+      "2026-01-01"
+    ]);
+  });
+
+  it("should report every ISO week of the range, the first and last clipped to it", async () => {
+    // Act
+    const body = await get(`/caseworker/management-information/volume?${WEEKS}`, TEAM_LEADER);
+
+    // Assert
+    expect(body.periods.map(({ start, end }: { start: string; end: string }) => [start, end])).toEqual([
+      ["2026-10-07", "2026-10-11"],
+      ["2026-10-12", "2026-10-18"],
+      ["2026-10-19", "2026-10-25"],
+      ["2026-10-26", "2026-10-27"]
+    ]);
+  });
+
+  it("should leave the second period empty and give the third one case, with null and equal percentiles", async () => {
+    // Act
+    const durations = await get(`/caseworker/management-information/stage-durations?${WEEKS}`, TEAM_LEADER);
+    const completion = await get(`/caseworker/management-information/completion?${WEEKS}`, TEAM_LEADER);
+    const volume = await get(`/caseworker/management-information/volume?${WEEKS}`, TEAM_LEADER);
+
+    // Assert
+    for (const figures of durations.periods[1].intervals) expect(figures).toMatchObject({ count: 0, medianDays: null, p95Days: null });
+    for (const figures of durations.periods[2].intervals) {
+      expect(figures.count).toBe(1);
+      expect(figures.p95Days).toBe(figures.medianDays);
+    }
+    expect(completion.cohorts[1]).toMatchObject({ received: 0, completed: 0, stillOpen: 0, daysToCompletion: { count: 0, medianDays: null, p95Days: null } });
+    expect(completion.cohorts[2]).toMatchObject({ received: 1, completed: 1, enroled: 1, returned: 0, stillOpen: 0, daysToCompletion: { count: 1 } });
+    expect(volume.periods[1].received).toBe(0);
+    expect(volume.periods[2].received).toBe(1);
+  });
+
+  it("should add every period's types up to its received, and its completions to its cohort", async () => {
+    // Act
+    const volume = await get(`/caseworker/management-information/volume?from=2026-01-01&to=2026-10-31&granularity=WEEK`, TEAM_LEADER);
+    const completion = await get(`/caseworker/management-information/completion?from=2026-01-01&to=2026-10-31&granularity=WEEK`, TEAM_LEADER);
+
+    // Assert
+    for (const period of volume.periods) {
+      expect(period.receivedByType.map((row: { type: string }) => row.type)).toEqual([
+        "Adult",
+        "AdultTransgender",
+        "Minor",
+        "MinorTransgender",
+        "DeedOfRelinquishment",
+        "Unknown"
+      ]);
+      expect(period.receivedByType.reduce((total: number, row: { count: number }) => total + row.count, 0)).toBe(period.received);
+    }
+    for (const cohort of completion.cohorts) {
+      expect(cohort.completed + cohort.stillOpen).toBe(cohort.received);
+      expect(cohort.enroled + cohort.returned).toBe(cohort.completed);
+    }
+    // The newest cohort keeps most of its cases open, which is what the page's caveat is about.
+    expect(completion.cohorts.at(-1).stillOpen).toBeGreaterThan(completion.cohorts.at(-5).stillOpen);
+    // The one completion dated before its receipt is counted as completed but given no duration.
+    expect(completion.cohorts[0].daysToCompletion.count).toBe(completion.cohorts[0].completed - 1);
+  });
+
+  it("should give a week the same figures whichever range asks for it", async () => {
+    // Act
+    const shorter = await get(`/caseworker/management-information/volume?from=2026-09-07&to=2026-10-18&granularity=WEEK`, TEAM_LEADER);
+    const longer = await get(`/caseworker/management-information/volume?from=2026-08-31&to=2026-10-18&granularity=WEEK`, TEAM_LEADER);
+
+    // Assert
+    expect(shorter.periods.at(-1)).toEqual(longer.periods.at(-1));
+  });
+
+  it("should report non-zero exclusions, and move a share into migrated when migrated cases do not count", async () => {
+    // Act
+    const included = await get(`/caseworker/management-information/stage-durations?${WEEKS}`, TEAM_LEADER);
+    const left = await get(`/caseworker/management-information/stage-durations?${WEEKS}&includeMigrated=false`, TEAM_LEADER);
+    const volume = await get(`/caseworker/management-information/volume?${WEEKS}&includeMigrated=false`, TEAM_LEADER);
+    const completion = await get(`/caseworker/management-information/completion?${WEEKS}`, TEAM_LEADER);
+    const outcomes = await get(`/caseworker/management-information/referral-outcomes?${WEEKS}`, TEAM_LEADER);
+
+    // Assert
+    expect(included.excluded.negativeInterval[0]).toEqual({ interval: "RECEIVED_TO_READY_FOR_MASTER", count: 1 });
+    expect(included.excluded.migrated.every((row: { count: number }) => row.count === 0)).toBe(true);
+    expect(left.parameters.includeMigrated).toBe(false);
+    expect(left.excluded.migrated.some((row: { count: number }) => row.count > 0)).toBe(true);
+    expect(volume.excluded.migrated).toBeGreaterThan(0);
+    expect(completion.excluded).toEqual({ noDateReceived: 3, contradiction: 1, negativeInterval: 1, migrated: 0 });
+    expect(outcomes.excluded).toMatchObject({ decisionDateWithoutDecision: 1, migratedDecisions: 0 });
+  });
+});
+
 describe("when the scenario says api is unavailable", () => {
   it("should answer 503 on every contract route while leaving the control routes working", async () => {
     mock.setScenario("api-unavailable");
@@ -2686,6 +2874,11 @@ async function get(path: string, headers: Record<string, string> = {}): Promise<
  * The mock reads a name out of the token and no roles, so this is what tells a judge's referral from another
  * judge's — and the `caseworker-deedpoll-judicial` role gate is api's rather than something to arrange here.
  */
+/** A token carrying IDAM roles, for the gates the mock reads from them. */
+function withRoles(roles: string[]): Record<string, string> {
+  return { authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: "tester", roles }), "utf8").toString("base64url")}.signature` };
+}
+
 function as(subject: string): Record<string, string> {
   return { authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: subject }), "utf8").toString("base64url")}.signature` };
 }

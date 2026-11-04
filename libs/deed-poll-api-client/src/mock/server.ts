@@ -96,10 +96,14 @@
  *      keeping its window; all three `ALLOCATE_REFERRALS` only. Linking's and unlinking's referral side;
  *      `directionDueBy`; My referrals by the day sent; and the processing window's `unassignOverdue` back to the
  *      queue, on api's request-time triggers and the explicit `/__mock` hook, against the mock's clock.
+ *  17. Management information's four reads (`management-information.ts`), `VIEW_MANAGEMENT_INFORMATION` before any
+ *      parameter, then api's `MiParameters` refusals in api's words and every period of the range. The figures are
+ *      fixed rather than computed from the mock's cases, with an empty period, a one-case period and non-zero
+ *      exclusions in every range of three periods or more.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
  * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `ReferralNotes`, `JudicialReferralService`,
- * `ReferralQueue`, `ReferralWindows`, `CaseEmailService`, `GazetteNoticeHistory`, `DocumentPreviewService`, `MasterService`, `BankHolidays`, `ProcessSettingsService`, `RoleCapabilities`, `StaffArea` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
+ * `ReferralQueue`, `ReferralWindows`, `MiParameters`, `CaseEmailService`, `GazetteNoticeHistory`, `DocumentPreviewService`, `MasterService`, `BankHolidays`, `ProcessSettingsService`, `RoleCapabilities`, `StaffArea` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
  * privacy lock, the minor and Gazette write gates, create-time defaults, the saved-query permission rules —
  * see `savedQuery`) is deliberately NOT modelled: no
  * page's behaviour depends on it, and a half-copy would be a second opinion to keep in step. If a page
@@ -177,6 +181,7 @@ import {
   type MockScenario
 } from "./fixtures.js";
 import { createGazetteRequests } from "./gazette-requests.js";
+import { isMiKpi, managementInformation } from "./management-information.js";
 import { createMasters } from "./masters.js";
 import { createProcessSettings } from "./process-settings.js";
 import { closesAt, isWeekdayNotIn, londonDay, nextToOpen, openAt, opensAt, type ReferralWindow, type WindowTimes } from "./referral-windows.js";
@@ -353,6 +358,11 @@ function hasProcessConfigAccess(claims: { roles?: unknown }): boolean {
 /** api F1's gate on the queue, the send and reassignment: Team leaders and Delivery Managers. */
 function hasAllocateAccess(claims: { roles?: unknown }): boolean {
   return callerAccess(claims).capabilities.includes("ALLOCATE_REFERRALS");
+}
+
+/** The MI plan's D3: Team leaders and Delivery Managers, never the legacy admin. */
+function hasManagementInformationAccess(claims: { roles?: unknown }): boolean {
+  return callerAccess(claims).capabilities.includes("VIEW_MANAGEMENT_INFORMATION");
 }
 
 /**
@@ -653,6 +663,18 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       if (pathname === "/caseworker/referral-queue" && method === "GET") return referralQueue(res, searchParams);
       if (pathname === "/caseworker/referral-queue/sends" && method === "POST") return sendReferrals(req, res);
       return send(res, 405, { error: `no such route: ${method} ${pathname}` });
+    }
+
+    // Management information: the capability before any parameter is read, as api's `admit` checks it.
+    if (pathname.startsWith("/caseworker/management-information/")) {
+      const kpi = pathname.slice("/caseworker/management-information/".length);
+      if (!isMiKpi(kpi)) return send(res, 404, { error: "Not found" });
+      const claims = await callerClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      if (!hasManagementInformationAccess(claims)) return send(res, 403, { error: "Team leader or Delivery Manager role required" });
+      if (method !== "GET") return send(res, 405, { error: "Method not allowed" });
+      const result = managementInformation(kpi, searchParams);
+      return send(res, result.status, result.body);
     }
 
     if (method === "GET" && pathname === "/caseworker/document-types") return send(res, 200, MOCK_DOCUMENT_TYPES);

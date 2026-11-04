@@ -134,7 +134,8 @@ export const CAPABILITY = [
   "REPAIR_CCD",
   "ACCESS_GAZETTE",
   "MANAGE_PROCESS_CONFIG",
-  "ALLOCATE_REFERRALS"
+  "ALLOCATE_REFERRALS",
+  "VIEW_MANAGEMENT_INFORMATION"
 ] as const;
 
 /** The two `sortDirection` tokens api matches exactly. A bare field with no direction means ascending. */
@@ -1277,6 +1278,127 @@ const createBankHolidaySchema = z
   })
   .strict();
 
+/** How a management-information request divides its range, as api's `MiGranularity`: ISO week from Monday, month or quarter. */
+export const MI_GRANULARITY = ["WEEK", "MONTH", "QUARTER"] as const;
+
+/** api's `StageInterval`, in its declaration order, which is the order every period's `intervals` arrive in. */
+export const MI_STAGE_INTERVAL = [
+  "RECEIVED_TO_READY_FOR_MASTER",
+  "READY_TO_REFERRED",
+  "REFERRED_TO_DECISION",
+  "SIGNATURE_REQUESTED_TO_RECEIVED",
+  "SIGNATURE_RECEIVED_TO_ENROLED"
+] as const;
+
+/**
+ * The resolved parameters every management-information answer echoes. `from` and `to` stay api's `yyyy-MM-dd`
+ * strings, as a bank holiday's date does: they are calendar days with no time zone, and they name the CSV file.
+ */
+const miParametersSchema = z.object({
+  from: z.iso.date(),
+  to: z.iso.date(),
+  granularity: z.enum(MI_GRANULARITY).nullish(),
+  includeMigrated: z.boolean()
+});
+
+const miCount = z.number().int().nonnegative();
+
+/** A bucket's percentiles beside its count. Both are null exactly when `count` is 0, which is not zero days. */
+const miDurationSchema = z.object({
+  count: miCount,
+  medianDays: z.number().nullish(),
+  p95Days: z.number().nullish()
+});
+
+const miPeriodShape = { start: z.iso.date(), end: z.iso.date() };
+
+const miVolumeTypeCountSchema = z.object({ type: z.enum(DEED_POLL_TYPE), count: miCount });
+
+const miVolumePeriodSchema = z.object({
+  ...miPeriodShape,
+  received: miCount,
+  receivedByType: z.array(miVolumeTypeCountSchema),
+  openAtEnd: miCount
+});
+
+const miVolumeExcludedSchema = z.object({ noDateReceived: miCount, migrated: miCount });
+
+/** K1: cases received per period, by type, and the caseload open at each period's end. */
+const miVolumeSchema = z.object({
+  parameters: miParametersSchema,
+  periods: z.array(miVolumePeriodSchema),
+  excluded: miVolumeExcludedSchema
+});
+
+const miStageIntervalFiguresSchema = z.object({
+  interval: z.enum(MI_STAGE_INTERVAL),
+  count: miCount,
+  medianDays: z.number().nullish(),
+  p95Days: z.number().nullish()
+});
+
+const miStageIntervalCountSchema = z.object({ interval: z.enum(MI_STAGE_INTERVAL), count: miCount });
+
+const miStageDurationsPeriodSchema = z.object({ ...miPeriodShape, intervals: z.array(miStageIntervalFiguresSchema) });
+
+const miStageDurationsExcludedSchema = z.object({
+  negativeInterval: z.array(miStageIntervalCountSchema),
+  migrated: z.array(miStageIntervalCountSchema)
+});
+
+/** K2: how long each stage took, per period, each interval bucketed by the period its end falls in. */
+const miStageDurationsSchema = z.object({
+  parameters: miParametersSchema,
+  periods: z.array(miStageDurationsPeriodSchema),
+  excluded: miStageDurationsExcludedSchema
+});
+
+const miDecisionCountSchema = z.object({ count: miCount, urgent: miCount });
+
+const miDecisionsSchema = z.object({ approved: miDecisionCountSchema, rejected: miDecisionCountSchema });
+
+const miConfirmationsSchema = z.object({ confirmed: miCount, withdrawn: miCount });
+
+const miReferralOutcomesPeriodSchema = z.object({ ...miPeriodShape, decisions: miDecisionsSchema, confirmations: miConfirmationsSchema });
+
+const miReferralOutcomesExcludedSchema = z.object({
+  migratedDecisions: miCount,
+  migratedConfirmations: miCount,
+  decisionDateWithoutDecision: miCount,
+  confirmationWithoutOutcome: miCount
+});
+
+/** K3: the Masters' decisions and the applicants' confirmations, per period. Counts only. */
+const miReferralOutcomesSchema = z.object({
+  parameters: miParametersSchema,
+  periods: z.array(miReferralOutcomesPeriodSchema),
+  excluded: miReferralOutcomesExcludedSchema
+});
+
+const miCompletionCohortSchema = z.object({
+  ...miPeriodShape,
+  received: miCount,
+  completed: miCount,
+  enroled: miCount,
+  returned: miCount,
+  stillOpen: miCount,
+  daysToCompletion: miDurationSchema
+});
+
+const miCompletionExcludedSchema = z.object({
+  noDateReceived: miCount,
+  contradiction: miCount,
+  negativeInterval: miCount,
+  migrated: miCount
+});
+
+/** K4: time from receipt to completion, by the cohort `dateReceived` falls in. */
+const miCompletionSchema = z.object({
+  parameters: miParametersSchema,
+  cohorts: z.array(miCompletionCohortSchema),
+  excluded: miCompletionExcludedSchema
+});
+
 const gazetteNoticeBatchSchema = z.object({
   batchId: z.uuid().nullish(),
   sentAt: wireDateTime.nullish(),
@@ -1431,6 +1553,26 @@ export const WIRE_SCHEMAS = {
   CreateMasterRequest: createMasterSchema,
   UpdateMasterRequest: updateMasterSchema,
   BankHolidayResponse: bankHolidaySchema,
+  MiParametersResponse: miParametersSchema,
+  MiDurationResponse: miDurationSchema,
+  MiVolumeTypeCount: miVolumeTypeCountSchema,
+  MiVolumePeriod: miVolumePeriodSchema,
+  MiVolumeExcluded: miVolumeExcludedSchema,
+  MiVolumeResponse: miVolumeSchema,
+  MiStageIntervalFigures: miStageIntervalFiguresSchema,
+  MiStageIntervalCount: miStageIntervalCountSchema,
+  MiStageDurationsPeriod: miStageDurationsPeriodSchema,
+  MiStageDurationsExcluded: miStageDurationsExcludedSchema,
+  MiStageDurationsResponse: miStageDurationsSchema,
+  MiDecisionCount: miDecisionCountSchema,
+  MiDecisions: miDecisionsSchema,
+  MiConfirmations: miConfirmationsSchema,
+  MiReferralOutcomesPeriod: miReferralOutcomesPeriodSchema,
+  MiReferralOutcomesExcluded: miReferralOutcomesExcludedSchema,
+  MiReferralOutcomesResponse: miReferralOutcomesSchema,
+  MiCompletionCohort: miCompletionCohortSchema,
+  MiCompletionExcluded: miCompletionExcludedSchema,
+  MiCompletionResponse: miCompletionSchema,
   CreateBankHolidayRequest: createBankHolidaySchema,
   GazetteNoticeBatchResponse: gazetteNoticeBatchSchema,
   GazetteNoticeHistoryResponse: gazetteNoticeHistorySchema,
@@ -1531,6 +1673,33 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   AssignedMasterResponse: ["id"],
   // `date` is the row's key, and the removal's path segment, so it is strict for the reason an id is.
   BankHolidayResponse: ["date"],
+  // Management information (api plan 20261103-mi-dashboard). Every count is a `long` and `includeMigrated` a
+  // `boolean`, every list a `toList()`, and a period's `start` and `end` are its key, strict for a bank holiday's
+  // reason; `from` and `to` likewise name the request. `interval` and `type` are each row's key, strict by choice as
+  // an id is. **The nested records are strict too, unlike `application`'s**: api's service builds every one on every
+  // answer (an empty bucket is `count` 0, never a missing record), and a table row without its figures is not a
+  // partial row a page can draw. The percentiles and `granularity` are the only nullable members: null percentiles
+  // are api's empty bucket, and nothing reads the echoed granularity.
+  MiParametersResponse: ["from", "to", "includeMigrated"],
+  MiDurationResponse: ["count"],
+  MiVolumeTypeCount: ["type", "count"],
+  MiVolumePeriod: ["start", "end", "received", "receivedByType", "openAtEnd"],
+  MiVolumeExcluded: ["noDateReceived", "migrated"],
+  MiVolumeResponse: ["parameters", "periods", "excluded"],
+  MiStageIntervalFigures: ["interval", "count"],
+  MiStageIntervalCount: ["interval", "count"],
+  MiStageDurationsPeriod: ["start", "end", "intervals"],
+  MiStageDurationsExcluded: ["negativeInterval", "migrated"],
+  MiStageDurationsResponse: ["parameters", "periods", "excluded"],
+  MiDecisionCount: ["count", "urgent"],
+  MiDecisions: ["approved", "rejected"],
+  MiConfirmations: ["confirmed", "withdrawn"],
+  MiReferralOutcomesPeriod: ["start", "end", "decisions", "confirmations"],
+  MiReferralOutcomesExcluded: ["migratedDecisions", "migratedConfirmations", "decisionDateWithoutDecision", "confirmationWithoutOutcome"],
+  MiReferralOutcomesResponse: ["parameters", "periods", "excluded"],
+  MiCompletionCohort: ["start", "end", "received", "completed", "enroled", "returned", "stillOpen", "daysToCompletion"],
+  MiCompletionExcluded: ["noDateReceived", "contradiction", "negativeInterval", "migrated"],
+  MiCompletionResponse: ["parameters", "cohorts", "excluded"],
   GazetteNoticeBatchResponse: ["caseCount", "referenceNumbers", "referencesTruncated"],
   GazetteNoticeHistoryResponse: ["batches", "page", "size", "total", "totalPages"],
   // The four paging counts are `int`, `int`, `long` and `int` on api's record, so none can arrive null.
@@ -1659,6 +1828,10 @@ export type WireMasterCreate = z.input<typeof createMasterSchema>;
 export type WireMasterUpdate = z.input<typeof updateMasterSchema>;
 export type WireBankHoliday = z.infer<typeof bankHolidaySchema>;
 export type WireBankHolidayCreate = z.input<typeof createBankHolidaySchema>;
+export type WireMiVolume = z.infer<typeof miVolumeSchema>;
+export type WireMiStageDurations = z.infer<typeof miStageDurationsSchema>;
+export type WireMiReferralOutcomes = z.infer<typeof miReferralOutcomesSchema>;
+export type WireMiCompletion = z.infer<typeof miCompletionSchema>;
 
 export type WireGazettePreview = z.infer<typeof gazettePreviewSchema>;
 export type WireGazetteStatus = z.infer<typeof gazetteStatusSchema>;

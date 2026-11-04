@@ -15,7 +15,15 @@ import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import { BANK_HOLIDAY_LIMITS, DOCUMENT_PREVIEW_LIMITS, MASTER_LIMITS, PROCESS_SETTINGS_LIMITS, REFERRAL_SEND_LIMITS, WINDOW_TIME_PATTERN } from "./client.js";
 import deferredContract from "./deferred-contract.json";
-import { CAPABILITY, DOCUMENT_PREVIEW_ERROR_CODE, GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, WIRE_SCHEMAS } from "./wire.js";
+import {
+  CAPABILITY,
+  DOCUMENT_PREVIEW_ERROR_CODE,
+  GAZETTE_RECIPIENT_EMAIL_PATTERN,
+  MI_GRANULARITY,
+  MI_STAGE_INTERVAL,
+  STRICT_RESPONSE_PROPERTIES,
+  WIRE_SCHEMAS
+} from "./wire.js";
 
 const SPEC_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../openapi.json");
 const spec = JSON.parse(readFileSync(SPEC_PATH, "utf8")) as OpenApiSpec;
@@ -82,6 +90,10 @@ const IMPLEMENTED_OPERATIONS = [
   "PUT /caseworker/cases/{id}/referrals/{referralId}/assignment",
   "GET /caseworker/referral-queue",
   "POST /caseworker/referral-queue/sends",
+  "GET /caseworker/management-information/volume",
+  "GET /caseworker/management-information/stage-durations",
+  "GET /caseworker/management-information/referral-outcomes",
+  "GET /caseworker/management-information/completion",
   "GET /caseworker/document-types",
   "GET /caseworker/saved-queries",
   "POST /caseworker/saved-queries",
@@ -334,6 +346,35 @@ describe("openapi.json and the wire schemas", () => {
   it("should no longer declare api's retired publishToGazette alias on any referral schema", () => {
     for (const name of ["ReferralResponse", "JudicialReferralDetail", "JudicialDirectionRequest"]) {
       expect(Object.keys(spec.components.schemas[name].properties ?? {}), name).not.toContain("publishToGazette");
+    }
+  });
+
+  it("should publish the four management-information reads over the same four parameters, aggregates only", () => {
+    const reads = {
+      volume: "MiVolumeResponse",
+      "stage-durations": "MiStageDurationsResponse",
+      "referral-outcomes": "MiReferralOutcomesResponse",
+      completion: "MiCompletionResponse"
+    };
+    for (const [kpi, response] of Object.entries(reads)) {
+      const operation = spec.paths[`/caseworker/management-information/${kpi}`].get;
+      const parameters = Object.fromEntries((operation.parameters ?? []).map((parameter) => [parameter.name, parameter]));
+
+      expect(Object.keys(parameters).toSorted(), kpi).toEqual(["from", "granularity", "includeMigrated", "to"]);
+      expect(parameters.from, kpi).toMatchObject({ in: "query", required: true, schema: { type: "string", format: "date" } });
+      expect(parameters.to, kpi).toMatchObject({ in: "query", required: true, schema: { type: "string", format: "date" } });
+      expect(parameters.granularity, kpi).toMatchObject({ in: "query", required: true, schema: { enum: [...MI_GRANULARITY] } });
+      expect(parameters.includeMigrated, kpi).toMatchObject({ in: "query", required: false, schema: { type: "boolean", default: true } });
+      expect(operation.description, kpi).toContain("VIEW_MANAGEMENT_INFORMATION");
+      expect(operation.responses).toMatchObject({ "200": { content: { "*/*": { schema: { $ref: `#/components/schemas/${response}` } } } } });
+    }
+    // Declaration order, which is the order each period's intervals arrive in and the tables keep.
+    expect(spec.components.schemas.MiStageIntervalFigures.properties?.interval?.enum).toEqual([...MI_STAGE_INTERVAL]);
+    // Aggregates only (api D5): no MI schema may carry anything that identifies a case or a referral.
+    for (const [name, schema] of Object.entries(spec.components.schemas).filter(([name]) => name.startsWith("Mi"))) {
+      for (const field of ["id", "caseId", "referralId", "referenceNumber", "displayReference", "caseIds"]) {
+        expect(Object.keys(schema.properties ?? {}), name).not.toContain(field);
+      }
     }
   });
 

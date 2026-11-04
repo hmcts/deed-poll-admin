@@ -39,6 +39,10 @@ import {
   getJudicialMyReferrals,
   getJudicialPool,
   getJudicialReferral,
+  getMiCompletion,
+  getMiReferralOutcomes,
+  getMiStageDurations,
+  getMiVolume,
   getNote,
   getReferral,
   getReferralQueue,
@@ -358,6 +362,63 @@ describe("the bank holidays", () => {
     // Assert
     expect(removed).toEqual({ ok: true, data: undefined });
     expect(again).toMatchObject({ ok: false, error: { kind: "not-found", status: 404 } });
+  });
+});
+
+describe("management information", () => {
+  const asTeamLeader = () => ({ ...config, accessToken: roleToken("leader-1", ["caseworker-deedpoll-team-leader"]) });
+  const QUERY = { from: "2026-10-07", to: "2026-10-27", granularity: "WEEK" } as const;
+
+  it.each([
+    ["getMiVolume", getMiVolume],
+    ["getMiStageDurations", getMiStageDurations],
+    ["getMiReferralOutcomes", getMiReferralOutcomes],
+    ["getMiCompletion", getMiCompletion]
+  ] as const)("should parse %s for a Team leader and echo api's default of counting migrated cases", async (_name, read) => {
+    // Act
+    const result = await read(QUERY, asTeamLeader());
+
+    // Assert
+    expect(result.ok && result.data.parameters).toEqual({ ...QUERY, includeMigrated: true });
+  });
+
+  it("should send includeMigrated only when the caller set it", async () => {
+    // Arrange
+    const queries: string[] = [];
+    const recorder = await listen(
+      createServer((req, res) => {
+        queries.push(new URL(req.url ?? "", "http://localhost").search);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ parameters: { ...QUERY, includeMigrated: false }, periods: [], excluded: { noDateReceived: 0, migrated: 0 } }));
+      })
+    );
+
+    // Act
+    await getMiVolume(QUERY, { ...config, baseUrl: recorder.url });
+    await getMiVolume({ ...QUERY, includeMigrated: false }, { ...config, baseUrl: recorder.url });
+    await recorder.close();
+
+    // Assert
+    expect(queries).toEqual(["?from=2026-10-07&to=2026-10-27&granularity=WEEK", "?from=2026-10-07&to=2026-10-27&granularity=WEEK&includeMigrated=false"]);
+  });
+
+  it("should carry api's refusal of a range as a validation error on the field at fault", async () => {
+    // Act
+    const result = await getMiCompletion({ from: "2026-10-27", to: "2026-10-07", granularity: "MONTH" }, asTeamLeader());
+
+    // Assert
+    expect(result).toMatchObject({
+      ok: false,
+      error: { kind: "validation", status: 400, fieldErrors: [{ field: "to", message: "The last day of the range cannot be before the first." }] }
+    });
+  });
+
+  it("should classify a caseworker's read as forbidden", async () => {
+    // Act
+    const result = await getMiVolume(QUERY, { ...config, accessToken: roleToken("cw-1", ["caseworker-deedpoll"]) });
+
+    // Assert
+    expect(result).toMatchObject({ ok: false, error: { kind: "forbidden", status: 403 } });
   });
 });
 
