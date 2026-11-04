@@ -2353,10 +2353,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/govuk-frontend@npm:6.0.0":
-  version: 6.0.0
-  resolution: "@types/govuk-frontend@npm:6.0.0"
-  checksum: 10c0/b373261ec3939d7b3569ea966f19ad0cd0f7766479e25e108d7e750ecd37afea17cbfa288edba2db1ccb564662188086af76ceeb27c6bdf3bf7bc9121d5711bf
+"@types/govuk-frontend@npm:6.6.0":
+  version: 6.6.0
+  resolution: "@types/govuk-frontend@npm:6.6.0"
+  checksum: 10c0/27d866c15fe51795761aa7382f35401c37f7bdc05b5db33b6dabd8d71e1bc0bfeae9f8325433dd5fff1e51b5fbf740f5221a04bc844c1234ca94480964418352
   languageName: node
   linkType: hard
 
@@ -3353,7 +3353,7 @@ __metadata:
     "@types/cookie-parser": "npm:1.4.10"
     "@types/express": "npm:5.0.6"
     "@types/express-session": "npm:1.19.0"
-    "@types/govuk-frontend": "npm:6.0.0"
+    "@types/govuk-frontend": "npm:6.6.0"
     "@types/multer": "npm:2.3.0"
     "@types/node": "npm:24.19.2"
     "@types/nunjucks": "npm:3.2.6"
