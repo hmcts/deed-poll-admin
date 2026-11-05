@@ -1,8 +1,11 @@
-import { createDeedPoll, InvalidInputError, NotFoundError } from "@hmcts/deed-poll";
+import { ConflictError, createDeedPoll, InvalidInputError, NotFoundError } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { GET, POST } from "./new.js";
+
+const { caseCreationEnabled } = vi.hoisted(() => ({ caseCreationEnabled: vi.fn(() => true) }));
+vi.mock("../../case-creation.js", () => ({ caseCreationEnabled }));
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
@@ -27,6 +30,44 @@ const response = pageResponse;
 describe("new deed poll page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe("when case creation is off, as in prod until the later migration phases", () => {
+    it("should render the sentence instead of the form on GET", () => {
+      caseCreationEnabled.mockReturnValueOnce(false);
+      const res = response();
+
+      GET(request(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.creationDisabled).toBe(true);
+      expect(model.typeOptions).toBeUndefined();
+      expect(model.en.creationOff).toBe("New cases cannot be created in this service yet. Create the case in the existing system.");
+    });
+
+    it("should refuse a POST with 409 and the sentence, without asking api", async () => {
+      caseCreationEnabled.mockReturnValueOnce(false);
+      const res = response();
+
+      await POST(request({ type: "Adult", "dateReceived-day": "1", "dateReceived-month": "7", "dateReceived-year": "2026" }), res);
+
+      expect(createDeedPoll).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.render.mock.calls[0][1].creationDisabled).toBe(true);
+    });
+
+    it("should render the same sentence when api refuses the create with 409, though this app still offers it", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.mocked(createDeedPoll).mockRejectedValue(new ConflictError("New cases cannot be created in this service yet."));
+      const res = response();
+
+      await POST(request({ type: "Adult", "dateReceived-day": "1", "dateReceived-month": "7", "dateReceived-year": "2026" }), res);
+
+      expect(createDeedPoll).toHaveBeenCalledOnce();
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.render.mock.calls[0][1].creationDisabled).toBe(true);
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
   });
 
   describe("GET", () => {

@@ -10,8 +10,13 @@
  * on the Application tab. `dateReceived` is the one that cannot be deferred, because api
  * derives the reference number's year from it — a create without it comes back as a 400 attributed to
  * that field, which is why the field is on this form at all rather than left to the Application tab.
+ *
+ * Off in prod until the later migration phases (`caseCreationEnabled`, `src/case-creation.ts`): both verbs then
+ * render a sentence instead of the form and call nothing. api refuses the create there too, with a 409, and that
+ * refusal is the control, so a 409 from api renders the same sentence in case the two settings disagree.
  */
 import {
+  ConflictError,
   collectDateErrors,
   composeDateParts,
   createDeedPoll,
@@ -22,6 +27,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../auth/current-user.js";
+import { caseCreationEnabled } from "../../case-creation.js";
 import { casePath } from "../../case-path.js";
 import { forLog } from "../../for-log.js";
 
@@ -38,7 +44,10 @@ const en = {
   errorSummaryTitle: "There is a problem",
   // Shown when api refuses the create without naming a field — see the same constant on the edit tab.
   // api's own wording is developer-facing and `.claude/rules/backend.md` keeps it away from caseworkers.
-  createRefused: "The case could not be created. Check the details and try again."
+  createRefused: "The case could not be created. Check the details and try again.",
+  // This app's own sentence for creation being off, here or at api; api's prose never reaches a caseworker.
+  creationOff: "New cases cannot be created in this service yet. Create the case in the existing system.",
+  backToCases: "Back to cases"
 };
 
 // English content in the cy shape — see the note in index.ts.
@@ -47,10 +56,12 @@ const cy = { ...en };
 const typeOptions = [{ value: "", text: en.typeEmpty }, ...Object.entries(DEED_POLL_TYPE_LABEL).map(([value, text]) => ({ value, text }))];
 
 export const GET = (_req: Request, res: Response) => {
+  if (!caseCreationEnabled()) return res.render("deed-polls/new", { creationDisabled: true, en, cy });
   res.render("deed-polls/new", { values: {}, typeOptions, en, cy });
 };
 
 export const POST = async (req: Request, res: Response) => {
+  if (!caseCreationEnabled()) return creationOff(res);
   const body = req.body as Record<string, string>;
 
   // Before composing, because `composeDateParts` rolls an impossible date over rather than refusing it:
@@ -105,6 +116,11 @@ export const POST = async (req: Request, res: Response) => {
       // no `href` because there is no input to link to.
       return rerender(req, res, summaryFor(error));
     }
+    // api refuses every create while creation is off there; nothing was written, so the form has nothing to keep.
+    if (error instanceof ConflictError) {
+      console.warn(`case create refused by api as switched off: ${forLog(error.message)}`);
+      return creationOff(res);
+    }
     throw error;
   }
 };
@@ -128,6 +144,10 @@ function trimmedOrAbsent(value: unknown): unknown {
  */
 function rerender(req: Request, res: Response, errorSummary: { text: string; href?: string }[]) {
   res.status(400).render("deed-polls/new", { values: req.body, typeOptions, errorSummary, en, cy });
+}
+
+function creationOff(res: Response) {
+  res.status(409).render("deed-polls/new", { creationDisabled: true, en, cy });
 }
 
 function summaryFor(error: InvalidInputError): { text: string; href?: string }[] {
