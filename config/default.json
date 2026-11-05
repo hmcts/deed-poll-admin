@@ -1,6 +1,9 @@
 {
   "port": 3000,
   "environmentName": "",
+  "caseCreation": {
+    "enabled": true
+  },
   "personaSwitcher": {
     "enabled": false,
     "password": "Pa55word11",

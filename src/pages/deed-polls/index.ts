@@ -67,6 +67,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
+import { caseCreationEnabled } from "../../case-creation.js";
 import { casePath } from "../../case-path.js";
 import { forLog } from "../../for-log.js";
 import { REFERRAL_QUEUE_PATH } from "../../referral-queue/paths.js";
@@ -438,6 +439,8 @@ function render(
 
   res.render("deed-polls/index", {
     cases,
+    // Off in prod until the later migration phases; see src/case-creation.ts.
+    showNewCase: caseCreationEnabled(),
     showSettings,
     // The referral queue's link, from the session's capability as the settings link is (plan Fa1).
     showReferrals,

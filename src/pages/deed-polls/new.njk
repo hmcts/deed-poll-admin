@@ -15,6 +15,10 @@
 
     <h1 class="govuk-heading-xl">{{ heading }}</h1>
 
+    {% if creationDisabled %}
+      <p class="govuk-body">{{ creationOff }}</p>
+      <p class="govuk-body"><a class="govuk-link" href="/deed-polls">{{ backToCases }}</a></p>
+    {% else %}
     <form method="post" action="/deed-polls/new" novalidate>
       {{ govukSelect({
         id: "type",
@@ -53,6 +57,7 @@
 
       {{ govukButton({ text: submit }) }}
     </form>
+    {% endif %}
 
   </div>
 </div>

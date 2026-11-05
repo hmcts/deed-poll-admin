@@ -1,6 +1,12 @@
 {
   "port": "PORT",
   "environmentName": "ENVIRONMENT_NAME",
+  "caseCreation": {
+    "enabled": {
+      "__name": "CASE_CREATION_ENABLED",
+      "__format": "json"
+    }
+  },
   "personaSwitcher": {
     "enabled": {
       "__name": "PERSONA_SWITCHER_ENABLED",

@@ -30,6 +30,9 @@ import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { addPathFilters } from "../../path-filters.js";
 import { GET } from "./index.js";
 
+const { caseCreationEnabled } = vi.hoisted(() => ({ caseCreationEnabled: vi.fn(() => true) }));
+vi.mock("../../case-creation.js", () => ({ caseCreationEnabled }));
+
 vi.mock("@hmcts/deed-poll", async (importOriginal) => {
   const original = await importOriginal<typeof import("@hmcts/deed-poll")>();
   return {
@@ -97,6 +100,21 @@ describe("deed-polls list template", () => {
     vi.mocked(countWaitingForAssignment).mockResolvedValue(0);
     vi.mocked(countAwaitingConfirmation).mockResolvedValue(0);
     vi.mocked(countGazetteReadyCases).mockResolvedValue(0);
+  });
+
+  it("should offer the New case button while case creation is on", async () => {
+    const markup = await render();
+
+    expect(markup).toContain('href="/deed-polls/new"');
+  });
+
+  it("should offer no New case button while case creation is off, as in prod until the later migration phases", async () => {
+    caseCreationEnabled.mockReturnValueOnce(false);
+
+    const markup = await render();
+
+    expect(markup).not.toContain('href="/deed-polls/new"');
+    expect(markup).not.toContain(">New case<");
   });
 
   it("should hide the Gazette area from non-admins", async () => {

@@ -360,10 +360,20 @@ describe("charts/deed-poll-admin", () => {
   });
 
   // Flux reconciles on the chart version, so a values.yaml change without a bump never deploys.
-  it("should carry the chart version that ships XUI_STAFF_ADMIN_URL", () => {
+  it("should carry the chart version that ships CASE_CREATION_ENABLED", () => {
     const chart = yamlLoad(readFileSync(path.join(CHART_DIR, "Chart.yaml"), "utf8")) as { version: string };
 
-    expect(chart.version).toBe("0.0.5");
+    expect(chart.version).toBe("0.0.6");
+  });
+
+  it("should turn case creation off in prod only, and map it to caseCreation.enabled defaulting on", () => {
+    const defaults = (JSON.parse(readFileSync(path.join(APP_DIR, "../config/default.json"), "utf8")) as { caseCreation: { enabled: unknown } }).caseCreation;
+
+    expect(readValues("values.yaml").nodejs.environment?.CASE_CREATION_ENABLED).toBe(
+      "{{ if eq .Values.global.environment `prod` }}false{{ else }}true{{ end }}"
+    );
+    expect(readMapping().caseCreation?.enabled).toEqual({ __name: "CASE_CREATION_ENABLED", __format: "json" });
+    expect(defaults.enabled).toBe(true);
   });
 
   it("should map XUI_STAFF_ADMIN_URL to the staff link, defaulting locally to AAT's XUI and never production's", () => {
@@ -490,4 +500,5 @@ interface EnvironmentMapping {
   session?: { idleTimeoutSeconds?: unknown; absoluteTimeoutSeconds?: unknown; timeoutLogoutPathRegistered?: unknown };
   rateLimit?: { mode?: unknown; buckets?: Record<string, unknown>; uploadInFlight?: unknown };
   externalLinks?: { xuiStaffAdmin?: unknown };
+  caseCreation?: { enabled?: unknown };
 }
