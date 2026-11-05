@@ -10,14 +10,19 @@
   <div class="govuk-grid-column-two-thirds">
     <h1 class="govuk-heading-l">You cannot access this page</h1>
 
-    {% if reason %}
-      <p class="govuk-body">{{ reason }}</p>
-    {% endif %}
+    {% if refusal == "no-access" %}
+      {# Signing in again cannot help someone api gives no area to, so they are not told to. #}
+      <p class="govuk-body">{{ staffAccess.noAccess }}</p>
+    {% else %}
+      {% if reason %}
+        <p class="govuk-body">{{ reason }}</p>
+      {% endif %}
 
-    <p class="govuk-body">
-      You may need to <a class="govuk-link" href="/login">sign in</a> again, or ask for the right
-      permissions if you have already signed in.
-    </p>
+      <p class="govuk-body">
+        You may need to <a class="govuk-link" href="/login">sign in</a> again, or ask for the right
+        permissions if you have already signed in.
+      </p>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

@@ -48,7 +48,7 @@ export type SecurityEventName =
   | "authz.denied"
   | "csrf.refused";
 
-export type LoginFailedReason = "idam_error" | "exchange_failed";
+export type LoginFailedReason = "idam_error" | "exchange_failed" | "no_access" | "access_unavailable";
 
 export type SessionEndedReason =
   | "no_refresh_token"

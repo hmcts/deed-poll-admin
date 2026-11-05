@@ -458,6 +458,14 @@ describe("completeLogin", () => {
     expect(user).toMatchObject({ staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY, ACCESS_GAZETTE], isAdmin: true });
   });
 
+  it("should mark an answer of no access as answered, so the callback refuses rather than asking again", async () => {
+    vi.mocked(findCallerAccess).mockResolvedValue({ staff: false, judicial: false, capabilities: [] });
+
+    const { accessAnswered } = await completeLogin(config, flow, currentUrl);
+
+    expect(accessAnswered).toBe(true);
+  });
+
   it("grants nothing from the roles userinfo or the ID token asserts, because access is api's answer", async () => {
     vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "team-leader@example.com", roles: [DEEDPOLL_TEAM_LEADER] }, 900));
     vi.mocked(findCallerAccess).mockResolvedValue({ staff: false, judicial: false, capabilities: [] });
@@ -468,7 +476,7 @@ describe("completeLogin", () => {
     expect(user).not.toHaveProperty("roles");
   });
 
-  it("should still sign in, with no access and one warning naming neither token nor subject, when /me fails", async () => {
+  it("should return no access marked unanswered, and one warning naming neither token nor subject, when /me fails", async () => {
     vi.mocked(findCallerAccess).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): fetch failed"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
@@ -476,6 +484,7 @@ describe("completeLogin", () => {
 
     expect(result.user).toMatchObject({ name: "A Team leader", staff: false, judicial: false, capabilities: [], isAdmin: false, isJudicial: false });
     expect(result.subject).toBe("team-leader@example.com");
+    expect(result.accessAnswered).toBe(false);
     expect(warn).toHaveBeenCalledTimes(1);
     const logged = JSON.stringify(warn.mock.calls);
     expect(logged).toContain("sign-in");
