@@ -7,15 +7,17 @@
  */
 import { CAPABILITY, type WireCallerAccess } from "../api/wire.js";
 
-// api F1 grants `ALLOCATE_REFERRALS` with the Team leader's set, so the legacy admin and the Delivery Manager hold it too.
-const TEAM_LEADER: readonly Capability[] = ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD", "ALLOCATE_REFERRALS"];
+// api F1 grants `ALLOCATE_REFERRALS` with the legacy admin's set, so the Team leader and the Delivery Manager hold it too.
+const LEGACY_ADMIN: readonly Capability[] = ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD", "ALLOCATE_REFERRALS"];
+// api's Team leader is the legacy admin plus management information, which the Delivery Manager inherits.
+const TEAM_LEADER: readonly Capability[] = [...LEGACY_ADMIN, "VIEW_MANAGEMENT_INFORMATION"];
 
 export const ROLE_ACCESS: Readonly<Record<string, RoleAccess>> = {
   "caseworker-deedpoll": { area: "staff", capabilities: [] },
   "caseworker-deedpoll-team-leader": { area: "staff", capabilities: TEAM_LEADER },
   "caseworker-deedpoll-delivery-manager": { area: "staff", capabilities: [...TEAM_LEADER, "ACCESS_GAZETTE", "MANAGE_PROCESS_CONFIG"] },
-  // Migration-only at api: Team leader's grants, never the Gazette.
-  "caseworker-deedpoll-admin": { area: "staff", capabilities: TEAM_LEADER },
+  // Migration-only at api: the casework grants and the queue, never the Gazette or management information.
+  "caseworker-deedpoll-admin": { area: "staff", capabilities: LEGACY_ADMIN },
   "caseworker-deedpoll-judicial": { area: "judicial", capabilities: [] }
 };
 

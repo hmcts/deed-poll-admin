@@ -129,6 +129,16 @@ describe("deed-polls list template", () => {
     expect(markup).not.toContain(">Referrals</a>");
   });
 
+  it("should link a holder of VIEW_MANAGEMENT_INFORMATION to the management information page", async () => {
+    const markup = await render({}, true);
+    expect(markup).toContain('<a class="govuk-link" href="/deed-polls/management-information">Management information</a>');
+  });
+
+  it("should not link a caseworker to the management information page", async () => {
+    const markup = await render();
+    expect(markup).not.toContain("/deed-polls/management-information");
+  });
+
   it("should not link anyone else to the service settings page", async () => {
     const markup = await render();
     expect(markup).not.toContain("/deed-polls/settings");

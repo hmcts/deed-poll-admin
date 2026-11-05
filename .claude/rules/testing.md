@@ -97,6 +97,10 @@ wins instead: every conditional the handler owns renders unconditionally in the 
 correctly in the app, so the test passes and pins nothing. All eleven template tests use the order above;
 a new one that does not will mislead the first time its handler resolves a string named like its `en` key.
 
+A template test may also run axe-core over the rendered page in jsdom, as the management information
+`index.njk.test.ts` does. Disable `color-contrast`, because jsdom has no layout. It supplements the Playwright
+axe checks in `e2e-tests/`; it does not replace them.
+
 ## Test Naming Conventions
 
 - Use descriptive names that explain the behavior being tested

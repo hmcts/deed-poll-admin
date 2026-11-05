@@ -1,7 +1,7 @@
 /**
  * Both directions, because a gate tested only for who it admits is a gate that may admit everyone.
  */
-import { ACCESS_GAZETTE, ForbiddenError, MANAGE_PROCESS_CONFIG } from "@hmcts/deed-poll";
+import { ACCESS_GAZETTE, ForbiddenError, MANAGE_PROCESS_CONFIG, VIEW_MANAGEMENT_INFORMATION } from "@hmcts/deed-poll";
 import type { NextFunction } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
@@ -204,6 +204,33 @@ describe("Service settings area access", () => {
     requireAuth()(req, res, gate);
     expect(res.redirect).toHaveBeenCalledWith(`/login?returnTo=${encodeURIComponent(url)}`);
     expect(gate).not.toHaveBeenCalled();
+  });
+});
+
+describe("Management information area access", () => {
+  const paths = ["/deed-polls/management-information", "/deed-polls/management-information/volume.csv"];
+  it.each(["legacyAdmin", "caseworker", "judge", "none"] as const)("should refuse the page and every CSV to %s before any API call", (persona) => {
+    for (const path of paths) {
+      const req = pageRequest({ persona, originalUrl: path });
+      Object.assign(req, { method: "GET", path });
+      const res = pageResponse();
+      const next = vi.fn();
+      requireCapability(VIEW_MANAGEMENT_INFORMATION)(req, res, next);
+      expect(next).toHaveBeenCalledExactlyOnceWith(expect.any(ForbiddenError));
+      expect(res.render).not.toHaveBeenCalled();
+    }
+  });
+  it.each(["teamLeader", "deliveryManager"] as const)("should admit %s", (persona) => {
+    const next = vi.fn();
+    requireCapability(VIEW_MANAGEMENT_INFORMATION)(pageRequest({ persona }), pageResponse(), next);
+    expect(next).toHaveBeenCalledExactlyOnceWith();
+  });
+  it("should mark its refusal as the role gate's and name the capability it wanted", () => {
+    const next = vi.fn();
+    requireCapability(VIEW_MANAGEMENT_INFORMATION)(pageRequest({ persona: "caseworker" }), pageResponse(), next);
+    const error = next.mock.calls[0][0] as ForbiddenError;
+    expect(error.reason).toBe("role");
+    expect(error.requiredCapability).toBe(VIEW_MANAGEMENT_INFORMATION);
   });
 });
 

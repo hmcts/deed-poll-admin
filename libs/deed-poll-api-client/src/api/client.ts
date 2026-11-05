@@ -18,6 +18,8 @@ import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import type { z } from "zod";
 import { assertApiBaseUrl } from "./transport.js";
 import {
+  type MI_GRANULARITY,
+  type MI_STAGE_INTERVAL,
   WIRE_SCHEMAS,
   type WireBankHoliday,
   type WireBankHolidayCreate,
@@ -56,6 +58,10 @@ import {
   type WireMasterCreate,
   type WireMasterList,
   type WireMasterUpdate,
+  type WireMiCompletion,
+  type WireMiReferralOutcomes,
+  type WireMiStageDurations,
+  type WireMiVolume,
   type WireNote,
   type WirePreviewGazette,
   type WireProcessSettings,
@@ -281,6 +287,28 @@ export function updateGazetteSettings(input: UpdateGazetteSettings, config: ApiC
     recipientEmail: input.recipientEmail,
     revision: input.revision
   });
+}
+
+/**
+ * Management information (api plan 20261103-mi-dashboard), `VIEW_MANAGEMENT_INFORMATION` only (Team leaders and
+ * Delivery Managers): four aggregate reads over the same parameters. api checks the capability before any parameter,
+ * then answers `validation` naming every parameter at fault (`from`, `to`, `granularity`, `includeMigrated`). Every
+ * period of the range is reported, empty ones included, so nothing here fills gaps or computes a figure.
+ */
+export function getMiVolume(query: ManagementInformationQuery, config: ApiConfig): Promise<ApiResult<MiVolume>> {
+  return request(config, "GET", miPath("volume", query), WIRE_SCHEMAS.MiVolumeResponse);
+}
+
+export function getMiStageDurations(query: ManagementInformationQuery, config: ApiConfig): Promise<ApiResult<MiStageDurations>> {
+  return request(config, "GET", miPath("stage-durations", query), WIRE_SCHEMAS.MiStageDurationsResponse);
+}
+
+export function getMiReferralOutcomes(query: ManagementInformationQuery, config: ApiConfig): Promise<ApiResult<MiReferralOutcomes>> {
+  return request(config, "GET", miPath("referral-outcomes", query), WIRE_SCHEMAS.MiReferralOutcomesResponse);
+}
+
+export function getMiCompletion(query: ManagementInformationQuery, config: ApiConfig): Promise<ApiResult<MiCompletion>> {
+  return request(config, "GET", miPath("completion", query), WIRE_SCHEMAS.MiCompletionResponse);
 }
 
 /** Delivery Manager only (`MANAGE_PROCESS_CONFIG`). Revision 0 and null attribution mean never changed. */
@@ -1095,6 +1123,14 @@ export async function checkApiReachable(config: ApiConfig): Promise<ApiResult<vo
   return requestNoContent(config, "GET", "/health/liveness");
 }
 
+/** `includeMigrated` is sent only when the caller set it, so api's own default (true) applies otherwise. */
+function miPath(kpi: string, query: ManagementInformationQuery): string {
+  const parameters = new URLSearchParams({ from: query.from, to: query.to, granularity: query.granularity });
+  if (query.includeMigrated !== undefined) parameters.set("includeMigrated", String(query.includeMigrated));
+
+  return `/caseworker/management-information/${kpi}?${parameters.toString()}`;
+}
+
 function notePath(caseId: string, noteId: string): string {
   return `/caseworker/cases/${encodeURIComponent(caseId)}/notes/${encodeURIComponent(noteId)}`;
 }
@@ -1842,9 +1878,34 @@ export type MasterCreate = WireMasterCreate;
 export type MasterUpdate = WireMasterUpdate;
 export type BankHoliday = WireBankHoliday;
 export type BankHolidayCreate = WireBankHolidayCreate;
+export type MiVolume = WireMiVolume;
+export type MiStageDurations = WireMiStageDurations;
+export type MiReferralOutcomes = WireMiReferralOutcomes;
+export type MiCompletion = WireMiCompletion;
+export type MiGranularity = (typeof MI_GRANULARITY)[number];
+export type MiStageInterval = (typeof MI_STAGE_INTERVAL)[number];
+/**
+ * One management-information request: an inclusive `yyyy-MM-dd` range and a granularity, both required, and whether
+ * migrated cases count (omitted is api's default, true). The rules on them (to not before from, at most two years
+ * apart) are api's, which answers `validation` on the field at fault.
+ */
+export interface ManagementInformationQuery {
+  from: string;
+  to: string;
+  granularity: MiGranularity;
+  includeMigrated?: boolean;
+}
 
 export { GAZETTE_RECIPIENT_EMAIL_PATTERN, validateGazetteRecipientEmail } from "./gazette-recipient-email.js";
-export { BANK_HOLIDAY_LIMITS, MASTER_LIMITS, PROCESS_SETTINGS_LIMITS, REFERRAL_SEND_LIMITS, WINDOW_TIME_PATTERN } from "./wire.js";
+export {
+  BANK_HOLIDAY_LIMITS,
+  MASTER_LIMITS,
+  MI_GRANULARITY,
+  MI_STAGE_INTERVAL,
+  PROCESS_SETTINGS_LIMITS,
+  REFERRAL_SEND_LIMITS,
+  WINDOW_TIME_PATTERN
+} from "./wire.js";
 
 export type GazettePreview = WireGazettePreview;
 export type GazetteStatus = WireGazetteStatus;

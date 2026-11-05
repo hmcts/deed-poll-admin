@@ -411,13 +411,13 @@ The judicial gate still requires `judicial` in the `/me` answer.
 
 api owns the capability matrix (`RoleCapabilities.java`); the mock mirrors it, and admin holds no copy:
 
-| Role | Privacy override, note/witness deletion, shared-query management, CCD repair | Send referrals | Gazette | Process settings | Judicial |
-|---|---|---|---|---|---|
-| `caseworker-deedpoll` | No | No | No | No | No |
-| `caseworker-deedpoll-team-leader` | Yes | Yes | No | No | No |
-| `caseworker-deedpoll-delivery-manager` | Yes | Yes | Yes | Yes | No |
-| `caseworker-deedpoll-admin` (temporary compatibility) | Yes | Yes | No | No | No |
-| `caseworker-deedpoll-judicial` | No | No | No | No | Yes |
+| Role | Privacy override, note/witness deletion, shared-query management, CCD repair | Send referrals | Management information | Gazette | Process settings | Judicial |
+|---|---|---|---|---|---|---|
+| `caseworker-deedpoll` | No | No | No | No | No | No |
+| `caseworker-deedpoll-team-leader` | Yes | Yes | Yes | No | No | No |
+| `caseworker-deedpoll-delivery-manager` | Yes | Yes | Yes | Yes | Yes | No |
+| `caseworker-deedpoll-admin` (temporary compatibility) | Yes | Yes | No | No | No | No |
+| `caseworker-deedpoll-judicial` | No | No | No | No | No | Yes |
 
 `can(user, capability)` is the UI policy entry point (`libs/deed-poll/src/auth/capabilities.ts`); `staffAccess(user)`
 gives `{ staff, judicial }` for the future staff block, which this app does not yet enforce. CCD repair has no
@@ -855,6 +855,43 @@ files:
   (`linkIfListed`, api's `MasterLinking`), and an email change unlinks. Saving sends no email.
 - **The page's Welsh is pending.** `src/service-settings` is on the extractor's `INCLUDE`; the new copy's `cy` mirrors
   its `en`, so it adds to `yarn welsh:check`'s identical count.
+
+## Management information
+
+`/deed-polls/management-information` shows api's four aggregate KPIs (volume, stage durations, referral outcomes,
+time to completion) for a chosen period (plan `docs/plans/completed/20261103-mi-dashboard-page.md`; the KPI definitions are
+api's). **Deploy order:** api #165/#166 on every replica first. Facts that span several files:
+
+- **The area is gated once, on `VIEW_MANAGEMENT_INFORMATION`** (Team leaders and Delivery Managers; not the legacy
+  admin role). `src/app.ts` mounts `requireCapability(VIEW_MANAGEMENT_INFORMATION)` on the prefix after `requireAuth`,
+  so the page and its four CSV routes share it, and `src/app.test.ts` reads the directory off the filesystem. The case
+  list's link is drawn from the session's capability alone.
+- **The filters are one GET form, parsed by `parseMiFilters`** (`libs/deed-poll/src/management-information/filters.ts`):
+  a preset (7, 30, 60, 90 days or the last year, in London) or custom `from`/`to`, a granularity (weekly up to 90 days,
+  monthly beyond, unless chosen) and include-migrated (absent means Yes). The default is the last 30 days, weekly.
+  This app's errors and api's 400 render against the form in api's words. The four reads run concurrently and each
+  section degrades on its own.
+- **Table first, and no number is computed here.** `libs/deed-poll/src/management-information/tables.ts` holds word-free rows of api's figures, from which the
+  page's tables, its charts and the CSVs are all drawn, so the three cannot disagree. Every percentile sits beside its
+  case count; a bucket with no cases reads "No cases", is a gap in the chart and an empty CSV cell, never zero.
+- **The charts add nothing the table lacks, and use no library.** `src/management-information/chart-geometry.ts`
+  computes the scales and points, and the Nunjucks macro `src/pages/deed-polls/management-information/line-chart.njk` draws an inline `<svg role="img">` with a
+  title, a visible one-sentence summary, a marker shape and a direct label per line (at most four). Nothing is added to
+  the bundle or the CSP, and the page needs no JavaScript.
+- **The handlers live outside `src/pages`**, because every `.ts` there is a route: the page is
+  `src/management-information/page.ts`, and each `src/pages/deed-polls/management-information/<kpi>.csv.ts` only calls
+  `downloadManagementInformation` (`src/management-information/download.ts`). The download link carries no `download`
+  attribute, so a refused or failed read shows its page rather than saving it as a file. A 429 from any read is the 429
+  page, not a degraded section.
+- **The CSV guard.** `toCsv` (`src/management-information/csv.ts`) writes a UTF-8 BOM, CRLF and RFC 4180 quoting, and
+  prefixes `'` to any text cell starting with `=`, `+`, `-`, `@`, tab or CR (formula injection); numbers are left
+  alone. Downloads are `deed-poll-mi-<kpi>-<from>-<to>.csv` with `Cache-Control: no-store`, and each page link carries
+  the **resolved** range rather than the preset, so a download after midnight holds the rows the page showed. A failed
+  read is the error page, never a partial file.
+- **The mock's figures are fixed, not computed from its cases** (`libs/deed-poll-api-client/src/mock/management-information.ts`):
+  the second period is always empty and the third holds one case, so every edge a page must draw turns up. It is
+  read-only, so `e2e-tests/tests/management-information.spec.ts` stays in `yarn test:e2e`.
+- **Welsh is pending**: `src/management-information` is on the extractor's `INCLUDE`, and its `cy` mirrors `en`.
 
 ## Redirect paths
 
