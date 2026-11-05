@@ -398,7 +398,9 @@ describe("management information page", () => {
     });
   });
 
-  describe("accessibility", () => {
+  // axe-core over jsdom takes about half a second here but 6–7 s in Jenkins' coverage stage, which runs every package
+  // at once with v8 instrumentation (PR-391 build 1), past vitest's 5 s default.
+  describe("accessibility", { timeout: 30_000 }, () => {
     it("should have no axe violations with the charts and tables drawn", async () => {
       expect(await axeViolations(await render())).toEqual([]);
     });
