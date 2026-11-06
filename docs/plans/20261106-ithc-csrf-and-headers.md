@@ -82,7 +82,10 @@ REDIS_URL=redis://127.0.0.1:6379 yarn turbo test test:app --concurrency=1 --forc
 ```
 
 If Redis is not up on 127.0.0.1:6379, run `docker start deed-poll-redis` first. Never drop `REDIS_URL` to make the tests
-pass. Never quote bare `yarn test`. **Baseline:** record it on the execution commit before Task 1. It must be green.
+pass. Never quote bare `yarn test`. **Baseline (2026-11-06, admin `845e1a5`, local Redis on 6379):** format, lint and `build --force` clean; tests
+**7,231 passed, 0 failed, 0 skipped**: `//:test:app` 3,478, `@hmcts/deed-poll` 1,779, `@hmcts/deed-poll-api-client` 1,549,
+`cloud-native-platform` 156, `express-govuk-starter` 132, `express-session-postgres` 85, `simple-router` 45,
+`express-session-redis` 7.
 
 ## Implementation Steps
 
@@ -154,4 +157,6 @@ Then ask Cyberfort to retest CSRF and the two headers.
 ## Execution notes
 
 - 2026-11-06: plan written from admin master `845e1a5` (cft-workspace-11). Launch with
-  `ralphex -b origin/master docs/plans/20261106-ithc-csrf-and-headers.md`, then `ralphex -r` on the completed plan.
+  `ralphex -t -b origin/master docs/plans/20261106-ithc-csrf-and-headers.md` (tasks only). **Steve, 2026-11-06: the
+  external review runs only after the build has completed**, so the full Validation Commands are run and green
+  before `ralphex -r -b origin/master docs/plans/completed/20261106-ithc-csrf-and-headers.md`.
