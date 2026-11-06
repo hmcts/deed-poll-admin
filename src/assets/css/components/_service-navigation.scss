@@ -1,6 +1,6 @@
 /*
  * Sign-out in the service navigation is a POST, so a `<button>` inside a form (plan
- * `docs/plans/20261106-ithc-csrf-and-headers.md`, D4). It carries `govuk-service-navigation__link` for the link's
+ * `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D4). It carries `govuk-service-navigation__link` for the link's
  * focus, hover and underline rules. Those colour only `:link` and `:visited`, which a button never matches, so the
  * colour is set here, and what a button adds on top is stripped.
  */

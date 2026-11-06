@@ -383,7 +383,8 @@ single file:
   `size: 100`, api's `CasePaging.MAX_SIZE`, because `JudicialPoolQuery` publishes no bound. Every judicial page,
   including the shared "no longer available" page, links back to My referrals.
 - **A new page area must be added to `scripts/extract-welsh-strings.mjs`'s `INCLUDE`.** The script's scope is a
-  list of directories, so a page area that is not on it contributes nothing to
+  list of directories, plus single root pages listed as files (`src/pages/logout.ts`, because `src/pages` itself holds
+  every other root page too), so a page area that is not on it contributes nothing to
   `.business_context/welsh-translation-request.csv` and nothing to `yarn welsh:check` — with no failure anywhere,
   because the pages still carry their `en`/`cy` pairs. `src/pages/judicial/**` shipped that way and was invisible
   to the translation request until the directory was added. The extractor parses with the
@@ -670,7 +671,7 @@ only — api keeps the audit trail of writes and reads, and this app must not du
   the gate as well, or it is counted twice. The one 403 outside it is `requireAuth`'s refusal of an unauthenticated non-GET request, which has no
   session subject to record and is deliberately not an event.
 - **A signed-in write with no fetch metadata is refused** (ITHC CSRF finding; plan
-  `docs/plans/20261106-ithc-csrf-and-headers.md`, D1/D2). `requireSameOrigin()` (`src/auth/same-origin.ts`, mounted
+  `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D1/D2). `requireSameOrigin()` (`src/auth/same-origin.ts`, mounted
   after the session and before `requireAuth`) refuses a state-changing request from a session `sessionUser(req)` reads
   as signed in when it carries no `Sec-Fetch-Site` **and** its `Origin` is absent or `"null"`, as `reason:
   "same-origin"` with `fetchSite: "absent"`, so `errors.ts` emits `csrf.refused` as for the other refusals. An anonymous

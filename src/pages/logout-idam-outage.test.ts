@@ -109,7 +109,7 @@ describe("logout while IDAM discovery fails", () => {
   });
 
   it("should sign nobody out, and ask IDAM nothing, on a GET of the same address", async () => {
-    // Plan `docs/plans/20261106-ithc-csrf-and-headers.md`, D3: only the POST signs out.
+    // Plan `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D3: only the POST signs out.
     const app = appWithSessionInCookie();
 
     const page = await request(app).get("/logout").set("Cookie", "signed-in=yes");

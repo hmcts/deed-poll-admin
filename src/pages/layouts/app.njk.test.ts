@@ -73,7 +73,7 @@ describe("the app layout", () => {
     ])("should offer a translated sign-out button ($label) that posts, without the development switcher", ({ content, label }) => {
       const html = environment.render(layout, content);
 
-      // A POST, never a link: a GET of /logout signs nobody out (plan `docs/plans/20261106-ithc-csrf-and-headers.md`, D4).
+      // A POST, never a link: a GET of /logout signs nobody out (plan `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D4).
       expect(html).not.toContain('href="/logout"');
       expect(html.match(/<form method="post" action="\/logout"/g)).toHaveLength(1);
       expect(html).toMatch(
@@ -184,7 +184,7 @@ describe("the app layout", () => {
 
     expect(html).toContain("app-persona-switcher");
     expect(html).toContain("IDAM will not issue a token for this client here.");
-    // The header's sign-out is the page's one form (plan `docs/plans/20261106-ithc-csrf-and-headers.md`, D4).
+    // The header's sign-out is the page's one form (plan `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D4).
     expect(html.match(/<form/g)).toEqual(["<form"]);
     expect(html).toContain('<form method="post" action="/logout"');
     expect(html).not.toContain("/switch-persona");

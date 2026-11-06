@@ -95,7 +95,7 @@ export async function createApp(): Promise<Express> {
   // CSP-bypass, to the policy. Adopting it later needs a real container, a nonce on its bootstrap and analytics consent.
   // Sign-out is a POST that redirects to IDAM's end-session page, and a browser applies `form-action` to every redirect a
   // form submission follows, so IDAM's origin is named there or the browser blocks the hop and stays on the page
-  // (plan `docs/plans/20261106-ithc-csrf-and-headers.md`, D3). The issuer's origin is where IDAM serves its end-session.
+  // (plan `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D3). The issuer's origin is where IDAM serves its end-session.
   app.use(configureHelmet({ enableGoogleTagManager: false, formActionSources: [new URL(idamSettings().issuerUrl).origin] }));
   app.use(permissionsPolicy());
   const sessionSecret = config.get<string>("session.secret");

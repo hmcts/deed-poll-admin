@@ -35,7 +35,7 @@
  * they fail differently.
  *
  * **A signed-in request carrying neither header is refused** (`fetchSite: "absent"`; the ITHC's CSRF finding,
- * `docs/plans/20261106-ithc-csrf-and-headers.md`). With no `Sec-Fetch-Site` and no named `Origin` (absent or
+ * `docs/plans/completed/20261106-ithc-csrf-and-headers.md`). With no `Sec-Fetch-Site` and no named `Origin` (absent or
  * `null`, which *because of the measurement above* says nothing either way) there is no evidence of where the write
  * came from, and a signed-in session's cookie is exactly what a forged write rides. Current browsers send
  * `Sec-Fetch-Site` (Chromium from 76, Firefox from 90, Safari from 16.4), so this app's own form post never arrives

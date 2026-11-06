@@ -1,5 +1,5 @@
 /**
- * The GET /logout page's markup (plan `docs/plans/20261106-ithc-csrf-and-headers.md`, D3): a bookmark or an external
+ * The GET /logout page's markup (plan `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D3): a bookmark or an external
  * link reaches one button that posts, so a GET can never sign anyone out.
  */
 import path from "node:path";

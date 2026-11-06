@@ -199,6 +199,12 @@ test("a write from a sibling service in the same environment is refused, which S
   });
 
   expect(forged.status()).toBe(403);
+
+  // A write carrying no fetch metadata at all is refused as well (plan
+  // `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D1/D2): a browser always sends `Sec-Fetch-Site`.
+  const bare = await page.request.post(SWITCH_PATH, { form: { persona: "judge" }, maxRedirects: 0 });
+  expect(bare.status()).toBe(403);
+
   // And the session is untouched: the refusal happens before the switch, not after it.
   await page.goto(CASE_LIST_PATH);
   await expect(currentPersona(page)).toHaveText("Caseworker (current)");

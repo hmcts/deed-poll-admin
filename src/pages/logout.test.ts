@@ -171,7 +171,7 @@ describe("signing out with POST /logout", () => {
 });
 
 describe("GET /logout", () => {
-  // ITHC finding (plan `docs/plans/20261106-ithc-csrf-and-headers.md`, D3): a GET is a state change any site could
+  // ITHC finding (plan `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D3): a GET is a state change any site could
   // trigger, so a bookmark or an external link reaches a page whose one button posts, and nothing else.
   beforeEach(() => {
     vi.clearAllMocks();

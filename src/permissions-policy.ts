@@ -1,5 +1,5 @@
 /**
- * A deny-all `Permissions-Policy` (ITHC finding; plan `docs/plans/20261106-ithc-csrf-and-headers.md`, D6).
+ * A deny-all `Permissions-Policy` (ITHC finding; plan `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D6).
  *
  * Admin's browser code uses none of these features, so each is refused to the page and to every frame in it. It is set
  * here rather than in `libs/express-govuk-starter`, which is template-provided, and mounted straight after

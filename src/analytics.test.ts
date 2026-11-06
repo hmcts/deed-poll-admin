@@ -71,7 +71,7 @@ describe("analytics", () => {
     expect(policy).not.toMatch(/googletagmanager\.com|google-analytics\.com/);
   });
 
-  describe("other security headers (ITHC, plan docs/plans/20261106-ithc-csrf-and-headers.md D6 and D7)", () => {
+  describe("other security headers (ITHC, plan docs/plans/completed/20261106-ithc-csrf-and-headers.md D6 and D7)", () => {
     it("should send the deny-all Permissions-Policy and no X-Frame-Options, leaving framing to the CSP", async () => {
       const app = await createApp();
 

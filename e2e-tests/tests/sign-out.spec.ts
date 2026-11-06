@@ -20,7 +20,7 @@ test("a caseworker can find sign-out and cannot reopen a protected page afterwar
   expect(accessibility.violations).toEqual([]);
 
   // A bookmarked or linked GET of /logout asks for the click and signs nobody out (plan
-  // `docs/plans/20261106-ithc-csrf-and-headers.md`, D3).
+  // `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D3).
   await page.goto("/logout");
   await expect(page.getByRole("heading", { name: "Sign out", level: 1 })).toBeVisible();
   await expect(page.getByRole("main").getByRole("button", { name: "Sign out", exact: true })).toBeVisible();

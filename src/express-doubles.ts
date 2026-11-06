@@ -235,10 +235,10 @@ export function pageResponse(): ResponseDouble {
 }
 
 /**
- * A rendered page without the header's sign-out form, which every layout draws (plan
- * `docs/plans/20261106-ithc-csrf-and-headers.md`, D4). For a template test that counts a page's own forms or buttons;
+ * A rendered page without its sign-out forms (the header's, which every layout draws, and the timeout dialog's) (plan
+ * `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D4). For a template test that counts a page's own forms or buttons;
  * `src/pages/layouts/app.njk.test.ts` pins the sign-out form itself.
  */
 export function withoutSignOutForm(html: string): string {
-  return html.replace(/<form method="post" action="\/logout"[^>]*>[\s\S]*?<\/form>/, "");
+  return html.replace(/<form method="post" action="\/logout"[^>]*>[\s\S]*?<\/form>/g, "");
 }

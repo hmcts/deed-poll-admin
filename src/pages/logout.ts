@@ -8,7 +8,7 @@
  * Either lands on `/signed-out`, never `/`: `/` sends an anonymous visitor straight to sign-in, and an IDAM session that
  * survived the outage would sign them back in (plan `docs/plans/completed/20261021-r04b-signed-out-page.md`).
  *
- * Only a `POST` signs out (ITHC finding, plan `docs/plans/20261106-ithc-csrf-and-headers.md`, D3): a `GET` is a state
+ * Only a `POST` signs out (ITHC finding, plan `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D3): a `GET` is a state
  * change any page on any site could trigger with an image. The `GET` keeps old bookmarks and external links working by
  * rendering one button that posts here, so the click is the user's own.
  */
