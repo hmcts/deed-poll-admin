@@ -150,14 +150,18 @@ pass. Never quote bare `yarn test`. **Baseline (2026-11-06, admin `845e1a5`, loc
 
 ### Task 4: Documentation and final verification
 
-- [ ] `CLAUDE.md`:
+- [x] `CLAUDE.md`:
   - in "Security events" / the CSRF paragraph, say that a signed-in request with no fetch metadata is refused
     (`fetchSite: "absent"`);
   - add a short "Sign-out is a POST" note to "Deployment and sessions";
   - add a "Starter edits" line listing `xFrameOptions: false`, the `formActionSources` option (Task 2) and the
     removed `_csrf`, so a re-scaffold doesn't undo them; and note that `form-action` names IDAM's issuer origin.
-- [ ] Full Validation Commands, forced; record counts against the baseline. `git status` clean apart from the task
+- [x] Full Validation Commands, forced; record counts against the baseline. `git status` clean apart from the task
       commits. Run `sign-out.spec.ts` and `session-timeout.spec.ts` once more on a private-port config.
+      (Done 2026-11-06: format, lint and `build --force` clean; with Redis on 6379, **7,258 passed, 0 failed, 0 skipped**
+      (baseline 7,231): `//:test:app` 3,501 (+23), `express-govuk-starter` 136 (+4), every other package unchanged.
+      `sign-out.spec.ts` 2/2 on a temporary 3321/3221 config (deleted afterwards); `session-timeout.spec.ts` via
+      `yarn test:session`, already on private ports 3317/3217: 2/2.)
 
 ## After merge (manual, NOT ralphex)
 
