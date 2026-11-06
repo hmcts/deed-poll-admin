@@ -91,18 +91,21 @@ pass. Never quote bare `yarn test`. **Baseline (2026-11-06, admin `845e1a5`, loc
 
 ### Task 1: CSRF — refuse a signed-in request with no fetch metadata
 
-- [ ] Failing tests first in `src/auth/same-origin.test.ts`:
+- [x] Failing tests first in `src/auth/same-origin.test.ts`:
   - signed in, with no `Sec-Fetch-Site` and no `Origin`, is refused with a `ForbiddenError` (`reason: "same-origin"`, `fetchSite: "absent"`);
   - signed in, with no `Sec-Fetch-Site` and `Origin: null`, is refused the same way;
   - anonymous (no `sessionUser`) in both cases is still allowed;
   - signed in with `Sec-Fetch-Site: same-origin`, or `none`, is allowed;
   - signed in with no `Sec-Fetch-Site` and a same-host `Origin` is allowed;
   - every existing case keeps its outcome.
-- [ ] Implement D1/D2 in `src/auth/same-origin.ts`, importing `sessionUser` from `./session.js`. Add `"absent"` to the
+- [x] Implement D1/D2 in `src/auth/same-origin.ts`, importing `sessionUser` from `./session.js`. Add `"absent"` to the
       bounded `fetchSite` type(s), and extend `src/errors.ts`'s tests so the refusal emits `csrf.refused` with
       `fetchSite: "absent"`.
-- [ ] Run the full app tests, and apply D8 to any test that now fails. Update the guard's docblock (the measurement
+- [x] Run the full app tests, and apply D8 to any test that now fails. Update the guard's docblock (the measurement
       table and the "neither header" paragraph) to say signed-in requests are refused.
+      (Done 2026-11-06: `//:test:app` 3,489 passed with Redis; no unit test needed D8. `fetchSite` is a plain `string`
+      in both types, so there was no union to extend. `e2e-tests/tests/gazette.spec.ts` posts twice through
+      `page.request` as a signed-in session, so both now send `sec-fetch-site: same-origin`. That suite is not run here.)
 
 ### Task 2: Sign-out is a POST
 

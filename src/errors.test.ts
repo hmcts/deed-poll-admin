@@ -136,6 +136,17 @@ describe("domainErrorHandler", () => {
       expect(vi.mocked(trackEvent).mock.calls).toEqual([["csrf.refused", { ...common, fetchSite: "same-site" }]]);
     });
 
+    it("should emit one csrf.refused recording an absent fetch site for a signed-in write with no fetch metadata", () => {
+      const error = new ForbiddenError("POST /deed-polls/gazette/batch with no fetch metadata from a signed-in session", {
+        reason: "same-origin",
+        fetchSite: "absent"
+      });
+
+      domainErrorHandler()(error, refusedRequest, pageResponse(), next);
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([["csrf.refused", { ...common, fetchSite: "absent" }]]);
+    });
+
     it("should record the origin's host for a cross-site write from a browser without fetch metadata", () => {
       const error = new ForbiddenError("POST /deed-polls/gazette/batch from cross-origin https://evil.example", {
         reason: "same-origin",

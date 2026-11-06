@@ -20,6 +20,9 @@
  *   | a form on another port, i.e. a sibling service | `null`                  | `same-site`      |
  *   | `fetch()` from that sibling's page             | `http://localhost:4102` | `same-site`      |
  *
+ * A request with neither header (a non-browser client, or a browser older than fetch metadata posting with
+ * `Origin: null`) is refused when signed in; see below.
+ *
  * The first two are the ones that matter: `Origin` is *identical* for a legitimate post and a forged one, so
  * an `Origin` gate either refuses every form in the service or admits every sibling. `Sec-Fetch-Site` tells
  * them apart, and no referrer policy or page-level opt-out changes it — it is a forbidden header name, so
@@ -31,20 +34,23 @@
  * later, which is the argument `requireAuth`'s global mount makes. If a token is added later this stays:
  * they fail differently.
  *
- * **A request carrying neither header is allowed, deliberately.** Browsers old enough to send no
- * `Sec-Fetch-Site` (Safari before 16.4, Firefox before 90) are covered only by the `Origin` fallback below,
- * and `Origin: null` cannot be read as evidence of forgery *because of the measurement above* — the same
- * value arrives from this app's own forms. What sends neither is a non-browser client, which this app has:
- * `e2e-tests/tests/judicial.spec.ts` posts to a claim route through Playwright's `APIRequestContext` to
- * prove a second claim is refused. Refusing that would answer a question about provenance with a lie, and a
- * client with no cookies is not the threat. Compare `requireAuth`, which does fail closed: an absent session
- * is unambiguous, and an absent `Sec-Fetch-Site` is not.
+ * **A signed-in request carrying neither header is refused** (`fetchSite: "absent"`; the ITHC's CSRF finding,
+ * `docs/plans/20261106-ithc-csrf-and-headers.md`). With no `Sec-Fetch-Site` and no named `Origin` (absent or
+ * `null`, which *because of the measurement above* says nothing either way) there is no evidence of where the write
+ * came from, and a signed-in session's cookie is exactly what a forged write rides. Current browsers send
+ * `Sec-Fetch-Site` (Chromium from 76, Firefox from 90, Safari from 16.4), so this app's own form post never arrives
+ * like this from one. The accepted cost: a browser older than that posting this app's own form sends `Origin: null`
+ * and is refused, though one sending a same-host `Origin` is still allowed by the fallback below.
+ * **An anonymous request in that state is allowed**: a client with no session has nothing to ride, and
+ * `requireAuth` already refuses an anonymous write outside the public paths. A test or tool that posts as a
+ * signed-in session must therefore send `Sec-Fetch-Site: same-origin`, as a browser does.
  *
  * Refuses with `next(new ForbiddenError(...))` and renders nothing, so the status and how much it discloses
  * both stay in the one mapping in `src/errors.ts` — the shape `./require-role.ts` uses.
  */
 import { type ForbiddenDetails, ForbiddenError } from "@hmcts/deed-poll";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
+import { sessionUser } from "./session.js";
 
 /**
  * The methods a cross-site page could use to change something here.
@@ -67,7 +73,7 @@ const PERMITTED_FETCH_SITES = new Set(["same-origin", "none"]);
 /**
  * The refused `Sec-Fetch-Site` values the specification defines, which are all the security event records verbatim.
  * A page cannot set the header but a script can, so anything else is recorded as `unrecognised` rather than as text
- * the sender chose.
+ * the sender chose, and a signed-in write carrying neither the header nor a named `Origin` as `absent`.
  */
 const REFUSED_FETCH_SITES = new Set(["same-site", "cross-site"]);
 
@@ -96,11 +102,14 @@ function crossSiteRefusal(req: Request): Refusal | undefined {
     return { text: `from a ${site} initiator`, details: { fetchSite: site } };
   }
 
-  // Only a browser too old to send fetch metadata reaches here. `null` is not evidence either way — this
-  // app's own forms produce it under `Referrer-Policy: no-referrer` — so the only thing left to check is a
-  // named origin that belongs to somebody else.
+  // Only a browser too old to send fetch metadata, or a non-browser client, reaches here. `null` is not evidence
+  // either way — this app's own forms produce it under `Referrer-Policy: no-referrer` — so with no named origin
+  // there is nothing to say where the write came from. A signed-in session's cookie is what a forged write rides,
+  // so that is refused; an anonymous one has nothing to ride.
   const origin = req.get("origin");
-  if (origin === undefined || origin === "null") return undefined;
+  if (origin === undefined || origin === "null") {
+    return sessionUser(req) ? { text: "with no fetch metadata from a signed-in session", details: { fetchSite: "absent" } } : undefined;
+  }
 
   return isSameHost(origin, req) ? undefined : { text: "from a cross-origin Origin", details: { originHost: hostOf(origin) } };
 }

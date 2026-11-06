@@ -11,7 +11,7 @@
 import { ForbiddenError } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { describe, expect, it, vi } from "vitest";
-import { pageResponse } from "../express-doubles.js";
+import { pageRequest, pageResponse } from "../express-doubles.js";
 import { requireSameOrigin } from "./same-origin.js";
 
 const HOST = "deed-poll-admin.aat.platform.hmcts.net";
@@ -124,7 +124,7 @@ describe("requireSameOrigin", () => {
 
     it("allows an opaque origin, because this app's own forms send one", () => {
       // `Origin: null` is what `Referrer-Policy: no-referrer` produces for a legitimate same-origin form
-      // post, so it cannot be read as evidence of forgery. The residual gap is stated in the docblock.
+      // post, so it cannot be read as evidence of forgery. Anonymous here; a signed-in session's is refused below.
       const next = vi.fn();
 
       requireSameOrigin()(requestDouble({ origin: "null" }), pageResponse(), next);
@@ -141,12 +141,85 @@ describe("requireSameOrigin", () => {
     });
   });
 
-  it("allows a post that carries neither header, because a non-browser client is not the threat", () => {
-    // `e2e-tests/tests/judicial.spec.ts` posts to a claim route through Playwright's `APIRequestContext`,
-    // which sends neither. A client with no cookies cannot be made to act as a signed-in caseworker.
+  describe("on a request carrying no fetch metadata and no named Origin", () => {
+    // The ITHC's CSRF finding: a signed-in session's cookie is what a forged write rides, so a write from one
+    // that proves nothing about where it came from is refused. Every browser this service supports sends
+    // `Sec-Fetch-Site`, so a real form post never arrives like this.
+    it.each([
+      { behaviour: "no Origin", origin: undefined },
+      { behaviour: "an opaque Origin", origin: "null" }
+    ])("should refuse a signed-in session's post with $behaviour, as a same-origin refusal of an absent fetch site", ({ origin }) => {
+      const next = vi.fn();
+
+      requireSameOrigin()(requestDouble({ origin, signedIn: true }), pageResponse(), next);
+
+      const error = vi.mocked(next).mock.calls[0][0] as unknown as ForbiddenError;
+      expect(error).toBeInstanceOf(ForbiddenError);
+      expect(error.reason).toBe("same-origin");
+      expect(error.fetchSite).toBe("absent");
+      expect(error.originHost).toBeUndefined();
+    });
+
+    it("should name the refusal with fixed text and nothing the sender chose", () => {
+      const next = vi.fn();
+
+      requireSameOrigin()(requestDouble({ origin: "null", signedIn: true, originalUrl: "/deed-polls/new?q=MARKER" }), pageResponse(), next);
+
+      const error = vi.mocked(next).mock.calls[0][0] as unknown as ForbiddenError;
+      expect(error.message).toBe("POST /deed-polls/new with no fetch metadata from a signed-in session");
+    });
+
+    it.each([
+      { behaviour: "no Origin", origin: undefined },
+      { behaviour: "an opaque Origin", origin: "null" }
+    ])("should allow an anonymous post with $behaviour, because a client with no session is not the threat", ({ origin }) => {
+      // `requireAuth` refuses an anonymous write outside the public paths anyway; this gate has nothing to protect.
+      const next = vi.fn();
+
+      requireSameOrigin()(requestDouble({ origin }), pageResponse(), next);
+
+      expect(next).toHaveBeenCalledWith();
+    });
+
+    it("should allow a signed-in session's post whose Origin names this app", () => {
+      const next = vi.fn();
+
+      requireSameOrigin()(requestDouble({ origin: `https://${HOST}`, signedIn: true }), pageResponse(), next);
+
+      expect(next).toHaveBeenCalledWith();
+    });
+
+    it("should still refuse a signed-in session's post whose Origin names somebody else, recording its host", () => {
+      const next = vi.fn();
+
+      requireSameOrigin()(requestDouble({ origin: "https://evil.example", signedIn: true }), pageResponse(), next);
+
+      const error = vi.mocked(next).mock.calls[0][0] as unknown as ForbiddenError;
+      expect(error.originHost).toBe("evil.example");
+      expect(error.fetchSite).toBeUndefined();
+    });
+  });
+
+  it.each(["same-origin", "none"])("should allow a signed-in session's post with Sec-Fetch-Site %s", (secFetchSite) => {
     const next = vi.fn();
 
-    requireSameOrigin()(requestDouble({}), pageResponse(), next);
+    requireSameOrigin()(requestDouble({ secFetchSite, origin: "null", signedIn: true }), pageResponse(), next);
+
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  it("should still refuse a signed-in session's same-site post", () => {
+    const next = vi.fn();
+
+    requireSameOrigin()(requestDouble({ secFetchSite: "same-site", signedIn: true }), pageResponse(), next);
+
+    expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
+  });
+
+  it("lets a signed-in session's GET through with no fetch metadata", () => {
+    const next = vi.fn();
+
+    requireSameOrigin()(requestDouble({ method: "GET", signedIn: true }), pageResponse(), next);
 
     expect(next).toHaveBeenCalledWith();
   });
@@ -239,26 +312,30 @@ describe("requireSameOrigin", () => {
 });
 
 /**
- * A request with a method and the three headers this reads, which `pageRequest` does not model — it builds a
- * session for page handlers, and nothing here looks at one.
+ * A request with a method and the three headers this reads, which `pageRequest` does not model, on its session.
+ * Anonymous unless `signedIn`, because only a signed-in session's write with no fetch metadata is refused.
  */
 function requestDouble({
   method = "POST",
   secFetchSite,
   origin,
   host = HOST,
-  originalUrl = "/deed-polls/new"
+  originalUrl = "/deed-polls/new",
+  signedIn = false
 }: {
   method?: string;
   secFetchSite?: string;
   origin?: string;
   host?: string;
   originalUrl?: string;
+  signedIn?: boolean;
 }): Request {
   const headers: Record<string, string | undefined> = { "sec-fetch-site": secFetchSite, origin, host };
 
   // Mounted on the app, so `baseUrl` is empty and `path` is Express's: the URL without its query or fragment.
   const path = originalUrl.split(/[?#]/, 1)[0];
 
-  return { method, originalUrl, baseUrl: "", path, get: (name: string) => headers[name.toLowerCase()] } as unknown as Request;
+  const { session } = pageRequest({ signedIn });
+
+  return { method, originalUrl, baseUrl: "", path, session, get: (name: string) => headers[name.toLowerCase()] } as unknown as Request;
 }
