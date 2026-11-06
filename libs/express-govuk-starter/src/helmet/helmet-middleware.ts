@@ -49,6 +49,9 @@ export function configureHelmet(options: SecurityOptions = {}) {
         formAction: ["'self'", ...formActionSources],
         ...(frameSources.length > 0 && { frameSrc: frameSources })
       }
-    }
+    },
+    // The CSP's `frame-ancestors 'self'` (helmet's default directive) already governs framing (ITHC; deed-poll-admin's
+    // plan 20261106 D7). An app edit to the template-provided starter, recorded in deed-poll-admin's CLAUDE.md.
+    xFrameOptions: false
   });
 }

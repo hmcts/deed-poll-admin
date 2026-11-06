@@ -132,16 +132,21 @@ pass. Never quote bare `yarn test`. **Baseline (2026-11-06, admin `845e1a5`, loc
 
 ### Task 3: Headers — Permissions-Policy on, X-Frame-Options off, empty `_csrf` gone
 
-- [ ] Failing tests first:
+- [x] Failing tests first:
   - `src/permissions-policy.test.ts`: the exact D6 header value;
   - `src/analytics.test.ts`: a real `createApp()` response carries that `Permissions-Policy`, carries **no**
     `X-Frame-Options`, and keeps the CSP exactly as pinned, `frame-ancestors 'self'` included;
   - check a 404 response carries `Permissions-Policy` too.
-- [ ] Implement D6 (`src/permissions-policy.ts`, mounted in `src/app.ts`) and D7 (`xFrameOptions: false` in
+- [x] Implement D6 (`src/permissions-policy.ts`, mounted in `src/app.ts`) and D7 (`xFrameOptions: false` in
       `libs/express-govuk-starter/src/helmet/helmet-middleware.ts`, with its own test in the starter's
       `helmet-middleware.test.ts`).
-- [ ] Implement D5. Add or extend a starter template test so the cookie-preferences form renders no `_csrf` input, and
+- [x] Implement D5. Add or extend a starter template test so the cookie-preferences form renders no `_csrf` input, and
       check the cookie-preferences save still works (`/cookies/save-preferences` tests).
+      (Done 2026-11-06: `//:test:app` 3,501 passed with Redis, starter 136. The new template test is
+      `libs/express-govuk-starter/src/cookies/views/cookie-preferences.njk.test.ts`. The 404 check uses a missing
+      `/assets/` file, because an anonymous request for a missing page is redirected to sign-in, not 404'd.
+      `src/assets/js/index.ts` still lists a `_csrf` **cookie** name in the cookie banner's essential list; it is a
+      cookie name, not the form input, and was left alone.)
 
 ### Task 4: Documentation and final verification
 

@@ -31,6 +31,7 @@ import { assertIdamSettings, idamSettings } from "./auth/settings.js";
 import { PDFJS_ASSET_MOUNT, pdfjsDevelopmentAssets } from "./document-viewer/pdfjs-assets.js";
 import { domainErrorHandler } from "./errors.js";
 import { addPathFilters } from "./path-filters.js";
+import { permissionsPolicy } from "./permissions-policy.js";
 import { createRateLimiter, rateLimitSettings } from "./rate-limit/limiter.js";
 import { mountAbuseLimits } from "./rate-limit/routes.js";
 import { uploadInFlightCap } from "./rate-limit/upload-in-flight.js";
@@ -96,6 +97,7 @@ export async function createApp(): Promise<Express> {
   // form submission follows, so IDAM's origin is named there or the browser blocks the hop and stays on the page
   // (plan `docs/plans/20261106-ithc-csrf-and-headers.md`, D3). The issuer's origin is where IDAM serves its end-session.
   app.use(configureHelmet({ enableGoogleTagManager: false, formActionSources: [new URL(idamSettings().issuerUrl).origin] }));
+  app.use(permissionsPolicy());
   const sessionSecret = config.get<string>("session.secret");
   assertSessionSecret(sessionSecret);
   const sessionTimeouts = assertSessionTimeouts(config.get("session.idleTimeoutSeconds"), config.get("session.absoluteTimeoutSeconds"));
