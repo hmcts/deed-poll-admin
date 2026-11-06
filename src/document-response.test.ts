@@ -87,12 +87,21 @@ describe("sendDocument", () => {
     expect(res.headers["Content-Disposition"]).toBe('attachment; filename="statement 2.html"');
   });
 
+  it("should forbid framing by another site, because api's policy replaces the app's and admin sends no X-Frame-Options", () => {
+    const res = streamResponse();
+
+    sendDocument(download(), res, vi.fn());
+
+    expect(res.headers["Content-Security-Policy"]).toBe(`${INERT_POLICY}; frame-ancestors 'self'`);
+    expect(res.headers["Content-Disposition"]).toBe('inline; filename="deed poll.pdf"');
+  });
+
   it("should still forward the policy and nosniff when it downgrades the disposition", () => {
     const res = streamResponse();
 
     sendDocument(download({ contentType: "text/html", contentSecurityPolicy: "sandbox allow-same-origin" }), res, vi.fn());
 
-    expect(res.headers["Content-Security-Policy"]).toBe("sandbox allow-same-origin");
+    expect(res.headers["Content-Security-Policy"]).toBe("sandbox allow-same-origin; frame-ancestors 'self'");
     expect(res.headers["X-Content-Type-Options"]).toBe("nosniff");
   });
 });
@@ -116,7 +125,7 @@ describe("sendDownload", () => {
     expect(res.headers).toEqual({
       "Content-Type": docx,
       "Content-Disposition": 'attachment; filename="statement.docx"',
-      "Content-Security-Policy": INERT_POLICY,
+      "Content-Security-Policy": `${INERT_POLICY}; frame-ancestors 'self'`,
       "X-Content-Type-Options": "nosniff",
       "Cache-Control": "no-store"
     });

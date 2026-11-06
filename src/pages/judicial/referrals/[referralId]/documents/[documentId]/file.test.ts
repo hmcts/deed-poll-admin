@@ -62,7 +62,7 @@ describe("judicial document download route", () => {
     expect(res.headers).toEqual({
       "Content-Type": "application/pdf",
       "Content-Disposition": 'inline; filename="deed poll.pdf"',
-      "Content-Security-Policy": "default-src 'none'; sandbox",
+      "Content-Security-Policy": "default-src 'none'; sandbox; frame-ancestors 'self'",
       "X-Content-Type-Options": "nosniff",
       "Cache-Control": "no-store"
     });

@@ -39,6 +39,13 @@ const CSP_WHITESPACE = /[\t\n\f\r ]+/;
 const FALLBACK_DISPOSITION = 'attachment; filename="document"';
 
 /**
+ * Appended to api's policy, which replaces helmet's for the response. `default-src` does not cover
+ * `frame-ancestors`, and admin sends no `X-Frame-Options` (ITHC D7), so without it an inline document could be
+ * framed by any site. Appended rather than merged, so api's directives (and the inline check) are untouched.
+ */
+const FRAME_ANCESTORS = "frame-ancestors 'self'";
+
+/**
  * The only types an `inline` disposition may survive for — api's own inline allowlist
  * (`DocumentFileResponses.INLINE_MIME_TYPES`). A type a browser renders as a document of this origin's
  * (HTML, SVG) must never be shown in place, whatever policy arrives with it.
@@ -48,7 +55,7 @@ const INLINE_MEDIA_TYPES: ReadonlySet<string> = new Set(["application/pdf", "ima
 export function sendDocument(download: DocumentDownload, res: Response, next: NextFunction): void {
   res.setHeader("Content-Type", download.contentType);
   res.setHeader("Content-Disposition", containedDisposition(download));
-  if (download.contentSecurityPolicy) res.setHeader("Content-Security-Policy", download.contentSecurityPolicy);
+  if (download.contentSecurityPolicy) res.setHeader("Content-Security-Policy", `${download.contentSecurityPolicy}; ${FRAME_ANCESTORS}`);
   res.setHeader("X-Content-Type-Options", "nosniff");
   // Documents are case data; a shared cache must not keep a copy.
   res.setHeader("Cache-Control", "no-store");

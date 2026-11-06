@@ -561,7 +561,9 @@ Facts that are easy to get wrong from the code alone, and expensive to get wrong
 - **Every response carries a deny-all `Permissions-Policy` and no `X-Frame-Options`** (ITHC header findings, D6/D7).
   `src/permissions-policy.ts` is mounted straight after `configureHelmet`, so error responses carry it too; admin's
   browser code uses none of the features it denies, and a new one needs its entry changed there. Framing is governed by
-  the CSP's `frame-ancestors 'self'` alone.
+  the CSP's `frame-ancestors 'self'` alone. A response that replaces the app's CSP (the document relay in
+  `src/document-response.ts` and the preview relay) appends `frame-ancestors 'self'` to its own policy, because
+  `default-src` does not cover it.
 - **Starter edits.** `libs/express-govuk-starter` is template-provided, and these edits to it would be lost at a
   re-scaffold with nothing failing in this app, so restate them after one: `configureHelmet` passes
   `xFrameOptions: false` to helmet; its `formActionSources` option adds origins to `form-action` beside `'self'`; and
