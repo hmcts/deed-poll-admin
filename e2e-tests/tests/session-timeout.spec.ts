@@ -46,6 +46,8 @@ test("should warn before the idle limit, extend the session on request, and sign
 
   await expect(warning).toBeVisible({ timeout: UNTIL_WARNING_MS });
   await expect(stay).toBeFocused();
+  // A POST, because a GET of /logout signs nobody out (plan `docs/plans/20261106-ithc-csrf-and-headers.md`, D4).
+  await expect(warning.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
   expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
 
   await stay.click();

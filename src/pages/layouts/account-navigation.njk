@@ -1,7 +1,21 @@
-{% from "govuk/components/service-navigation/macro.njk" import govukServiceNavigation %}
-
-{{ govukServiceNavigation({
-  navigationLabel: accountNavigation,
-  collapseNavigationOnMobile: false,
-  navigation: [{ href: "/logout", text: signOut }]
-}) }}
+{#
+  `govukServiceNavigation`'s markup for one item, written out because the macro renders only links, and sign-out is a
+  POST (plan `docs/plans/20261106-ithc-csrf-and-headers.md`, D3 and D4): a link would be a GET, which any site can
+  trigger. The button is styled as the navigation link by `app-service-navigation__button`
+  (`src/assets/css/components/_service-navigation.scss`).
+#}
+<div class="govuk-service-navigation" data-module="govuk-service-navigation">
+  <div class="govuk-width-container">
+    <div class="govuk-service-navigation__container">
+      <nav aria-label="{{ accountNavigation }}" class="govuk-service-navigation__wrapper">
+        <ul class="govuk-service-navigation__list" id="navigation">
+          <li class="govuk-service-navigation__item">
+            <form method="post" action="/logout" novalidate>
+              <button type="submit" class="govuk-service-navigation__link app-service-navigation__button">{{ signOut }}</button>
+            </form>
+          </li>
+        </ul>
+      </nav>
+    </div>
+  </div>
+</div>

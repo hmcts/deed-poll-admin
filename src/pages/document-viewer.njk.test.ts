@@ -196,7 +196,7 @@ describe("document-viewer.njk", () => {
     const page = html({ ...res.render.mock.calls[0][1], sessionClock: { idleSeconds: 1800, idleRemaining: 1800, absoluteRemaining: 28800 } });
 
     expect(page).toContain('id="session-timeout-idle"');
-    expect(page).toContain('href="/logout"');
+    expect(page).toContain('action="/logout"');
     expect(page).not.toMatch(/session\/(status|keep-alive)/);
   });
 

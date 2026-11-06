@@ -128,6 +128,24 @@ describe("helmet-middleware", () => {
       });
     });
 
+    describe("form-action", () => {
+      it("should allow only 'self' by default, as helmet's own default does", () => {
+        configureHelmet();
+
+        const directives = vi.mocked(helmet).mock.calls[0][0]?.contentSecurityPolicy?.directives;
+
+        expect(directives?.formAction).toEqual(["'self'"]);
+      });
+
+      it("should add the given origins after 'self'", () => {
+        configureHelmet({ formActionSources: ["https://idam.example"] });
+
+        const directives = vi.mocked(helmet).mock.calls[0][0]?.contentSecurityPolicy?.directives;
+
+        expect(directives?.formAction).toEqual(["'self'", "https://idam.example"]);
+      });
+    });
+
     describe("Google Tag Manager configuration", () => {
       it("should include GTM sources when enabled", () => {
         configureHelmet({ enableGoogleTagManager: true });

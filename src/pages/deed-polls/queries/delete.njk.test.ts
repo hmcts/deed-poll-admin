@@ -12,7 +12,7 @@ import { findSavedQuery } from "@hmcts/deed-poll";
 import type { SavedQuery } from "@hmcts/deed-poll-api-client";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { pageRequest, pageResponse, withoutSignOutForm } from "../../../express-doubles.js";
 import { addPathFilters } from "../../../path-filters.js";
 import { GET } from "./[queryId]/delete.js";
 
@@ -63,7 +63,7 @@ const render = async (query: SavedQuery): Promise<string> => {
   await GET(pageRequest({ params: { queryId: "sq-1" }, accessToken: "session-token" }), res);
   const model = res.render.mock.calls[0][1];
 
-  return environment.render("deed-polls/queries/delete.njk", { ...model.en, ...model });
+  return withoutSignOutForm(environment.render("deed-polls/queries/delete.njk", { ...model.en, ...model }));
 };
 
 describe("delete a saved query template", () => {

@@ -494,7 +494,8 @@ function radioValues(html: string, name: string): string[] {
 }
 
 function serialise(html: string): URLSearchParams {
-  const start = html.indexOf('<form method="post"');
+  // From the main content, past the header's sign-out form.
+  const start = html.indexOf('<form method="post"', html.indexOf("<main"));
   const form = html.slice(start, html.indexOf("</form>", start));
   const body = new URLSearchParams();
   const controls = /<input\b([^>]*)>|<select\b([^>]*)>([\s\S]*?)<\/select>|<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/g;

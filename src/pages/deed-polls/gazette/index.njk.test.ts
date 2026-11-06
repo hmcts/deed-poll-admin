@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { findGazetteReadyCases } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { pageRequest, pageResponse, withoutSignOutForm } from "../../../express-doubles.js";
 import { addPathFilters } from "../../../path-filters.js";
 import { GET } from "./index.js";
 
@@ -40,7 +40,7 @@ async function render(query: Record<string, unknown> = {}, locale = "en") {
   res.locals.locale = locale;
   await GET(pageRequest({ teamLeader: true, accessToken: "admin-token", query }), res);
   const model = res.render.mock.calls[0][1];
-  return { model, markup: environment.render("deed-polls/gazette/index.njk", { ...model[locale], ...model }) };
+  return { model, markup: withoutSignOutForm(environment.render("deed-polls/gazette/index.njk", { ...model[locale], ...model })) };
 }
 
 describe("Gazette ready list", () => {

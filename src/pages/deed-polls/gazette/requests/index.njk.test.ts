@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { ForbiddenError, findGazetteMembers, findGazetteRequests, findGazetteStatus, NotFoundError, UnauthorizedError } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, expect, it, vi } from "vitest";
-import { pageRequest, pageResponse } from "../../../../express-doubles.js";
+import { pageRequest, pageResponse, withoutSignOutForm } from "../../../../express-doubles.js";
 import { addPathFilters } from "../../../../path-filters.js";
 import { GET as detail } from "./[batchId].js";
 import { GET as list } from "./index.js";
@@ -53,7 +53,7 @@ async function render(handler: typeof list, query: Record<string, unknown> = {},
   res.locals.locale = locale;
   await handler(pageRequest({ params: { batchId: ID }, query, accessToken: "admin-token", teamLeader: true }), res);
   const [view, model] = res.render.mock.calls[0];
-  return { res, markup: environment.render(`${view}.njk`, { ...model[locale], ...model }) };
+  return { res, markup: withoutSignOutForm(environment.render(`${view}.njk`, { ...model[locale], ...model })) };
 }
 
 it("should preserve API list order, total and paging while forwarding only page and token", async () => {

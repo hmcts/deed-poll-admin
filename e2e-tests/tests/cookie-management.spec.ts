@@ -278,7 +278,8 @@ test.describe("Cookie Management", () => {
       await page.goto("/cookies");
 
       // Check for proper form structure
-      const form = page.locator("form");
+      // Within main: the header carries the sign-out form too.
+      const form = page.getByRole("main").locator("form");
       await expect(form).toBeVisible();
 
       // Check fieldsets have legends

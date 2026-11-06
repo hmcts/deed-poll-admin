@@ -109,18 +109,26 @@ pass. Never quote bare `yarn test`. **Baseline (2026-11-06, admin `845e1a5`, loc
 
 ### Task 2: Sign-out is a POST
 
-- [ ] Failing tests first, in `src/pages/logout.test.ts` and `src/pages/logout-idam-outage.test.ts`:
+- [x] Failing tests first, in `src/pages/logout.test.ts` and `src/pages/logout-idam-outage.test.ts`:
   - `POST /logout` does everything `GET` does today (event, sign-out, `Clear-Site-Data`, redirect);
   - `GET /logout` renders the confirmation page with a POST form, signs nobody out, emits no `auth.logout` and
     leaves the session in place.
-- [ ] Implement D3: move the handler body to `POST` in `src/pages/logout.ts`, and add `GET` plus `src/pages/logout.njk`
+- [x] Implement D3: move the handler body to `POST` in `src/pages/logout.ts`, and add `GET` plus `src/pages/logout.njk`
       (extending `layouts/app.njk`, en/cy content in the handler).
-- [ ] Implement D4 in `src/pages/layouts/account-navigation.njk` and `src/pages/layouts/session-timeout.njk`, with the SCSS
+- [x] Implement D4 in `src/pages/layouts/account-navigation.njk` and `src/pages/layouts/session-timeout.njk`, with the SCSS
       class in the app's stylesheet. Extend or add template tests: the header carries a POST form to `/logout`, not
       a link, and so does the timeout dialog. Check `src/pages/layouts/app.njk.test.ts` and any test that matched
       `href="/logout"`.
-- [ ] Update `e2e-tests/tests/sign-out.spec.ts` and `e2e-tests/tests/session-timeout.spec.ts` to find the **button**
+- [x] Update `e2e-tests/tests/sign-out.spec.ts` and `e2e-tests/tests/session-timeout.spec.ts` to find the **button**
       ("Sign out" / "Sign out now"), and run both on a private-port config.
+      (Done 2026-11-06. **Deviation, found by the e2e run:** helmet's default CSP is `form-action 'self'`, which a browser
+      applies to every redirect a form submission follows, so the POST's redirect to IDAM's end-session page was
+      blocked and the browser stayed on the page, already signed out here. `configureHelmet` gained a
+      `formActionSources` option (a starter edit for Task 4's list), and `app.ts` passes the IDAM issuer's origin, so
+      the CSP's `form-action` is now `'self' <issuer origin>`; `src/analytics.test.ts` pins it. The header's form also
+      made thirteen template tests that count a page's forms or buttons fail, so they strip it through
+      `withoutSignOutForm` (`src/express-doubles.ts`); `cookie-management.spec.ts` scopes its `form` to `main`.
+      `scripts/extract-welsh-strings.mjs`'s `INCLUDE` now takes a file, for `src/pages/logout.ts`.)
 
 ### Task 3: Headers — Permissions-Policy on, X-Frame-Options off, empty `_csrf` gone
 
@@ -141,8 +149,8 @@ pass. Never quote bare `yarn test`. **Baseline (2026-11-06, admin `845e1a5`, loc
   - in "Security events" / the CSRF paragraph, say that a signed-in request with no fetch metadata is refused
     (`fetchSite: "absent"`);
   - add a short "Sign-out is a POST" note to "Deployment and sessions";
-  - add a "Starter edits" line listing `xFrameOptions: false` and the removed `_csrf`, so a re-scaffold doesn't
-    undo them.
+  - add a "Starter edits" line listing `xFrameOptions: false`, the `formActionSources` option (Task 2) and the
+    removed `_csrf`, so a re-scaffold doesn't undo them; and note that `form-action` names IDAM's issuer origin.
 - [ ] Full Validation Commands, forced; record counts against the baseline. `git status` clean apart from the task
       commits. Run `sign-out.spec.ts` and `session-timeout.spec.ts` once more on a private-port config.
 

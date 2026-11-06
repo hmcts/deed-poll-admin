@@ -54,7 +54,7 @@ describe("analytics", () => {
         "default-src 'self'",
         "base-uri 'self'",
         "font-src 'self' data:",
-        "form-action 'self'",
+        "form-action 'self' http://localhost:5556",
         "frame-ancestors 'self'",
         "img-src 'self' data:",
         "object-src 'none'",

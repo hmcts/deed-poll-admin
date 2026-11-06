@@ -233,3 +233,12 @@ export function pageResponse(): ResponseDouble {
   res.status.mockReturnValue(res);
   return res;
 }
+
+/**
+ * A rendered page without the header's sign-out form, which every layout draws (plan
+ * `docs/plans/20261106-ithc-csrf-and-headers.md`, D4). For a template test that counts a page's own forms or buttons;
+ * `src/pages/layouts/app.njk.test.ts` pins the sign-out form itself.
+ */
+export function withoutSignOutForm(html: string): string {
+  return html.replace(/<form method="post" action="\/logout"[^>]*>[\s\S]*?<\/form>/, "");
+}
