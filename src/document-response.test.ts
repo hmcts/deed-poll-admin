@@ -96,6 +96,23 @@ describe("sendDocument", () => {
     expect(res.headers["Content-Disposition"]).toBe('inline; filename="deed poll.pdf"');
   });
 
+  it("should drop api's own frame-ancestors when there is one, because a browser honours only the first occurrence", () => {
+    const res = streamResponse();
+
+    sendDocument(download({ contentSecurityPolicy: `${INERT_POLICY}; FRAME-ANCESTORS *; frame-ancestors https://evil.example` }), res, vi.fn());
+
+    expect(res.headers["Content-Security-Policy"]).toBe(`${INERT_POLICY}; frame-ancestors 'self'`);
+    expect(res.headers["Content-Disposition"]).toBe('inline; filename="deed poll.pdf"');
+  });
+
+  it("should drop a frame-ancestors in a later comma-separated policy too, because each policy is enforced on its own", () => {
+    const res = streamResponse();
+
+    sendDocument(download({ contentSecurityPolicy: `${INERT_POLICY}, frame-ancestors *` }), res, vi.fn());
+
+    expect(res.headers["Content-Security-Policy"]).toBe(`${INERT_POLICY}; frame-ancestors 'self'`);
+  });
+
   it("should still forward the policy and nosniff when it downgrades the disposition", () => {
     const res = streamResponse();
 

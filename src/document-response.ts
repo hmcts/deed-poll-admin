@@ -41,7 +41,9 @@ const FALLBACK_DISPOSITION = 'attachment; filename="document"';
 /**
  * Appended to api's policy, which replaces helmet's for the response. `default-src` does not cover
  * `frame-ancestors`, and admin sends no `X-Frame-Options` (ITHC D7), so without it an inline document could be
- * framed by any site. Appended rather than merged, so api's directives (and the inline check) are untouched.
+ * framed by any site. A browser honours only the first occurrence of a directive, so any `frame-ancestors` api's
+ * policy already carries is dropped first: appended after `frame-ancestors *`, this one would be ignored. api's
+ * other directives (and the inline check, which reads api's policy) are untouched.
  */
 const FRAME_ANCESTORS = "frame-ancestors 'self'";
 
@@ -55,7 +57,7 @@ const INLINE_MEDIA_TYPES: ReadonlySet<string> = new Set(["application/pdf", "ima
 export function sendDocument(download: DocumentDownload, res: Response, next: NextFunction): void {
   res.setHeader("Content-Type", download.contentType);
   res.setHeader("Content-Disposition", containedDisposition(download));
-  if (download.contentSecurityPolicy) res.setHeader("Content-Security-Policy", `${download.contentSecurityPolicy}; ${FRAME_ANCESTORS}`);
+  if (download.contentSecurityPolicy) res.setHeader("Content-Security-Policy", withOwnFrameAncestors(download.contentSecurityPolicy));
   res.setHeader("X-Content-Type-Options", "nosniff");
   // Documents are case data; a shared cache must not keep a copy.
   res.setHeader("Cache-Control", "no-store");
@@ -97,6 +99,23 @@ function containedDisposition(download: DocumentDownload): string {
   if (INLINE_MEDIA_TYPES.has(mediaType(contentType)) && isInertPolicy(contentSecurityPolicy)) return contentDisposition;
 
   return ["attachment", ...params].join(";");
+}
+
+/**
+ * api's policy with every `frame-ancestors` of its own removed and this app's appended, so ours is the one in force.
+ *
+ * A comma separates policies in one header, each enforced on its own, so the removal is per policy: a later
+ * `, frame-ancestors *` left standing would itself be a policy whose first `frame-ancestors` beats the one appended.
+ */
+function withOwnFrameAncestors(contentSecurityPolicy: string): string {
+  const policies = contentSecurityPolicy.split(",").map((policy) =>
+    policy
+      .split(";")
+      .filter((directive) => directive.toLowerCase().split(CSP_WHITESPACE).filter(Boolean)[0] !== "frame-ancestors")
+      .join(";")
+  );
+
+  return `${policies.filter((policy) => policy.trim()).join(",")}; ${FRAME_ANCESTORS}`;
 }
 
 /** The type and subtype alone: `application/pdf; charset=binary` and `APPLICATION/PDF` are both a PDF. */
