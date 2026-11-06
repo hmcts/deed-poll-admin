@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { findDeedPoll, findReferral } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { pageRequest, pageResponse } from "../../express-doubles.js";
+import { pageRequest, pageResponse, withoutSignOutForm } from "../../express-doubles.js";
 import { addPathFilters } from "../../path-filters.js";
 import { GET } from "./[id]/referrals/[referralId]/close.js";
 
@@ -58,7 +58,8 @@ const DECIDED = {
 
 // Content pair first, the handler's own values over it — `renderInterceptorMiddleware`'s order. See the note in
 // `referral-detail.njk.test.ts` for what spreading it the other way round hides.
-const html = (model: Record<string, unknown>): string => environment.render("deed-polls/referral-close.njk", { ...(model.en as object), ...model });
+const html = (model: Record<string, unknown>): string =>
+  withoutSignOutForm(environment.render("deed-polls/referral-close.njk", { ...(model.en as object), ...model }));
 
 async function page(referral: Record<string, unknown> = DECIDED): Promise<string> {
   vi.mocked(findReferral).mockResolvedValue(referral as never);

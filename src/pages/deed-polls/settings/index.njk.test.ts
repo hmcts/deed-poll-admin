@@ -15,7 +15,7 @@ import {
 } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { pageRequest, pageResponse, withoutSignOutForm } from "../../../express-doubles.js";
 import { addPathFilters } from "../../../path-filters.js";
 import { POST as postBankHoliday } from "./bank-holidays/index.js";
 import { POST as postGazette } from "./gazette-recipient.js";
@@ -97,7 +97,7 @@ async function render(
   const req = pageRequest({ deliveryManager: true, accessToken: "dm-token", body, query, access });
   await handler(req, res);
   const model = res.render.mock.calls[0]?.[1];
-  return { res, model, markup: environment.render("deed-polls/settings/index.njk", { ...model[locale], ...model }) };
+  return { res, model, markup: withoutSignOutForm(environment.render("deed-polls/settings/index.njk", { ...model[locale], ...model })) };
 }
 
 function form(markup: string, action: string): string {

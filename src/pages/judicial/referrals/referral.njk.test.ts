@@ -15,7 +15,7 @@ import { getReferral } from "@hmcts/deed-poll";
 import type { JudicialReferralDetail } from "@hmcts/deed-poll-api-client";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { pageRequest, pageResponse, withoutSignOutForm } from "../../../express-doubles.js";
 import { addPathFilters } from "../../../path-filters.js";
 import { GET } from "./[referralId].js";
 
@@ -78,7 +78,7 @@ const render = async (referral: JudicialReferralDetail, query: Record<string, un
   await GET(pageRequest({ params: { referralId: "ref-1" }, query, judicial: true, accessToken: "judge-token" }), res);
   const model = res.render.mock.calls[0][1];
 
-  return environment.render("judicial/referrals/referral.njk", { ...model.en, ...model });
+  return withoutSignOutForm(environment.render("judicial/referrals/referral.njk", { ...model.en, ...model }));
 };
 
 /**

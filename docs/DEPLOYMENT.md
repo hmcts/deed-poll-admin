@@ -419,7 +419,22 @@ Expect **no** `route` containing `?` and **no** `subject` containing `@`. Either
 email address, and is a defect to fix, not a value to filter out. Add
 `| where route contains "?" or subject contains "@"` to the query above: it should return no rows.
 
+A `POST` from a signed-in session carrying no `Sec-Fetch-Site` and no named `Origin` (a hand-run `curl` or script
+with a copied cookie) is refused 403 and recorded as `csrf.refused` with `fetchSite: "absent"`; such events are
+expected from non-browser clients, not a fault.
+
 Alert rules over these events are not in this repo; they belong to a later `deed-poll-infra` change.
+
+### Security headers and sign-out
+
+Every response carries a deny-all `Permissions-Policy` and no `X-Frame-Options` (framing is governed by the CSP's
+`frame-ancestors 'self'`). Sign-out is `POST /logout`, and the CSP's `form-action` is `'self'` plus the origin of
+`IDAM_ISSUER_URL`, because the browser applies `form-action` to the POST's redirect to IDAM's end-session page. That
+assumes IDAM's discovered `end_session_endpoint` (and any hop it redirects through before the
+`post_logout_redirect_uri`) is on the issuer's origin; if it is not, the browser blocks the redirect after the local
+session has ended and the user is left signed in at IDAM. After a deploy, check `curl -I` on a page for the two
+headers, and sign out from the header in a browser to confirm it reaches IDAM's end-session page with no CSP error in
+the console.
 
 ## Secrets Management
 

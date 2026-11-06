@@ -27,7 +27,8 @@ import { type DocumentPreview, DocumentPreviewRefusedError, NotFoundError } from
 import type { NextFunction, Response } from "express";
 
 const PREVIEW_DISPOSITION = 'attachment; filename="preview.pdf"';
-const PREVIEW_POLICY = "default-src 'none'; sandbox";
+// `frame-ancestors` because `default-src` does not cover it and admin sends no X-Frame-Options (ITHC D7).
+const PREVIEW_POLICY = "default-src 'none'; sandbox; frame-ancestors 'self'";
 const DOCUMENT_UNAVAILABLE = "DOCUMENT_UNAVAILABLE";
 
 export async function relayPreview(res: Response, next: NextFunction, read: (signal: AbortSignal) => Promise<DocumentPreview>): Promise<void> {

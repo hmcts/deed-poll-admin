@@ -40,8 +40,6 @@
     <p class="govuk-body">{{ intro }}</p>
 
     <form action="/cookies/save-preferences" method="POST" class="cookie-preferences-form">
-      <input type="hidden" name="_csrf" value="{{ csrfToken }}">
-      
       <h2 class="govuk-heading-m">{{ essentialTitle }}</h2>
       <p class="govuk-body">{{ essentialDescription }}</p>
       {% if categories.analytics %}

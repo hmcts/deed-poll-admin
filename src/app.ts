@@ -31,6 +31,7 @@ import { assertIdamSettings, idamSettings } from "./auth/settings.js";
 import { PDFJS_ASSET_MOUNT, pdfjsDevelopmentAssets } from "./document-viewer/pdfjs-assets.js";
 import { domainErrorHandler } from "./errors.js";
 import { addPathFilters } from "./path-filters.js";
+import { permissionsPolicy } from "./permissions-policy.js";
 import { createRateLimiter, rateLimitSettings } from "./rate-limit/limiter.js";
 import { mountAbuseLimits } from "./rate-limit/routes.js";
 import { uploadInFlightCap } from "./rate-limit/upload-in-flight.js";
@@ -92,7 +93,11 @@ export async function createApp(): Promise<Express> {
   app.use(configureNonce());
   // No Google Tag Manager (review finding R12): admin uses none, and the starter's default admits its hosts, a known
   // CSP-bypass, to the policy. Adopting it later needs a real container, a nonce on its bootstrap and analytics consent.
-  app.use(configureHelmet({ enableGoogleTagManager: false }));
+  // Sign-out is a POST that redirects to IDAM's end-session page, and a browser applies `form-action` to every redirect a
+  // form submission follows, so IDAM's origin is named there or the browser blocks the hop and stays on the page
+  // (plan `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D3). The issuer's origin is where IDAM serves its end-session.
+  app.use(configureHelmet({ enableGoogleTagManager: false, formActionSources: [new URL(idamSettings().issuerUrl).origin] }));
+  app.use(permissionsPolicy());
   const sessionSecret = config.get<string>("session.secret");
   assertSessionSecret(sessionSecret);
   const sessionTimeouts = assertSessionTimeouts(config.get("session.idleTimeoutSeconds"), config.get("session.absoluteTimeoutSeconds"));

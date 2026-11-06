@@ -70,6 +70,7 @@ const INCLUDE = [
   path.join(ROOT, "src/pages/oauth2"),
   path.join(ROOT, "src/pages/session-timed-out"),
   path.join(ROOT, "src/pages/signed-out"),
+  path.join(ROOT, "src/pages/logout.ts"),
   path.join(ROOT, "src/document-viewer"),
   path.join(ROOT, "src/service-settings"),
   path.join(ROOT, "src/referral-queue"),
@@ -308,6 +309,8 @@ function csvCell(value) {
 }
 
 function walk(dir) {
+  // A page at the pages root (`logout.ts`) is listed as a file, since its directory holds every other root page too.
+  if (statSync(dir).isFile()) return [dir];
   const found = [];
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry);

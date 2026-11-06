@@ -101,6 +101,11 @@ A template test may also run axe-core over the rendered page in jsdom, as the ma
 `index.njk.test.ts` does. Disable `color-contrast`, because jsdom has no layout. It supplements the Playwright
 axe checks in `e2e-tests/`; it does not replace them.
 
+Every layout draws the header's Sign out as a `<form method="post" action="/logout">` with a button (and the
+timeout dialog, when drawn, another). A template test that counts a page's own forms or buttons renders through
+`withoutSignOutForm(html)` (`src/express-doubles.ts`); `src/pages/layouts/app.njk.test.ts` pins the sign-out form
+itself. In Playwright, sign out with `getByRole("button", { name: "Sign out" })` and scope a `form` locator to `main`.
+
 ## Test Naming Conventions
 
 - Use descriptive names that explain the behavior being tested

@@ -167,7 +167,7 @@ describe("document viewer routes over HTTP", () => {
 
     expect(answer.status).toBe(200);
     expect(answer.headers["content-type"]).toBe("application/pdf");
-    expect(answer.headers["content-security-policy"]).toBe("default-src 'none'; sandbox");
+    expect(answer.headers["content-security-policy"]).toBe("default-src 'none'; sandbox; frame-ancestors 'self'");
     expect(answer.headers["content-disposition"]).toBe('attachment; filename="preview.pdf"');
     expect(answer.headers["cache-control"]).toBe("no-store");
   });

@@ -9,17 +9,28 @@ test("a caseworker can find sign-out and cannot reopen a protected page afterwar
   await signInAsCaseworker(page);
 
   // The case list uses the full-width layout; the new-case form uses the standard layout.
-  await expect(page.getByRole("link", { name: "Sign out", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
   await page.goto("/deed-polls/new?lng=cy");
-  await expect(page.getByRole("link", { name: "Allgofnodi", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Allgofnodi", exact: true })).toBeVisible();
   await page.goto("/deed-polls?lng=cy");
-  await expect(page.getByRole("link", { name: "Allgofnodi", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Allgofnodi", exact: true })).toBeVisible();
   await page.goto("/deed-polls?lng=en");
 
   const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   expect(accessibility.violations).toEqual([]);
 
-  const signOut = page.getByRole("link", { name: "Sign out", exact: true });
+  // A bookmarked or linked GET of /logout asks for the click and signs nobody out (plan
+  // `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D3).
+  await page.goto("/logout");
+  await expect(page.getByRole("heading", { name: "Sign out", level: 1 })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
+  const confirmAccessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  expect(confirmAccessibility.violations).toEqual([]);
+  const stillSignedIn = await page.request.get("/deed-polls", { maxRedirects: 0 });
+  expect(stillSignedIn.status()).toBe(200);
+  await page.goto("/deed-polls?lng=en");
+
+  const signOut = page.getByRole("navigation", { name: "Account" }).getByRole("button", { name: "Sign out", exact: true });
   const serviceRoot = new URL("/", page.url()).href;
   await signOut.focus();
   await expect(signOut).toBeFocused();

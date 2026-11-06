@@ -7,6 +7,10 @@
  * outage reads like an issuer with no end-session endpoint, so the redirect always happens (review finding R04).
  * Either lands on `/signed-out`, never `/`: `/` sends an anonymous visitor straight to sign-in, and an IDAM session that
  * survived the outage would sign them back in (plan `docs/plans/completed/20261021-r04b-signed-out-page.md`).
+ *
+ * Only a `POST` signs out (ITHC finding, plan `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D3): a `GET` is a state
+ * change any page on any site could trigger with an image. The `GET` keeps old bookmarks and external links working by
+ * rendering one button that posts here, so the click is the user's own.
  */
 import type { Request, Response } from "express";
 import { availableEndSessionUrl } from "../auth/end-session.js";
@@ -16,7 +20,24 @@ import { idamSettings } from "../auth/settings.js";
 
 const SIGNED_OUT_PATH = "/signed-out";
 
-export const GET = async (req: Request, res: Response) => {
+const en = {
+  title: "Sign out",
+  body: "Select the button to sign out of this service.",
+  signOut: "Sign out"
+};
+
+// English pending translation; "Allgofnodi" is the header's own Sign out.
+const cy = {
+  ...en,
+  title: "Allgofnodi",
+  signOut: "Allgofnodi"
+};
+
+export const GET = (_req: Request, res: Response) => {
+  res.render("logout", { en, cy });
+};
+
+export const POST = async (req: Request, res: Response) => {
   const idToken = sessionIdToken(req);
   // Before `signOut`, which takes the subject and the session id with it.
   securityEvent("auth.logout", req);

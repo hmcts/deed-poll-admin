@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { resetIdamDiscovery } from "../auth/idam.js";
 import { requireAuth } from "../auth/require-auth.js";
 import { pageRequest, pageResponse } from "../express-doubles.js";
-import { GET } from "./logout.js";
+import { GET, POST } from "./logout.js";
 import { GET as signedOutPage } from "./signed-out/index.js";
 
 vi.mock("../auth/settings.js", () => ({ idamSettings: () => idam.config }));
@@ -74,7 +74,7 @@ describe("logout while IDAM discovery fails", () => {
     const req = signedIn();
     const res = pageResponse();
 
-    await GET(req, res);
+    await POST(req, res);
 
     expect(req.session.destroy).toHaveBeenCalled();
     expect(res.setHeader).toHaveBeenCalledWith("Clear-Site-Data", '"cache"');
@@ -83,10 +83,10 @@ describe("logout while IDAM discovery fails", () => {
   });
 
   it("should do the same inside the cooldown that follows a failed discovery", async () => {
-    await GET(signedIn(), pageResponse());
+    await POST(signedIn(), pageResponse());
     const res = pageResponse();
 
-    await GET(signedIn(), res);
+    await POST(signedIn(), res);
 
     expect(res.setHeader).toHaveBeenCalledWith("Clear-Site-Data", '"cache"');
     expect(res.redirect).toHaveBeenCalledWith("/signed-out");
@@ -97,7 +97,7 @@ describe("logout while IDAM discovery fails", () => {
     // `/` would send this anonymous visitor to `/login` at once, through an IDAM session that survived the outage.
     const app = appWithSessionInCookie();
 
-    const logout = await request(app).get("/logout").set("Cookie", "signed-in=yes");
+    const logout = await request(app).post("/logout").set("Cookie", "signed-in=yes");
     const landing = await request(app).get(logout.headers.location);
 
     expect(logout.status).toBe(302);
@@ -108,11 +108,24 @@ describe("logout while IDAM discovery fails", () => {
     expect(discoveryRequests).toBe(1);
   });
 
+  it("should sign nobody out, and ask IDAM nothing, on a GET of the same address", async () => {
+    // Plan `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D3: only the POST signs out.
+    const app = appWithSessionInCookie();
+
+    const page = await request(app).get("/logout").set("Cookie", "signed-in=yes");
+
+    expect(page.status).toBe(200);
+    expect(page.text).toBe("logout");
+    expect(page.headers["clear-site-data"]).toBeUndefined();
+    expect(discoveryRequests).toBe(0);
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
   it("should still send the browser to IDAM's end-session page when discovery succeeds", async () => {
     discoveryHealthy = true;
     const res = pageResponse();
 
-    await GET(signedIn(), res);
+    await POST(signedIn(), res);
 
     const away = new URL(res.redirect.mock.calls[0][0] as string);
     expect(`${away.origin}${away.pathname}`).toBe(`${base}/o/endSession`);
@@ -136,6 +149,7 @@ function appWithSessionInCookie() {
     next();
   });
   app.get("/logout", GET);
+  app.post("/logout", POST);
   app.get("/signed-out", signedOutPage);
   return app;
 }
@@ -143,7 +157,7 @@ function appWithSessionInCookie() {
 function signedIn() {
   return Object.assign(pageRequest({ idToken: "an-id-token", subject: "idam-subject-1" }), {
     sessionID: "a-session-id",
-    method: "GET",
+    method: "POST",
     baseUrl: "",
     path: "/logout"
   });

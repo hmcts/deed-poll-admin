@@ -383,7 +383,8 @@ single file:
   `size: 100`, api's `CasePaging.MAX_SIZE`, because `JudicialPoolQuery` publishes no bound. Every judicial page,
   including the shared "no longer available" page, links back to My referrals.
 - **A new page area must be added to `scripts/extract-welsh-strings.mjs`'s `INCLUDE`.** The script's scope is a
-  list of directories, so a page area that is not on it contributes nothing to
+  list of directories, plus single root pages listed as files (`src/pages/logout.ts`, because `src/pages` itself holds
+  every other root page too), so a page area that is not on it contributes nothing to
   `.business_context/welsh-translation-request.csv` and nothing to `yarn welsh:check` — with no failure anywhere,
   because the pages still carry their `en`/`cy` pairs. `src/pages/judicial/**` shipped that way and was invisible
   to the translation request until the directory was added. The extractor parses with the
@@ -549,6 +550,25 @@ Facts that are easy to get wrong from the code alone, and expensive to get wrong
   `src/pages/signed-out/` is public (`PUBLIC_PATHS`) and offers sign-in only as a link. Its copy says "signed out of
   this service" because IDAM may still hold its own session. With IDAM healthy, logout still goes to IDAM's
   end-session URL.
+- **Sign-out is a POST** (ITHC CSRF finding, D3/D4). Only `POST /logout` signs out; `GET /logout` renders a "Sign out"
+  page whose one button posts, so a bookmark still works and a GET changes nothing. The header's Sign out
+  (`layouts/account-navigation.njk`, the service navigation drawn by hand because `govukServiceNavigation` takes only
+  links) and the timeout dialog's "Sign out now" are POST forms with an `app-service-navigation__button`. `/logout`
+  stays in the path lists of `require-auth.ts`, `refresh-middleware.ts` and `session-lifetime.ts`, which are by path,
+  not method. **The CSP's `form-action` names IDAM's issuer origin** (`'self' <issuer origin>`, from `app.ts`), because
+  a browser applies it to every redirect a form submission follows, and without it the POST's redirect to IDAM's
+  end-session page is blocked. `src/analytics.test.ts` pins it.
+- **Every response carries a deny-all `Permissions-Policy` and no `X-Frame-Options`** (ITHC header findings, D6/D7).
+  `src/permissions-policy.ts` is mounted straight after `configureHelmet`, so error responses carry it too; admin's
+  browser code uses none of the features it denies, and a new one needs its entry changed there. Framing is governed by
+  the CSP's `frame-ancestors 'self'` alone. A response that replaces the app's CSP (the document relay in
+  `src/document-response.ts` and the preview relay) appends `frame-ancestors 'self'` to its own policy, because
+  `default-src` does not cover it.
+- **Starter edits.** `libs/express-govuk-starter` is template-provided, and these edits to it would be lost at a
+  re-scaffold with nothing failing in this app, so restate them after one: `configureHelmet` passes
+  `xFrameOptions: false` to helmet; its `formActionSources` option adds origins to `form-action` beside `'self'`; and
+  `cookies/views/cookie-preferences.njk` has no empty `_csrf` input. The starter's own `helmet-middleware.test.ts` and
+  `cookie-preferences.njk.test.ts` pin them.
 
 ## Session writes
 
@@ -652,6 +672,15 @@ only — api keeps the audit trail of writes and reads, and this app must not du
   `same-origin.ts` set them, and `errors.ts` maps them to `authz.denied` or `csrf.refused`. Do not emit a refusal at
   the gate as well, or it is counted twice. The one 403 outside it is `requireAuth`'s refusal of an unauthenticated non-GET request, which has no
   session subject to record and is deliberately not an event.
+- **A signed-in write with no fetch metadata is refused** (ITHC CSRF finding; plan
+  `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D1/D2). `requireSameOrigin()` (`src/auth/same-origin.ts`, mounted
+  after the session and before `requireAuth`) refuses a state-changing request from a session `sessionUser(req)` reads
+  as signed in when it carries no `Sec-Fetch-Site` **and** its `Origin` is absent or `"null"`, as `reason:
+  "same-origin"` with `fetchSite: "absent"`, so `errors.ts` emits `csrf.refused` as for the other refusals. An anonymous
+  request in that state still passes (`requireAuth` refuses it outside the public paths). Do not turn the guard into an
+  `Origin`-only check: under `Referrer-Policy: no-referrer` this app's own forms send `Origin: null`, and a browser's
+  evidence is `Sec-Fetch-Site`. A test that POSTs as a signed-in session sends `Sec-Fetch-Site: same-origin`, as a
+  browser does; fix the test's request, never the guard.
 - **An api error message reaches a log only through `forLog`** (`src/for-log.ts`), which strips CR, LF, ANSI escapes
   and other control characters and caps the text at 500 characters. `src/for-log.test.ts` scans `src/pages` and fails
   a `console.*` call that interpolates `.message` without it.

@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { ConflictError, findMasters, saveMasterChange } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { pageRequest, pageResponse, withoutSignOutForm } from "../../../express-doubles.js";
 import { addPathFilters } from "../../../path-filters.js";
 import { GET, POST } from "./masters/[masterId].js";
 
@@ -38,7 +38,7 @@ async function render(handler: typeof GET, body?: unknown) {
   res.locals.locale = "en";
   await handler(pageRequest({ deliveryManager: true, accessToken: "dm-token", params: { masterId: ID }, body }), res);
   const model = res.render.mock.calls[0]?.[1];
-  return environment.render("deed-polls/settings/master.njk", { ...model.en, ...model });
+  return withoutSignOutForm(environment.render("deed-polls/settings/master.njk", { ...model.en, ...model }));
 }
 
 describe("a Master's Change page", () => {

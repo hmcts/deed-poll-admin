@@ -99,7 +99,8 @@ describe("helmet-middleware", () => {
               connectSrc: expect.arrayContaining(["'self'", "https://*.google-analytics.com", "https://*.googletagmanager.com"]),
               frameSrc: ["https://*.googletagmanager.com"]
             })
-          }
+          },
+          xFrameOptions: false
         });
       });
 
@@ -125,6 +126,32 @@ describe("helmet-middleware", () => {
         expect(directives?.scriptSrc).not.toContain("ws://localhost:5173");
         expect(directives?.connectSrc).not.toContain("ws://localhost:5173");
         expect(directives?.connectSrc).not.toContain("ws://localhost:24678");
+      });
+    });
+
+    describe("X-Frame-Options", () => {
+      it("should not send X-Frame-Options, because the CSP's frame-ancestors 'self' already governs framing", () => {
+        configureHelmet();
+
+        expect(vi.mocked(helmet).mock.calls[0][0]?.xFrameOptions).toBe(false);
+      });
+    });
+
+    describe("form-action", () => {
+      it("should allow only 'self' by default, as helmet's own default does", () => {
+        configureHelmet();
+
+        const directives = vi.mocked(helmet).mock.calls[0][0]?.contentSecurityPolicy?.directives;
+
+        expect(directives?.formAction).toEqual(["'self'"]);
+      });
+
+      it("should add the given origins after 'self'", () => {
+        configureHelmet({ formActionSources: ["https://idam.example"] });
+
+        const directives = vi.mocked(helmet).mock.calls[0][0]?.contentSecurityPolicy?.directives;
+
+        expect(directives?.formAction).toEqual(["'self'", "https://idam.example"]);
       });
     });
 

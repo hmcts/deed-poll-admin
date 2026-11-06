@@ -42,7 +42,7 @@ describe("caseworker document preview route", () => {
 
     await GET(pageRequest({ params: { id: "case-1", documentId: "doc-a" } }), res, vi.fn());
 
-    expect(res.headers["Content-Security-Policy"]).toBe("default-src 'none'; sandbox");
+    expect(res.headers["Content-Security-Policy"]).toBe("default-src 'none'; sandbox; frame-ancestors 'self'");
     expect(res.headers["Content-Disposition"]).toBe('attachment; filename="preview.pdf"');
   });
 

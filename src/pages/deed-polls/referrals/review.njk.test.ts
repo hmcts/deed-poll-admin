@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { ConflictError, findReferralQueue, sendReferrals } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { pageRequest, pageResponse, withoutSignOutForm } from "../../../express-doubles.js";
 import { addPathFilters } from "../../../path-filters.js";
 import { POST } from "./review.js";
 import { POST as SEND } from "./send.js";
@@ -54,7 +54,7 @@ async function render(handler: typeof POST, body: Record<string, unknown>) {
   const res = pageResponse();
   await handler(pageRequest({ teamLeader: true, body }), res);
   const [view, model] = res.render.mock.calls[0];
-  return environment.render(`${view}.njk`, { ...model.en, ...model });
+  return withoutSignOutForm(environment.render(`${view}.njk`, { ...model.en, ...model }));
 }
 
 describe("referral queue review template", () => {

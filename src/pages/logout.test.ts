@@ -3,7 +3,7 @@ import { trackEvent } from "@hmcts-cft/cloud-native-platform";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { endSessionUrl } from "../auth/idam.js";
 import { pageRequest, pageResponse } from "../express-doubles.js";
-import { GET } from "./logout.js";
+import { GET, POST } from "./logout.js";
 
 vi.mock("../auth/idam.js", () => ({ endSessionUrl: vi.fn() }));
 vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
@@ -19,7 +19,7 @@ const SESSION_ID = "signed-in-session-id";
 function signedIn() {
   const req = Object.assign(
     pageRequest({ teamLeader: true, name: "An Admin", idToken: "an-id-token", accessToken: "an-access-token", subject: "idam-subject-1" }),
-    { sessionID: SESSION_ID, method: "GET", baseUrl: "", path: "/logout" }
+    { sessionID: SESSION_ID, method: "POST", baseUrl: "", path: "/logout" }
   );
   // express-session drops the id along with the session, so an event emitted afterwards would carry no sid.
   const destroy = req.session.destroy.getMockImplementation();
@@ -30,7 +30,7 @@ function signedIn() {
   return req;
 }
 
-describe("the logout page", () => {
+describe("signing out with POST /logout", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(endSessionUrl).mockResolvedValue(AWAY);
@@ -39,7 +39,7 @@ describe("the logout page", () => {
   it("destroys the local session", async () => {
     const req = signedIn();
 
-    await GET(req, pageResponse());
+    await POST(req, pageResponse());
 
     expect(req.session.destroy).toHaveBeenCalled();
     expect(req.session.deedPoll.user).toBeUndefined();
@@ -48,7 +48,7 @@ describe("the logout page", () => {
   it("then sends the browser to IDAM to end that session too", async () => {
     const res = pageResponse();
 
-    await GET(signedIn(), res);
+    await POST(signedIn(), res);
 
     expect(res.redirect).toHaveBeenCalledWith(AWAY);
   });
@@ -56,7 +56,7 @@ describe("the logout page", () => {
   it("reads the id token before destroying the session, since destroying it removes the token", async () => {
     // Ordering, and it is easy to get wrong: taking the token after `signOut` would pass `undefined`
     // and IDAM would prompt the user to confirm which session to end.
-    await GET(signedIn(), pageResponse());
+    await POST(signedIn(), pageResponse());
 
     expect(endSessionUrl).toHaveBeenCalledWith({ issuerUrl: "https://idam.example/o" }, "an-id-token", undefined);
   });
@@ -68,7 +68,7 @@ describe("the logout page", () => {
     const req = signedIn();
     const res = pageResponse();
 
-    await GET(req, res);
+    await POST(req, res);
 
     expect(req.session.destroy).toHaveBeenCalled();
     expect(res.redirect).toHaveBeenCalledWith("/signed-out");
@@ -78,10 +78,10 @@ describe("the logout page", () => {
     // The Back button after sign-out is the one moment a cached case page becomes an exposure on a shared PC.
     // "cache" only: "cookies" would also wipe the cookie-consent choice.
     const toIdam = pageResponse();
-    await GET(signedIn(), toIdam);
+    await POST(signedIn(), toIdam);
     vi.mocked(endSessionUrl).mockResolvedValue(undefined);
     const local = pageResponse();
-    await GET(signedIn(), local);
+    await POST(signedIn(), local);
 
     for (const res of [toIdam, local]) {
       expect(res.setHeader).toHaveBeenCalledWith("Clear-Site-Data", '"cache"');
@@ -90,10 +90,10 @@ describe("the logout page", () => {
   });
 
   it("works for someone who is not signed in, rather than failing", async () => {
-    // A bookmarked /logout, or a second click. Both should be harmless.
+    // A second click, or a form left open in another tab. Both should be harmless.
     const res = pageResponse();
 
-    await GET(pageRequest({ signedIn: false }), res);
+    await POST(pageRequest({ signedIn: false }), res);
 
     expect(endSessionUrl).toHaveBeenCalledWith({ issuerUrl: "https://idam.example/o" }, undefined, undefined);
     expect(res.redirect).toHaveBeenCalled();
@@ -110,7 +110,7 @@ describe("the logout page", () => {
     it("should still destroy the local session", async () => {
       const req = signedIn();
 
-      await GET(req, pageResponse());
+      await POST(req, pageResponse());
 
       expect(req.session.destroy).toHaveBeenCalled();
       expect(req.session.deedPoll.user).toBeUndefined();
@@ -119,7 +119,7 @@ describe("the logout page", () => {
     it("should tell the browser to drop its cached pages and redirect to the signed-out page, not to / which signs in", async () => {
       const res = pageResponse();
 
-      await GET(signedIn(), res);
+      await POST(signedIn(), res);
 
       expect(res.setHeader).toHaveBeenCalledWith("Clear-Site-Data", '"cache"');
       expect(res.redirect).toHaveBeenCalledWith("/signed-out");
@@ -127,7 +127,7 @@ describe("the logout page", () => {
     });
 
     it("should emit auth.logout exactly once", async () => {
-      await GET(signedIn(), pageResponse());
+      await POST(signedIn(), pageResponse());
 
       expect(vi.mocked(trackEvent).mock.calls.map(([name]) => name)).toEqual(["auth.logout"]);
     });
@@ -135,7 +135,7 @@ describe("the logout page", () => {
     it("should ask IDAM only after the local session has gone", async () => {
       const req = signedIn();
 
-      await GET(req, pageResponse());
+      await POST(req, pageResponse());
 
       expect(req.session.destroy.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(endSessionUrl).mock.invocationCallOrder[0]);
     });
@@ -143,7 +143,7 @@ describe("the logout page", () => {
 
   describe("security events", () => {
     it("should emit auth.logout with the subject and sid of the session being ended", async () => {
-      await GET(signedIn(), pageResponse());
+      await POST(signedIn(), pageResponse());
 
       expect(vi.mocked(trackEvent).mock.calls).toEqual([
         [
@@ -152,7 +152,7 @@ describe("the logout page", () => {
             subject: "idam-subject-1",
             sid: createHash("sha256").update(SESSION_ID).digest("hex").slice(0, 16),
             env: "test",
-            method: "GET",
+            method: "POST",
             route: "/logout"
           }
         ]
@@ -160,12 +160,53 @@ describe("the logout page", () => {
     });
 
     it("should put no token, name or raw session id in the event", async () => {
-      await GET(signedIn(), pageResponse());
+      await POST(signedIn(), pageResponse());
 
       const serialised = JSON.stringify(vi.mocked(trackEvent).mock.calls);
       for (const secret of ["an-id-token", "an-access-token", "An Admin", SESSION_ID, "@"]) {
         expect(serialised).not.toContain(secret);
       }
     });
+  });
+});
+
+describe("GET /logout", () => {
+  // ITHC finding (plan `docs/plans/completed/20261106-ithc-csrf-and-headers.md`, D3): a GET is a state change any site could
+  // trigger, so a bookmark or an external link reaches a page whose one button posts, and nothing else.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(endSessionUrl).mockResolvedValue(AWAY);
+  });
+
+  it("should render the sign-out page rather than sign anyone out", () => {
+    const req = signedIn();
+    const res = pageResponse();
+
+    GET(req, res);
+
+    expect(res.render).toHaveBeenCalledWith("logout", expect.objectContaining({ en: expect.anything(), cy: expect.anything() }));
+    expect(res.redirect).not.toHaveBeenCalled();
+    expect(res.setHeader).not.toHaveBeenCalledWith("Clear-Site-Data", expect.anything());
+  });
+
+  it("should leave the session in place and emit no auth.logout", () => {
+    const req = signedIn();
+
+    GET(req, pageResponse());
+
+    expect(req.session.destroy).not.toHaveBeenCalled();
+    expect(req.session.deedPoll.user).toBeDefined();
+    expect(endSessionUrl).not.toHaveBeenCalled();
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it("should carry Welsh copy with the same keys as the English", () => {
+    const res = pageResponse();
+
+    GET(signedIn(), res);
+
+    const { en, cy } = res.render.mock.calls[0][1] as { en: Record<string, string>; cy: Record<string, string> };
+    expect(Object.keys(cy)).toEqual(Object.keys(en));
+    expect(cy.signOut).toBe("Allgofnodi");
   });
 });

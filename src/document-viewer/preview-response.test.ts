@@ -46,7 +46,7 @@ describe("relayPreview", () => {
     expect(res.headers).toEqual({
       "Content-Type": "application/pdf",
       "Content-Disposition": 'attachment; filename="preview.pdf"',
-      "Content-Security-Policy": "default-src 'none'; sandbox",
+      "Content-Security-Policy": "default-src 'none'; sandbox; frame-ancestors 'self'",
       "X-Content-Type-Options": "nosniff",
       "Cache-Control": "no-store",
       "Content-Length": "9"

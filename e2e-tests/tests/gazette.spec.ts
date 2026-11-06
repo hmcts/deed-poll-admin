@@ -6,6 +6,8 @@ const MOCK = "http://localhost:3216";
 const READY = "/deed-polls/gazette";
 const HISTORY = `${READY}/history`;
 const SETTINGS = "/deed-polls/settings";
+// `page.request` sends no fetch metadata, and the same-origin gate refuses a signed-in write without it, as a browser's own form post never is.
+const SAME_ORIGIN = { "sec-fetch-site": "same-origin" };
 
 test("Delivery Manager follows the empty and populated Gazette worklist, application details and paginated history", async ({ page, request }) => {
   test.slow();
@@ -306,7 +308,9 @@ test("Delivery Manager completes mandatory reviews and confirms Gazette requests
     await page.getByRole("checkbox", { name: "I confirm that these reviewed applications should be sent to this recipient.", exact: true }).check();
     // A duplicated confirmation tab can post the same request while the original submits.
     const duplicate =
-      state === "Sending" ? page.request.post(`${READY}/batch`, { form: { journey: confirmationForm, action: "send", confirmed: "yes" } }) : null;
+      state === "Sending"
+        ? page.request.post(`${READY}/batch`, { headers: SAME_ORIGIN, form: { journey: confirmationForm, action: "send", confirmed: "yes" } })
+        : null;
     await page.getByRole("button", { name: "Confirm and send email", exact: true }).click();
     if (state === "Sent" || state === "Uncertain") {
       await expect(page.getByRole("button", { name: "Check request status", exact: true })).toBeVisible();
@@ -322,7 +326,7 @@ test("Delivery Manager completes mandatory reviews and confirms Gazette requests
     await accessible(page);
     if (state === "Sent") {
       // Reposting the old confirmation after acceptance cannot send another email, even if the browser missed the redirect.
-      const repeat = await page.request.post(`${READY}/batch`, { form: { journey: confirmationForm, action: "send", confirmed: "yes" } });
+      const repeat = await page.request.post(`${READY}/batch`, { headers: SAME_ORIGIN, form: { journey: confirmationForm, action: "send", confirmed: "yes" } });
       expect(repeat.status()).toBe(400);
       expect(await repeat.text()).toContain("has changed since it was reviewed");
       await page.goto(HISTORY);

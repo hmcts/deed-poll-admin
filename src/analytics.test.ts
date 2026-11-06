@@ -29,6 +29,9 @@ vi.mock("@hmcts-cft/express-session-redis", () => ({
   expressSessionRedis: ({ sessionOptions }: { sessionOptions: session.SessionOptions }) => session({ ...sessionOptions, store: new session.MemoryStore() })
 }));
 
+const PERMISSIONS_POLICY =
+  "accelerometer=(), autoplay=(), bluetooth=(), browsing-topics=(), camera=(), display-capture=(), fullscreen=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), usb=(), xr-spatial-tracking=()";
+
 describe("analytics", () => {
   it("should render a page with no Google Tag Manager markup", async () => {
     const app = await createApp();
@@ -54,7 +57,7 @@ describe("analytics", () => {
         "default-src 'self'",
         "base-uri 'self'",
         "font-src 'self' data:",
-        "form-action 'self'",
+        "form-action 'self' http://localhost:5556",
         "frame-ancestors 'self'",
         "img-src 'self' data:",
         "object-src 'none'",
@@ -66,5 +69,26 @@ describe("analytics", () => {
       ].join(";")
     );
     expect(policy).not.toMatch(/googletagmanager\.com|google-analytics\.com/);
+  });
+
+  describe("other security headers (ITHC, plan docs/plans/completed/20261106-ithc-csrf-and-headers.md D6 and D7)", () => {
+    it("should send the deny-all Permissions-Policy and no X-Frame-Options, leaving framing to the CSP", async () => {
+      const app = await createApp();
+
+      const response = await request(app).get("/signed-out");
+
+      expect(response.headers["permissions-policy"]).toBe(PERMISSIONS_POLICY);
+      expect(response.headers["x-frame-options"]).toBeUndefined();
+      expect(response.headers["content-security-policy"]).toContain("frame-ancestors 'self'");
+    });
+
+    it("should send the Permissions-Policy on a page that does not exist", async () => {
+      const app = await createApp();
+
+      const response = await request(app).get("/assets/no-such-file.js");
+
+      expect(response.status).toBe(404);
+      expect(response.headers["permissions-policy"]).toBe(PERMISSIONS_POLICY);
+    });
   });
 });

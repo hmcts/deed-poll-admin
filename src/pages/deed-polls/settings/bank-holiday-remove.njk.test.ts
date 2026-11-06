@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { findBankHolidays } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { describe, expect, it, vi } from "vitest";
-import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { pageRequest, pageResponse, withoutSignOutForm } from "../../../express-doubles.js";
 import { addPathFilters } from "../../../path-filters.js";
 import { GET } from "./bank-holidays/[date]/remove.js";
 
@@ -34,7 +34,7 @@ describe("the bank holiday removal confirmation", () => {
     // Act
     await GET(pageRequest({ deliveryManager: true, accessToken: "dm-token", params: { date: "2026-12-25" } }), res);
     const model = res.render.mock.calls[0]?.[1];
-    const markup = environment.render("deed-polls/settings/bank-holiday-remove.njk", { ...model.en, ...model });
+    const markup = withoutSignOutForm(environment.render("deed-polls/settings/bank-holiday-remove.njk", { ...model.en, ...model }));
 
     // Assert
     expect(markup).toMatch(/<title>\s*Are you sure you want to remove this bank holiday\?/);

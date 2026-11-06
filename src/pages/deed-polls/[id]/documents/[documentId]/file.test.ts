@@ -90,7 +90,7 @@ describe("document download route", () => {
 
     await GET(pageRequest({ params: PARAMS }), res, vi.fn());
 
-    expect(res.headers["Content-Security-Policy"]).toBe("default-src 'none'; sandbox");
+    expect(res.headers["Content-Security-Policy"]).toBe("default-src 'none'; sandbox; frame-ancestors 'self'");
     expect(res.headers["X-Content-Type-Options"]).toBe("nosniff");
   });
 
