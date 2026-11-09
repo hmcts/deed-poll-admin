@@ -20,9 +20,9 @@ const SELECTOR = 'select[data-module="app-document-type-autocomplete"]';
 /** Wired up from `index.ts` on every page, and a no-op on the ones with no upload form. */
 export function initDocumentTypeAutocomplete(): void {
   const select = document.querySelector<HTMLSelectElement>(SELECTOR);
-  if (select === null || select.form === null) return;
+  const form = select?.form;
+  if (select === null || form == null) return;
 
-  const form = select.form;
   const id = select.id;
   accessibleAutocomplete.enhanceSelectElement({ selectElement: select, defaultValue: "", showAllValues: true });
 

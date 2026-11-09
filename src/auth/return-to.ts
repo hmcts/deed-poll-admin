@@ -36,10 +36,16 @@ export function safeReturnTo(raw: unknown): string {
   return raw;
 }
 
-/** C0 controls, space and DEL: what a browser strips from a URL, or a URL cannot carry raw. */
+/**
+ * C0 controls, space and DEL: what a browser strips from a URL, or a URL cannot carry raw.
+ *
+ * `codePointAt` reads a whole astral character where a surrogate pair starts (≥ 0x10000) and the lone code unit
+ * everywhere else, so at every index it is at or below 0x20, or 0x7F, exactly when `charCodeAt` is: the verdict is
+ * the same for every string, paired and unpaired surrogates included.
+ */
 function hasControlOrSpace(value: string): boolean {
   for (let index = 0; index < value.length; index++) {
-    const code = value.charCodeAt(index);
+    const code = value.codePointAt(index) ?? 0;
     if (code <= 0x20 || code === 0x7f) return true;
   }
   return false;
