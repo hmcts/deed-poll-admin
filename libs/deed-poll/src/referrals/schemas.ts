@@ -188,7 +188,7 @@ export const SEND_SELECTION_MESSAGES = {
  * each referral still waiting, each Master available, the cap) is api's to decide at the send.
  */
 export const sendSelectionSchema = z.record(z.string(), z.unknown()).transform((body, ctx) => {
-  const ticked: unknown[] = body.referrals === undefined ? [] : Array.isArray(body.referrals) ? body.referrals : [body.referrals];
+  const ticked = tickedValues(body.referrals);
   const refuse = (path: string, message: string) => {
     ctx.addIssue({ code: "custom", path: [path], message });
     return z.NEVER;
@@ -204,6 +204,12 @@ export const sendSelectionSchema = z.record(z.string(), z.unknown()).transform((
 
   return { allocations: ticked.map((referralId) => ({ referralId, masterId: body[`master-${referralId}`] as string })) };
 });
+
+// A form posts one ticked box as a string and several as an array; none at all leaves the field out.
+function tickedValues(value: unknown): unknown[] {
+  if (value === undefined) return [];
+  return Array.isArray(value) ? value : [value];
+}
 
 function isUuid(value: unknown): value is string {
   return z.uuid().safeParse(value).success;

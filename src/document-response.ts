@@ -111,7 +111,7 @@ function withOwnFrameAncestors(contentSecurityPolicy: string): string {
   const policies = contentSecurityPolicy.split(",").map((policy) =>
     policy
       .split(";")
-      .filter((directive) => directive.toLowerCase().split(CSP_WHITESPACE).filter(Boolean)[0] !== "frame-ancestors")
+      .filter((directive) => directive.toLowerCase().split(CSP_WHITESPACE).find(Boolean) !== "frame-ancestors")
       .join(";")
   );
 
