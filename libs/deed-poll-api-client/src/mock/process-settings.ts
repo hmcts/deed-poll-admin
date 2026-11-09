@@ -18,6 +18,7 @@ const OPTIONAL_INTS = {
 const KEYS = new Set<string>([PROCESSING_WINDOW, REVISION, ...Object.keys(OPTIONAL_INTS), ...WINDOW_TIMES]);
 const PROCESSING_WINDOW_MESSAGE = `Enter a processing window from ${PROCESS_SETTINGS_LIMITS.minProcessingMinutes} to ${PROCESS_SETTINGS_LIMITS.maxProcessingMinutes} minutes (1 to 30 days), in whole minutes.`;
 const WINDOW_TIME = new RegExp(WINDOW_TIME_PATTERN);
+const WINDOW_TIME_MESSAGE = "Enter a time from 00:00 to 23:45 as HH:mm, on the quarter hour (00, 15, 30 or 45).";
 
 /**
  * api's `ProcessSettingsService`, restated for the one settings row: the same closed keys, bounds and checking order,
@@ -36,26 +37,9 @@ export function createProcessSettings() {
     },
     update(body: unknown, name: string): Reply {
       const fields = typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
-      const unknownKey = Object.keys(fields).find((key) => !KEYS.has(key));
-      if (unknownKey) return invalid(unknownKey, "Only the process settings and revision may be supplied.");
-
-      const minutes = fields[PROCESSING_WINDOW];
-      if (!isWholeNumber(minutes) || minutes < PROCESS_SETTINGS_LIMITS.minProcessingMinutes || minutes > PROCESS_SETTINGS_LIMITS.maxProcessingMinutes) {
-        return invalid(PROCESSING_WINDOW, PROCESSING_WINDOW_MESSAGE);
-      }
-      for (const [key, bounds] of Object.entries(OPTIONAL_INTS)) {
-        if (!(key in fields)) continue;
-        const value = fields[key];
-        if (!isWholeNumber(value) || value < bounds.min || value > bounds.max) return invalid(key, bounds.message);
-      }
-      for (const key of WINDOW_TIMES) {
-        if (!(key in fields)) continue;
-        const value = fields[key];
-        if (typeof value !== "string" || !WINDOW_TIME.test(value))
-          return invalid(key, "Enter a time from 00:00 to 23:45 as HH:mm, on the quarter hour (00, 15, 30 or 45).");
-      }
-      const revision = fields[REVISION];
-      if (!isWholeNumber(revision) || revision < 0) return invalid(REVISION, "Reload the process settings before saving.");
+      const refusal = refusalOf(fields);
+      if (refusal) return refusal;
+      const revision = fields[REVISION] as number;
 
       if (revision !== settings.revision) return { status: 409, body: { error: "The process settings have changed. Reload them before saving." } };
       const merged = { ...settings, ...(fields as Partial<WireProcessSettings>), revision: settings.revision };
@@ -84,6 +68,31 @@ function seeded(): WireProcessSettings {
     updatedAt: null,
     updatedBy: null
   };
+}
+
+// api's checking order: closed keys, the processing window, each optional whole number, each window time, then the
+// revision. The first refusal wins.
+function refusalOf(fields: Record<string, unknown>): Reply | null {
+  const unknownKey = Object.keys(fields).find((key) => !KEYS.has(key));
+  if (unknownKey) return invalid(unknownKey, "Only the process settings and revision may be supplied.");
+  if (!isWithin(fields[PROCESSING_WINDOW], PROCESS_SETTINGS_LIMITS.minProcessingMinutes, PROCESS_SETTINGS_LIMITS.maxProcessingMinutes)) {
+    return invalid(PROCESSING_WINDOW, PROCESSING_WINDOW_MESSAGE);
+  }
+  const badInt = Object.entries(OPTIONAL_INTS).find(([key, bounds]) => key in fields && !isWithin(fields[key], bounds.min, bounds.max));
+  if (badInt) return invalid(badInt[0], badInt[1].message);
+  const badTime = WINDOW_TIMES.find((key) => key in fields && !isWindowTime(fields[key]));
+  if (badTime) return invalid(badTime, WINDOW_TIME_MESSAGE);
+  const revision = fields[REVISION];
+  if (!isWholeNumber(revision) || revision < 0) return invalid(REVISION, "Reload the process settings before saving.");
+  return null;
+}
+
+function isWithin(value: unknown, min: number, max: number): boolean {
+  return isWholeNumber(value) && value >= min && value <= max;
+}
+
+function isWindowTime(value: unknown): boolean {
+  return typeof value === "string" && WINDOW_TIME.test(value);
 }
 
 // `HH:mm` compares as text in time order, so no parsing is needed once the pattern has held. The mock's row always

@@ -11,6 +11,7 @@ const EMAIL_MESSAGE = "Enter the Master's email address, like name@example.com."
 const AVAILABLE_MESSAGE = "Say whether the Master is available, as true or false.";
 const LINKED_ELSEWHERE = "A judicial caller's email matches a Master already linked to another account";
 const ALREADY_LINKED = "A judicial caller already linked to one Master has the email of another";
+const NO_REFERRAL_SIDE: ReferralSide = { linked: () => {}, unlinked: () => {} };
 
 /**
  * api's Masters list (`MasterService`), restated in its words and its checking order: names trimmed, emails trimmed
@@ -22,7 +23,7 @@ const ALREADY_LINKED = "A judicial caller already linked to one Master has the e
  * `linked` runs only when a link was written, as api's `attachToLinkedMaster` and `attachLegacyClaims` do, and
  * `unlinked` when an email change cut a linked Master off, as `detachFromUnlinkedMaster` does.
  */
-export function createMasters(referrals: ReferralSide = { linked: () => {}, unlinked: () => {} }) {
+export function createMasters(referrals: ReferralSide = NO_REFERRAL_SIDE) {
   const masters = new Map<string, MockMaster>();
 
   return {
@@ -48,42 +49,15 @@ export function createMasters(referrals: ReferralSide = { linked: () => {}, unli
       return { status: 201, body: toWire(master) };
     },
     update(id: string, body: unknown): Reply {
-      const fields = asObject(body);
-      const unknownKey = Object.keys(fields).find((key) => !UPDATE_KEYS.has(key));
-      if (unknownKey) return invalid(unknownKey, UNKNOWN_KEY);
-      if (!("name" in fields) && !("email" in fields) && !("available" in fields)) {
-        return invalid("name", "Supply at least one of name, email and available.");
-      }
-      const name = "name" in fields ? readName(fields.name) : undefined;
-      if (name === null) return invalid("name", NAME_MESSAGE);
-      const email = "email" in fields ? readEmail(fields.email) : undefined;
-      if (email === null) return invalid("email", EMAIL_MESSAGE);
-      if ("available" in fields && typeof fields.available !== "boolean") return invalid("available", AVAILABLE_MESSAGE);
-      const revision = fields.revision;
-      if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0) return invalid("revision", "Reload the Masters list before saving.");
+      const change = readUpdate(asObject(body));
+      if ("status" in change) return change;
 
       // api parses the id as a UUID, so anything else is the same 404 as an unknown one.
       const master = UUID.test(id) ? masters.get(id.toLowerCase()) : undefined;
       if (!master) return { status: 404, body: { error: "No such Master" } };
       // Before the no-op, so an out-of-date form holding the values the row now has is never told it saved.
-      if (revision !== master.revision) return conflict("This Master has changed. Reload the Masters list before saving.");
-
-      const next = {
-        name: name ?? master.name,
-        email: email ?? master.email,
-        available: (fields.available as boolean | undefined) ?? master.available
-      };
-      const emailChanged = next.email !== master.email;
-      if (next.name === master.name && !emailChanged && next.available === master.available) {
-        return { status: 200, body: toWire(master) };
-      }
-      const other = emailChanged ? holder(next.email) : undefined;
-      if (other !== undefined && other.id !== master.id) return duplicateEmail();
-
-      const updated: MockMaster = { ...master, ...next, revision: master.revision + 1, subject: emailChanged ? null : master.subject };
-      masters.set(master.id, updated);
-      if (emailChanged && master.subject !== null) referrals.unlinked(master.id);
-      return { status: 200, body: toWire(updated) };
+      if (change.revision !== master.revision) return conflict("This Master has changed. Reload the Masters list before saving.");
+      return applyUpdate(master, change);
     },
     /**
      * api's `linkIfListed`, run once per judicial request: links the caller to the unlinked entry holding their
@@ -115,6 +89,25 @@ export function createMasters(referrals: ReferralSide = { linked: () => {}, unli
     }
   };
 
+  function applyUpdate(master: MockMaster, change: MasterUpdate): Reply {
+    const next = {
+      name: change.name ?? master.name,
+      email: change.email ?? master.email,
+      available: change.available ?? master.available
+    };
+    const emailChanged = next.email !== master.email;
+    if (next.name === master.name && !emailChanged && next.available === master.available) {
+      return { status: 200, body: toWire(master) };
+    }
+    const other = emailChanged ? holder(next.email) : undefined;
+    if (other !== undefined && other.id !== master.id) return duplicateEmail();
+
+    const updated: MockMaster = { ...master, ...next, revision: master.revision + 1, subject: emailChanged ? null : master.subject };
+    masters.set(master.id, updated);
+    if (emailChanged && master.subject !== null) referrals.unlinked(master.id);
+    return { status: 200, body: toWire(updated) };
+  }
+
   function holder(email: string): MockMaster | undefined {
     return [...masters.values()].find((master) => master.email === email);
   }
@@ -122,6 +115,23 @@ export function createMasters(referrals: ReferralSide = { linked: () => {}, unli
 
 function asObject(body: unknown): Record<string, unknown> {
   return typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
+}
+
+// api's checking order for a change: keys, at least one value, name, email, available, then the revision.
+function readUpdate(fields: Record<string, unknown>): Reply | MasterUpdate {
+  const unknownKey = Object.keys(fields).find((key) => !UPDATE_KEYS.has(key));
+  if (unknownKey) return invalid(unknownKey, UNKNOWN_KEY);
+  if (!("name" in fields) && !("email" in fields) && !("available" in fields)) {
+    return invalid("name", "Supply at least one of name, email and available.");
+  }
+  const name = "name" in fields ? readName(fields.name) : undefined;
+  if (name === null) return invalid("name", NAME_MESSAGE);
+  const email = "email" in fields ? readEmail(fields.email) : undefined;
+  if (email === null) return invalid("email", EMAIL_MESSAGE);
+  if ("available" in fields && typeof fields.available !== "boolean") return invalid("available", AVAILABLE_MESSAGE);
+  const revision = fields.revision;
+  if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0) return invalid("revision", "Reload the Masters list before saving.");
+  return { name, email, available: fields.available as boolean | undefined, revision };
 }
 
 function readName(value: unknown): string | null {
@@ -141,7 +151,12 @@ function readEmail(value: unknown): string | null {
 }
 
 function byNameThenId(left: MockMaster, right: MockMaster): number {
-  return left.name.localeCompare(right.name) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+  return left.name.localeCompare(right.name) || compareIds(left.id, right.id);
+}
+
+function compareIds(left: string, right: string): number {
+  if (left < right) return -1;
+  return left > right ? 1 : 0;
 }
 
 function toWire(master: MockMaster): WireMaster {
@@ -158,6 +173,13 @@ function conflict(error: string): Reply {
 
 function duplicateEmail(): Reply {
   return { status: 409, body: { error: DUPLICATE_EMAIL, errors: [{ field: "email", message: DUPLICATE_EMAIL }] } };
+}
+
+interface MasterUpdate {
+  name: string | undefined;
+  email: string | undefined;
+  available: boolean | undefined;
+  revision: number;
 }
 
 interface MockMaster {
