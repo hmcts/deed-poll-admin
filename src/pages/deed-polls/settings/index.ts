@@ -1,5 +1,1 @@
-import { saveProcessSection, showSettings } from "../../../service-settings/page.js";
-
-export const GET = showSettings;
-
-export const POST = saveProcessSection;
+export { saveProcessSection as POST, showSettings as GET } from "../../../service-settings/page.js";
