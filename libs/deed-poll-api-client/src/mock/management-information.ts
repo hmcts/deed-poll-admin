@@ -251,7 +251,7 @@ function shaped(index: number, period: Period, salt: string, low: number, high: 
 function kept(count: number, includeMigrated: boolean): number {
   // S2301 accepted: the flag is api's includeMigrated filter itself. Passing the rule means threading a chosen
   // "keep" function through all four KPI builders (volume branches on the flag too), a wider change to fixed mock
-  // figures with no gain in a test double that never ships.
+  // figures with no gain in a test double that production never runs.
   return includeMigrated ? count : count - Math.floor(count / 5); // NOSONAR typescript:S2301 - the flag is the MI filter; Steve accepted 2026-11-09
 }
 
