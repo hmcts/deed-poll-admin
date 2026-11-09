@@ -74,8 +74,6 @@ describe("the login page", () => {
       expect(beginLogin).toHaveBeenCalledWith(expect.anything(), "/deed-polls/case-1");
     });
 
-    // The service root and not the case list, because which home is right depends on roles that do not
-    // exist until the token comes back — `pages/index.ts` resolves the persona on the way through.
     // The control-character scan reads code points. A character outside the BMP, or a lone surrogate, is neither
     // a control nor a space, so it must pass exactly as it did when the scan read UTF-16 code units.
     it.each([
@@ -89,6 +87,8 @@ describe("the login page", () => {
       expect(beginLogin).toHaveBeenCalledWith(expect.anything(), returnTo);
     });
 
+    // The service root and not the case list, because which home is right depends on roles that do not
+    // exist until the token comes back — `pages/index.ts` resolves the persona on the way through.
     it("defaults to the service root when absent, so the persona decides the landing page", async () => {
       await GET(pageRequest({ signedIn: false }), pageResponse());
 
