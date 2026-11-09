@@ -11,7 +11,7 @@ import type { Request, Response } from "express";
 import { callerFromRequest } from "../auth/current-user.js";
 import { pathSegment } from "../path-segment.js";
 import { cy, en } from "./content.js";
-import { bodyOf, contentFor, degraded, masterFieldErrors, SAVED, SETTINGS_PATH, savedRedirect, textOf } from "./page.js";
+import { bodyOf, contentFor, degraded, masterFieldErrors, refusalReloadText, SAVED, SETTINGS_PATH, savedRedirect, textOf } from "./page.js";
 
 const CONTROL_IDS = { name: "#master-name", email: "#master-email", available: "#available" } as const;
 
@@ -32,14 +32,8 @@ export async function saveMasterChangePage(req: Request, res: Response) {
   const content = contentFor(res);
   const body = bodyOf(req);
   const values = { name: textOf(body.name), email: textOf(body.email), available: textOf(body.available), revision: textOf(body.revision) };
-  const refused = async (status: number, failure: { errors?: MasterErrors; reloadText?: string }) =>
-    render(res, status, {
-      path,
-      isLinked: await isLinked(req),
-      values,
-      errors: failure.errors ?? {},
-      ...(failure.reloadText ? { reloadText: failure.reloadText } : {})
-    });
+  const refused = async ({ status, errors, reloadText }: MasterRefusal) =>
+    render(res, status, { path, isLinked: await isLinked(req), values, errors: errors ?? {}, ...(reloadText ? { reloadText } : {}) });
 
   const parsed = masterChangeFormSchema({
     name: content.masterNameError,
@@ -47,29 +41,37 @@ export async function saveMasterChangePage(req: Request, res: Response) {
     available: content.masterAvailableError,
     reload: content.masterReload
   }).safeParse(body);
-  if (!parsed.success) {
-    const issue = (field: string) => parsed.error.issues.find((each) => each.path[0] === field)?.message;
-    const errors = Object.fromEntries((["name", "email", "available"] as const).flatMap((field) => (issue(field) ? [[field, issue(field)]] : [])));
-    return refused(400, { errors, reloadText: issue("revision") });
-  }
+  if (!parsed.success) return refused(formRefusal(parsed.error.issues));
   try {
     await saveMasterChange(req.params.masterId, parsed.data, callerFromRequest(req));
   } catch (error) {
-    // api checks the revision before the email, so a 409 naming `email` is at the current revision: only the address is wrong.
-    if (error instanceof ConflictError) {
-      return error.errors.some((each) => each.field === "email")
-        ? refused(409, { errors: { email: content.masterDuplicateError } })
-        : refused(409, { reloadText: content.masterConflict });
-    }
-    if (error instanceof InvalidInputError) {
-      const fields = error.errors.map((each) => each.field);
-      const errors = masterFieldErrors(fields, content);
-      const reloadText = fields.includes("revision") ? content.masterReload : Object.keys(errors).length > 0 ? undefined : content.masterRefused;
-      return refused(400, { errors, reloadText });
-    }
-    throw error;
+    const refusal = apiRefusal(error, content);
+    if (!refusal) throw error;
+    return refused(refusal);
   }
   savedRedirect(res, SAVED.masterChanged);
+}
+
+function formRefusal(issues: readonly { path: readonly PropertyKey[]; message: string }[]): MasterRefusal {
+  const issue = (field: string) => issues.find((each) => each.path[0] === field)?.message;
+  const errors = Object.fromEntries((["name", "email", "available"] as const).flatMap((field) => (issue(field) ? [[field, issue(field)]] : [])));
+  return { status: 400, errors, reloadText: issue("revision") };
+}
+
+/** api's refusal of the save, in this page's words, or `undefined` for a failure that is not a refusal. */
+function apiRefusal(error: unknown, content: typeof en): MasterRefusal | undefined {
+  // api checks the revision before the email, so a 409 naming `email` is at the current revision: only the address is wrong.
+  if (error instanceof ConflictError) {
+    return error.errors.some((each) => each.field === "email")
+      ? { status: 409, errors: { email: content.masterDuplicateError } }
+      : { status: 409, reloadText: content.masterConflict };
+  }
+  if (error instanceof InvalidInputError) {
+    const fields = error.errors.map((each) => each.field);
+    const errors = masterFieldErrors(fields, content);
+    return { status: 400, errors, reloadText: refusalReloadText(fields, errors, { reload: content.masterReload, refused: content.masterRefused }) };
+  }
+  return undefined;
 }
 
 /** Built before any read or write, so a refused id can never follow a save. */
@@ -98,6 +100,12 @@ function render(res: Response, status: number, master: MasterChange) {
 }
 
 type MasterErrors = Partial<Record<"name" | "email" | "available", string>>;
+
+interface MasterRefusal {
+  status: number;
+  errors?: MasterErrors;
+  reloadText?: string;
+}
 
 interface MasterChange {
   path: string;

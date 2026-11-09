@@ -97,12 +97,9 @@ export async function saveProcessSection(req: Request, res: Response) {
   } catch (error) {
     if (error instanceof ConflictError) return render(req, res, 409, { process: processFailure(values, { reloadText: content.processConflict }) });
     if (error instanceof InvalidInputError) {
-      const errors = apiFieldErrors(
-        error.errors.map((each) => each.field),
-        content
-      );
-      const hasControl = Object.keys(errors).length > 0;
-      const reloadText = error.errors.some((each) => each.field === "revision") ? content.processReload : hasControl ? undefined : content.processRefused;
+      const fields = error.errors.map((each) => each.field);
+      const errors = apiFieldErrors(fields, content);
+      const reloadText = refusalReloadText(fields, errors, { reload: content.processReload, refused: content.processRefused });
       return render(req, res, 400, { process: processFailure(values, { errors, reloadText }) });
     }
     throw error;
@@ -178,16 +175,25 @@ export async function addBankHolidaySection(req: Request, res: Response) {
   } catch (error) {
     if (error instanceof ConflictError) return render(req, res, 409, { holidayAdd: { values, errors: { date: content.bankHolidayDuplicateError } } });
     if (error instanceof InvalidInputError) {
-      const fields = error.errors.map((each) => each.field);
+      const fields = new Set(error.errors.map((each) => each.field));
       const errors = dropEmpty({
-        date: fields.includes("date") ? content.bankHolidayDateError : undefined,
-        name: fields.includes("name") ? content.bankHolidayNameError : undefined
+        date: fields.has("date") ? content.bankHolidayDateError : undefined,
+        name: fields.has("name") ? content.bankHolidayNameError : undefined
       });
       return render(req, res, 400, { holidayAdd: { values, errors, ...(Object.keys(errors).length > 0 ? {} : { refusedText: content.bankHolidayRefused }) } });
     }
     throw error;
   }
   savedRedirect(res, SAVED.bankHolidayAdded);
+}
+
+/**
+ * What a section says beside api's 400 when it is not only field errors. A refused revision means reading again before
+ * saving; a refusal naming no control on the form has nowhere else to be said. Shared with the "Change" page.
+ */
+export function refusalReloadText(fields: readonly string[], errors: object, text: { reload: string; refused: string }): string | undefined {
+  if (fields.includes("revision")) return text.reload;
+  return Object.keys(errors).length > 0 ? undefined : text.refused;
 }
 
 /** api's field errors on a Master, in this page's words, keyed on the field. Shared with the "Change" page. */
