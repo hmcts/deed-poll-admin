@@ -116,8 +116,13 @@ async function render(req: Request, res: Response, state: RenderState) {
     currentlyWith: currentlyWith(view, content),
     masterItems: masters.map((master) => ({ value: master.id, text: master.name, checked: master.id === selected })),
     errors: state.errors,
-    errorList: state.formError ? [{ text: state.formError }] : state.errors.masterId ? [{ text: state.errors.masterId, href: "#masterId" }] : []
+    errorList: errorList(state)
   });
+}
+
+function errorList(state: RenderState): { text: string; href?: string }[] {
+  if (state.formError) return [{ text: state.formError }];
+  return state.errors.masterId ? [{ text: state.errors.masterId, href: "#masterId" }] : [];
 }
 
 function currentlyWith(view: ReferralView, content: typeof en): string {
