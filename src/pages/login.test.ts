@@ -74,6 +74,19 @@ describe("the login page", () => {
       expect(beginLogin).toHaveBeenCalledWith(expect.anything(), "/deed-polls/case-1");
     });
 
+    // The control-character scan reads code points. A character outside the BMP, or a lone surrogate, is neither
+    // a control nor a space, so it must pass exactly as it did when the scan read UTF-16 code units.
+    it.each([
+      ["a character outside the Basic Multilingual Plane", "/deed-polls/\u{1F600}"],
+      ["a lone high surrogate", "/deed-polls/\uD83D"],
+      ["a lone low surrogate", "/deed-polls/\uDE00"],
+      ["a lone high surrogate at the end, after a pair", "/deed-polls/\u{1F600}\uD83D"]
+    ])("passes %s through unchanged", async (_case, returnTo) => {
+      await GET(pageRequest({ signedIn: false, query: { returnTo } }), pageResponse());
+
+      expect(beginLogin).toHaveBeenCalledWith(expect.anything(), returnTo);
+    });
+
     // The service root and not the case list, because which home is right depends on roles that do not
     // exist until the token comes back — `pages/index.ts` resolves the persona on the way through.
     it("defaults to the service root when absent, so the persona decides the landing page", async () => {
@@ -98,6 +111,8 @@ describe("the login page", () => {
       ["a carriage return and newline smuggled in after the leading slash", "/\r\n/evil.example"],
       ["a space after the leading slash", "/ /evil.example"],
       ["a control character later in the path", "/deed-polls\u0000"],
+      ["a control character straight after a surrogate pair", "/deed-polls/\u{1F600}\u0009"],
+      ["a control character straight after a lone high surrogate", "/deed-polls/\uD83D\u0000"],
       ["a scheme-only URL", "javascript:alert(1)"],
       ["a relative path that is not rooted", "deed-polls"],
       ["an array, as a repeated query parameter arrives", ["/deed-polls", "https://evil.example"] as unknown as string],
