@@ -60,8 +60,14 @@ function yScale(max: number): { top: number; step: number } {
   const raw = max / TARGET_TICKS;
   const magnitude = 10 ** Math.floor(Math.log10(raw));
   const residual = raw / magnitude;
-  const step = (residual <= 1 ? 1 : residual <= 2 ? 2 : residual <= 5 ? 5 : 10) * magnitude;
+  const step = niceMultiplier(residual) * magnitude;
   return { top: round(Math.ceil(round(max / step, 6)) * step, 6), step };
+}
+
+function niceMultiplier(residual: number): number {
+  if (residual <= 1) return 1;
+  if (residual <= 2) return 2;
+  return residual <= 5 ? 5 : 10;
 }
 
 /** Runs of two or more consecutive periods with a value, as SVG `points` lists. */
@@ -69,7 +75,7 @@ function segments(points: Point[]): string[] {
   const runs: Point[][] = [];
   for (const point of points) {
     const run = runs.at(-1);
-    if (run && run[run.length - 1].index === point.index - 1) run.push(point);
+    if (run?.at(-1)?.index === point.index - 1) run.push(point);
     else runs.push([point]);
   }
   return runs.filter((run) => run.length > 1).map((run) => run.map(({ x, y }) => `${x},${y}`).join(" "));

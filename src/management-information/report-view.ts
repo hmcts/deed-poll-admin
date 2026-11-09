@@ -102,7 +102,10 @@ function formatters(locale: keyof typeof LOCALE_TAG, content: Content, granulari
     tick: (value) => tick.format(utcDay(value)),
     periodHeading: content.periodHeadings[granularity],
     period: (start, end) => content.periodRange(day.format(utcDay(start)), day.format(utcDay(end))),
-    cell: (column, value) => (value === null ? content.noCases : column.kind === "days" ? days.format(value) : count.format(value)),
+    cell: (column, value) => {
+      if (value === null) return content.noCases;
+      return column.kind === "days" ? days.format(value) : count.format(value);
+    },
     count: (value) => count.format(value),
     days: (value) => days.format(value),
     // A step under a tenth of a day needs its own digits, or 0.02 and 0.04 both read 0 (the table's one place is enough there).
@@ -151,7 +154,7 @@ function chart(format: Formatters, data: MiTable, headings: Record<string, strin
   const listed = labels.map((label) => label.toLowerCase());
   const seriesText = listed.length === 1 ? listed[0] : `${listed.slice(0, -1).join(", ")} ${format.content.and} ${listed.at(-1)}`;
   const first = format.day(data.rows[0].start);
-  const last = format.day(data.rows[data.rows.length - 1].end);
+  const last = format.day(data.rows.at(-1)!.end);
   const hasGaps = series.some((each) => each.values.includes(null));
   const tickStep = geometry.yTicks[1].value - geometry.yTicks[0].value;
   return {
