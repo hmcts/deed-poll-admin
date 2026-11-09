@@ -111,6 +111,19 @@ describe("referral queue review", () => {
     expect(model.totals[0]).toBe("No more referrals can be sent this morning.");
   });
 
+  // The afternoon's room sentences are their own content functions, so they are pinned apart from the morning's.
+  it.each([
+    [9, "Only 1 more referral can be sent this afternoon."],
+    [10, "No more referrals can be sent this afternoon."]
+  ])("should say how many more fit this afternoon when %s have been sent", async (sent, sentence) => {
+    arrange({ window: { ...OPEN_WINDOW, current: { ...OPEN_WINDOW.current, slot: "PM", closesAt: "2026-10-30T14:30:00Z" }, sent } });
+
+    const { model } = await post(SELECTION);
+
+    expect(model.canSend).toBe(false);
+    expect(model.totals[0]).toBe(sentence);
+  });
+
   it("should draw no Send when api sent no window", async () => {
     arrange({ window: null });
 

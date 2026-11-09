@@ -117,10 +117,15 @@ describe("deed-polls list template", () => {
     expect(markup).not.toContain(">New case<");
   });
 
-  it("should hide the Gazette area from non-admins", async () => {
+  it.each([
+    ["the Gazette area", ["/deed-polls/gazette", "Applications ready for the London Gazette:"]],
+    ["the referral queue", ['href="/deed-polls/referrals"', ">Referrals</a>"]],
+    ["the management information page", ["/deed-polls/management-information"]],
+    ["the service settings page", ["/deed-polls/settings", "Service settings"]]
+  ])("should not link a caseworker to %s", async (_area, absent) => {
     const markup = await render();
-    expect(markup).not.toContain("/deed-polls/gazette");
-    expect(markup).not.toContain("Applications ready for the London Gazette:");
+
+    for (const text of absent) expect(markup).not.toContain(text);
   });
 
   it.each([0, 26])("should keep the Gazette link available for admins with %s ready cases", async (count) => {
@@ -131,36 +136,15 @@ describe("deed-polls list template", () => {
     expect(markup).not.toContain("Try opening the ready list");
   });
 
-  it("should link a Delivery Manager to the service settings page", async () => {
+  // A Delivery Manager holds MANAGE_PROCESS_CONFIG, ALLOCATE_REFERRALS and VIEW_MANAGEMENT_INFORMATION.
+  it.each([
+    ["the service settings page", '<a class="govuk-link" href="/deed-polls/settings">Service settings</a>'],
+    ["the referral queue", '<a class="govuk-link" href="/deed-polls/referrals">Referrals</a>'],
+    ["the management information page", '<a class="govuk-link" href="/deed-polls/management-information">Management information</a>']
+  ])("should link a Delivery Manager to %s", async (_area, link) => {
     const markup = await render({}, true);
-    expect(markup).toContain('<a class="govuk-link" href="/deed-polls/settings">Service settings</a>');
-  });
 
-  it("should link a holder of ALLOCATE_REFERRALS to the referral queue", async () => {
-    const markup = await render({}, true);
-    expect(markup).toContain('<a class="govuk-link" href="/deed-polls/referrals">Referrals</a>');
-  });
-
-  it("should not link a caseworker to the referral queue", async () => {
-    const markup = await render();
-    expect(markup).not.toContain('href="/deed-polls/referrals"');
-    expect(markup).not.toContain(">Referrals</a>");
-  });
-
-  it("should link a holder of VIEW_MANAGEMENT_INFORMATION to the management information page", async () => {
-    const markup = await render({}, true);
-    expect(markup).toContain('<a class="govuk-link" href="/deed-polls/management-information">Management information</a>');
-  });
-
-  it("should not link a caseworker to the management information page", async () => {
-    const markup = await render();
-    expect(markup).not.toContain("/deed-polls/management-information");
-  });
-
-  it("should not link anyone else to the service settings page", async () => {
-    const markup = await render();
-    expect(markup).not.toContain("/deed-polls/settings");
-    expect(markup).not.toContain("Service settings");
+    expect(markup).toContain(link);
   });
 
   it("should distinguish unavailable from zero while keeping the Gazette link", async () => {

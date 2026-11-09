@@ -37,10 +37,14 @@ export const reviewContentEn = {
   sendsFor: (count: number) => `This sends ${count} ${count === 1 ? "referral" : "referrals"}.`,
   morningTotalFor: (sent: number, cap: number) => `${sent} of ${cap} will have been sent this morning.`,
   afternoonTotalFor: (sent: number, cap: number) => `${sent} of ${cap} will have been sent this afternoon.`,
-  morningRoomFor: (room: number) =>
-    room === 0 ? "No more referrals can be sent this morning." : `Only ${room} more ${room === 1 ? "referral" : "referrals"} can be sent this morning.`,
-  afternoonRoomFor: (room: number) =>
-    room === 0 ? "No more referrals can be sent this afternoon." : `Only ${room} more ${room === 1 ? "referral" : "referrals"} can be sent this afternoon.`,
+  morningRoomFor: (room: number) => {
+    if (room === 0) return "No more referrals can be sent this morning.";
+    return `Only ${room} more ${room === 1 ? "referral" : "referrals"} can be sent this morning.`;
+  },
+  afternoonRoomFor: (room: number) => {
+    if (room === 0) return "No more referrals can be sent this afternoon.";
+    return `Only ${room} more ${room === 1 ? "referral" : "referrals"} can be sent this afternoon.`;
+  },
   selectFewer: "Go back to the referrals and select fewer.",
   sendOnceOpen: "Go back to the referrals and send them once the window opens.",
   windowUnavailable: "The referral window could not be read, so these referrals cannot be sent at the moment. Try again shortly.",

@@ -171,7 +171,8 @@ function queueHref(pages: { page: number | undefined; sentPage: number | undefin
     ...(pages.sentPage !== undefined && pages.sentPage > 1 ? [`sentPage=${pages.sentPage}`] : [])
   ].join("&");
 
-  return `${REFERRAL_QUEUE_PATH}${query ? `?${query}` : ""}${fragment}`;
+  const search = query ? `?${query}` : "";
+  return `${REFERRAL_QUEUE_PATH}${search}${fragment}`;
 }
 
 /** One tab: its rows with their links, and its paging. The links are built here, through the path helpers. */

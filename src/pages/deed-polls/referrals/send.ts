@@ -10,7 +10,16 @@
  * **A lost response is recovered by pressing Send again**: api skips a referral already sent to the same Master in the
  * same window, so the same body is a 200 that changes nothing. Nothing here mints a key or says anything about it.
  */
-import { ConflictError, type FieldError, InvalidInputError, sendReferrals, sendSelectionSchema, summariseSend, zodErrorToFieldErrors } from "@hmcts/deed-poll";
+import {
+  ConflictError,
+  type FieldError,
+  InvalidInputError,
+  type SendSelection,
+  sendReferrals,
+  sendSelectionSchema,
+  summariseSend,
+  zodErrorToFieldErrors
+} from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../auth/current-user.js";
 import { forLog } from "../../../for-log.js";
@@ -30,28 +39,32 @@ export const POST = async (req: Request, res: Response) => {
   if (!parsed.success) return renderQueue(req, res, { status: 400, body, errors: zodErrorToFieldErrors(parsed.error) });
 
   const selection = parsed.data;
-  const isWelsh = res.locals.locale === "cy";
 
   try {
     const sent = summariseSend(await sendReferrals(selection, callerFromRequest(req)));
     return res.redirect(303, `${REFERRAL_QUEUE_PATH}?${SENT_PARAM}=${sent.referrals}&${SENT_MASTERS_PARAM}=${sent.masters}`);
   } catch (error) {
     if (!(error instanceof ConflictError || error instanceof InvalidInputError)) throw error;
-
-    const rows = rowRefusals(error.errors, selection.allocations);
-    if (error instanceof ConflictError && rows.some((row) => row.kind === "referralId")) {
-      return renderQueue(req, res, { status: 409, body, errors: [], message: (isWelsh ? queueContentCy : queueContentEn).noLongerWaiting });
-    }
-    const masters = rows.filter((row) => row.kind === "masterId");
-    if (error instanceof InvalidInputError && masters.length > 0) {
-      return renderQueue(req, res, { status: 400, body, errors: masters.map((row) => ({ field: `master-${row.referralId}`, message: row.message })) });
-    }
-    if (error instanceof ConflictError) return renderReview(req, res, body, selection, { status: 409, message: error.message });
-
-    console.error(`referral send refused with rejections this page cannot place: ${forLog(error.message)}`);
-    return renderReview(req, res, body, selection, { status: 400, message: (isWelsh ? reviewContentCy : reviewContentEn).sendRefused });
+    return renderRefusal(req, res, body, selection, error);
   }
 };
+
+/** Draw api's refusal of the send where the module docblock says it belongs. */
+function renderRefusal(req: Request, res: Response, body: Record<string, unknown>, selection: SendSelection, error: ConflictError | InvalidInputError) {
+  const isWelsh = res.locals.locale === "cy";
+  const rows = rowRefusals(error.errors, selection.allocations);
+  if (error instanceof ConflictError && rows.some((row) => row.kind === "referralId")) {
+    return renderQueue(req, res, { status: 409, body, errors: [], message: (isWelsh ? queueContentCy : queueContentEn).noLongerWaiting });
+  }
+  const masters = rows.filter((row) => row.kind === "masterId");
+  if (error instanceof InvalidInputError && masters.length > 0) {
+    return renderQueue(req, res, { status: 400, body, errors: masters.map((row) => ({ field: `master-${row.referralId}`, message: row.message })) });
+  }
+  if (error instanceof ConflictError) return renderReview(req, res, body, selection, { status: 409, message: error.message });
+
+  console.error(`referral send refused with rejections this page cannot place: ${forLog(error.message)}`);
+  return renderReview(req, res, body, selection, { status: 400, message: (isWelsh ? reviewContentCy : reviewContentEn).sendRefused });
+}
 
 /** api's per-entry errors, read back onto the selection's referrals by their index. */
 function rowRefusals(errors: FieldError[], allocations: { referralId: string }[]) {
