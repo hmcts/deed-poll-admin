@@ -264,7 +264,7 @@ function percentiles(count: number, key: string, salt: string, low: number, high
 /** A fixed integer in [low, high] for a period and a figure, from an FNV-1a hash, so a request always answers alike. */
 function between(key: string, salt: string, low: number, high: number): number {
   let hash = 0x811c9dc5;
-  for (const char of `${key}:${salt}`) hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0;
+  for (const char of `${key}:${salt}`) hash = Math.imul(hash ^ (char.codePointAt(0) ?? 0), 0x01000193) >>> 0;
   return low + (hash % (high - low + 1));
 }
 
