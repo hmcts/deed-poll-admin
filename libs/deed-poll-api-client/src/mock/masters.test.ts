@@ -325,6 +325,21 @@ describe("the mock's Masters list", () => {
     });
   });
 
+  it("should list Masters by name, and two with the same name by id", async () => {
+    // Arrange
+    const first = await create("Master Wren", "wren-one@example.test");
+    const second = await create("Master Wren", "wren-two@example.test");
+    await create("Master Ash", "ash@example.test");
+
+    // Act
+    const masters = await listed();
+
+    // Assert
+    const wrens = [first.id, second.id].sort();
+    expect(masters.map((master) => master.name)).toEqual(["Master Ash", "Master Wren", "Master Wren"]);
+    expect(masters.slice(1).map((master) => master.id)).toEqual(wrens);
+  });
+
   it("should forget every Master on reset", async () => {
     // Arrange
     await create("Master Wren", "wren@example.test");

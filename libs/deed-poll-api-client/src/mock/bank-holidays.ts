@@ -47,7 +47,7 @@ export function createBankHolidays() {
       for (const [date, name] of SEEDED) holidays.set(date, name);
     },
     list(): WireBankHoliday[] {
-      return [...holidays.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)).map(([date, name]) => ({ date, name }));
+      return [...holidays.entries()].sort(([left], [right]) => compareText(left, right)).map(([date, name]) => ({ date, name }));
     },
     add(body: unknown): Reply {
       const fields = typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
@@ -73,6 +73,12 @@ export function createBankHolidays() {
       return isCalendarDate(date) && holidays.delete(date);
     }
   };
+}
+
+// Code-unit order, which for `yyyy-MM-dd` is date order.
+function compareText(left: string, right: string): number {
+  if (left < right) return -1;
+  return left > right ? 1 : 0;
 }
 
 function isCalendarDate(value: unknown): value is string {
