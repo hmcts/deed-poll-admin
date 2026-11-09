@@ -1081,7 +1081,9 @@ const processSettingsSchema = z.object({
   updatedBy: z.string().nullish()
 });
 
-const windowTime = z.string().regex(new RegExp(WINDOW_TIME_PATTERN));
+// S6353 accepted: WINDOW_TIME_PATTERN is api's published pattern, which contract.test.ts pins byte for byte. Writing
+// [0-9] as \d here would fail that pin, or need a second copy of the regex that nothing keeps in step with api.
+const windowTime = z.string().regex(new RegExp(WINDOW_TIME_PATTERN)); // NOSONAR typescript:S6353 - api's published pattern, pinned by contract.test.ts; Steve accepted 2026-11-09
 
 /**
  * Only the processing window and the revision are required, for one release: an absent setting keeps api's stored
