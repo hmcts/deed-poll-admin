@@ -6,7 +6,7 @@ import type { NextFunction } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
 import { requireAuth } from "./require-auth.js";
-import { requireCapability, requireJudicial } from "./require-role.js";
+import { requireCapability, requireJudicial, requireStaff } from "./require-role.js";
 
 describe("requireJudicial", () => {
   let next: NextFunction;
@@ -97,6 +97,62 @@ describe("requireJudicial", () => {
     requireJudicial()(pageRequest({ access, originalUrl: "/judicial/referrals" }), pageResponse(), next);
 
     expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
+  });
+});
+
+/** OWASP plan 01 Task 8: the caseworker area admits `staff` in api's answer, and nobody else. */
+describe("requireStaff", () => {
+  let next: NextFunction;
+
+  beforeEach(() => {
+    next = vi.fn();
+  });
+
+  it.each(["caseworker", "teamLeader", "deliveryManager", "legacyAdmin"] as const)("lets a %s through, whose stored answer is staff", (persona) => {
+    requireStaff()(pageRequest({ persona, originalUrl: "/deed-polls" }), pageResponse(), next);
+
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  it("refuses a judge who holds only the judicial role, with a role-gate ForbiddenError", () => {
+    requireStaff()(pageRequest({ persona: "judge", originalUrl: "/deed-polls/abc" }), pageResponse(), next);
+
+    const error = vi.mocked(next).mock.calls[0][0] as unknown as ForbiddenError;
+    expect(error).toBeInstanceOf(ForbiddenError);
+    expect(error.reason).toBe("role");
+  });
+
+  it("admits a user holding staff and judicial both", () => {
+    requireStaff()(pageRequest({ teamLeader: true, judicial: true, originalUrl: "/deed-polls" }), pageResponse(), next);
+
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  it.each([
+    ["a session api gave no area to", { persona: "none" as const }],
+    ["a request with no session user at all", { signedIn: false }],
+    ["a session whose stored answer is malformed", { access: { staff: "true", judicial: false, capabilities: [] } }]
+  ])("refuses %s, rather than falling through", (_case, options) => {
+    requireStaff()(pageRequest({ ...options, originalUrl: "/deed-polls" } as Parameters<typeof pageRequest>[0]), pageResponse(), next);
+
+    expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
+  });
+
+  it("names the area and the path in the error, without the query string", () => {
+    requireStaff()(mounted("/deed-polls", "GET", `/deed-polls/abc?q=${encodeURIComponent("MARKER Smith")}`), pageResponse(), next);
+
+    const error = vi.mocked(next).mock.calls[0][0] as unknown as ForbiddenError;
+    expect(error.message).toBe("GET /deed-polls/abc requires staff access");
+    expect(error.message).not.toContain("MARKER");
+  });
+
+  it("does not render or set a status itself, leaving the 403 to the one error mapping", () => {
+    const res = pageResponse();
+
+    requireStaff()(pageRequest({ persona: "judge" }), res, next);
+
+    expect(res.render).not.toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
   });
 });
 

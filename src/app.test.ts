@@ -343,6 +343,9 @@ const gates = vi.hoisted(() => ({
   judicial: function requireJudicialDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
+  staff: function requireStaffDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
   noStore: function noStoreDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
@@ -375,7 +378,8 @@ vi.mock("./auth/require-role.js", () => ({
           ? gates.managementInformation
           : gates.gazette
   ),
-  requireJudicial: () => gates.judicial
+  requireJudicial: () => gates.judicial,
+  requireStaff: () => gates.staff
 }));
 vi.mock("./auth/persona-switcher.js", () => ({ personaSwitcherLocals: () => gates.persona }));
 vi.mock("./auth/same-origin.js", () => ({ requireSameOrigin: () => gates.sameOrigin }));
@@ -443,6 +447,67 @@ describe("createApp's judicial gate", () => {
         path
       ).toBe(true);
     }
+  });
+});
+
+/**
+ * OWASP plan 01 Task 8: the caseworker area is gated on `staff` for the whole prefix, as the judicial area is on
+ * `judicial`. The pages never ask, so this is where "a judge-only caller is refused every case page" is pinned;
+ * `require-role.test.ts` proves the gate refuses a judge and admits caseworkers, and this proves it is in front of all
+ * of them, including pages added after this test.
+ */
+describe("createApp's caseworker area gate", () => {
+  let stack: MountedLayer[];
+  const at = (handle: unknown) => stack.findIndex((layer) => layer.handle === handle);
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+  });
+
+  it("should mount the staff gate once", () => {
+    expect(stack.filter((layer) => layer.handle === gates.staff)).toHaveLength(1);
+  });
+
+  it("should mount it on /deed-polls and nowhere else", () => {
+    const layer = stack[at(gates.staff)];
+
+    for (const url of ["/deed-polls", "/deed-polls/abc", "/deed-polls/gazette", "/deed-polls/settings/masters"]) {
+      expect(
+        layer.matchers.some((matches) => matches(url) !== false),
+        url
+      ).toBe(true);
+    }
+    for (const url of ["/judicial", "/judicial/referrals/mine", "/", "/login", "/deed-polls-other"]) {
+      expect(
+        layer.matchers.every((matches) => matches(url) === false),
+        url
+      ).toBe(true);
+    }
+  });
+
+  it("should cover every page under src/pages/deed-polls, including ones added after this test was written", () => {
+    const layer = stack[at(gates.staff)];
+    const paths = judicialPagePaths("deed-polls");
+
+    expect(paths.length).toBeGreaterThanOrEqual(30);
+    for (const url of paths) {
+      expect(
+        layer.matchers.some((matches) => matches(url) !== false),
+        url
+      ).toBe(true);
+    }
+  });
+
+  it("should mount it after requireAuth and the persona switcher, and before the capability gates and the router", () => {
+    expect(at(gates.staff)).toBeGreaterThan(at(gates.auth));
+    expect(at(gates.staff)).toBeGreaterThan(at(gates.persona));
+    for (const capabilityGate of [gates.gazette, gates.settings, gates.referrals, gates.managementInformation]) {
+      expect(at(gates.staff)).toBeLessThan(at(capabilityGate));
+    }
+    expect(at(gates.staff)).toBeLessThan(at(gates.router));
   });
 });
 

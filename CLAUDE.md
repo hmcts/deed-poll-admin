@@ -422,8 +422,11 @@ api owns the capability matrix (`RoleCapabilities.java`); the mock mirrors it, a
 
 `can(user, capability)` is the UI policy entry point (`libs/deed-poll/src/auth/capabilities.ts`); `staffAccess(user)`
 gives `{ staff, judicial }`. The IDAM callback refuses a sign-in whose answer has neither (403, the no-access
-sentence on `errors/403`) before any session exists (OWASP plan 01 Task 6); the global and `/deed-polls` gates
-(Tasks 7 and 8) are not built yet. CCD repair has no
+sentence on `errors/403`) before any session exists (OWASP plan 01 Task 6). **`/deed-polls/**` is gated on `staff`**
+(Task 8): `src/app.ts` mounts `requireStaff()` on the prefix, after the persona switcher and before the capability
+gates, so a judge holding only the judicial role is refused every case page (403 on the 404 view) rather than reaching
+each one and meeting api's own `/caseworker/**` 403; `app.test.ts` reads `src/pages/deed-polls/` off the filesystem.
+The global any-area gate (Task 7) is not built yet. CCD repair has no
 Admin UI control. `isAdmin` is derived from `OVERRIDE_PRIVACY` solely for the existing form/presentation
 interfaces, and `isJudicial` from `judicial`. `sessionUser` validates the stored answer on every read and
 recomputes the flags, ignoring stale booleans. The answer *is* persisted on the session; staleness is bounded by
