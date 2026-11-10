@@ -23,7 +23,7 @@ import { noStore } from "./auth/no-store.js";
 import { personaSwitcherLocals } from "./auth/persona-switcher.js";
 import { refreshMiddleware } from "./auth/refresh-middleware.js";
 import { requireAuth } from "./auth/require-auth.js";
-import { requireCapability, requireJudicial } from "./auth/require-role.js";
+import { requireCapability, requireJudicial, requireStaff } from "./auth/require-role.js";
 import { requireSameOrigin } from "./auth/same-origin.js";
 import { assertRedisUrl, assertSessionSecret, assertSessionTimeouts, sessionCookieName, sessionStoreTtl } from "./auth/session.js";
 import { sessionLifetime } from "./auth/session-lifetime.js";
@@ -260,6 +260,10 @@ export async function createApp(): Promise<Express> {
   // an anonymous visitor is still sent to log in, and only an authenticated non-judge is refused here.
   // See ./auth/require-role.ts — and note that api gates the same routes itself; this is the UI boundary.
   app.use("/judicial", requireJudicial());
+  // The caseworker area, the same way (OWASP plan 01 Task 8): a judge-only caller is refused every case page here,
+  // rather than reaching each one and meeting api's 403. Before the capability gates below, so a judge on a Gazette
+  // or settings URL is refused for having no staff access, not for a capability caseworkers lack too.
+  app.use("/deed-polls", requireStaff());
   app.use("/deed-polls/gazette", requireCapability(ACCESS_GAZETTE));
   app.use("/deed-polls/settings", requireCapability(MANAGE_PROCESS_CONFIG));
   app.use("/deed-polls/referrals", requireCapability(ALLOCATE_REFERRALS));
