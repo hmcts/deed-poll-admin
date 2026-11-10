@@ -135,7 +135,9 @@ function days(key: string): MiColumn {
 
 // Every migrated key starts "migrated", and each is api's 0 when migrated cases were included.
 function listed(includeMigrated: boolean, exclusions: MiExclusion[]): MiExclusion[] {
-  return includeMigrated ? exclusions.filter((each) => !each.key.startsWith("migrated")) : exclusions;
+  // S2301 accepted: the flag is the includeMigrated parameter api echoes back. Passing the rule means either wrapping
+  // it in an object (the same selector, only hidden) or repeating this filter in all four exclusion builders.
+  return includeMigrated ? exclusions.filter((each) => !each.key.startsWith("migrated")) : exclusions; // NOSONAR typescript:S2301 - the flag is the MI filter; Steve accepted 2026-11-09
 }
 
 /** Every interval, zeros included, in api's order, whatever order the answer listed them in. */
