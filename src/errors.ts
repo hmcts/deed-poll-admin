@@ -49,6 +49,10 @@ export function domainErrorHandler(): ErrorRequestHandler {
       const [event, props] = refusalEvent(err);
       securityEvent(event, req, props);
 
+      // A signed-in user api gives no area to (`requireAnyAccess`, `pages/index.ts`). They know who they are, so they
+      // are told they have no access, on the same page the IDAM callback uses for the refused sign-in.
+      if (err.reason === "no-access") return res.status(403).render("errors/403", { refusal: "no-access" });
+
       // Reached by `requireJudicial` (./auth/require-role.ts), which refuses an authenticated non-judge this
       // way rather than rendering its own page, and by api's own 403. The 404 **view** says nothing about what
       // was refused, and the gate fires before any lookup, so a guessed judicial URL never reveals whether that
@@ -106,5 +110,6 @@ function refusalEvent(err: ForbiddenError): [SecurityEventName, SecurityEventPro
   if (err.reason === "same-origin") {
     return ["csrf.refused", { fetchSite: err.fetchSite, originHost: err.originHost }];
   }
-  return ["authz.denied", { source: err.reason, requiredCapability: err.requiredCapability }];
+  // A no-access refusal is the role gate's too: the caller holds no role that admits them anywhere.
+  return ["authz.denied", { source: err.reason === "no-access" ? "role" : err.reason, requiredCapability: err.requiredCapability }];
 }

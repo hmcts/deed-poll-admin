@@ -23,7 +23,7 @@ import { noStore } from "./auth/no-store.js";
 import { personaSwitcherLocals } from "./auth/persona-switcher.js";
 import { refreshMiddleware } from "./auth/refresh-middleware.js";
 import { requireAuth } from "./auth/require-auth.js";
-import { requireCapability, requireJudicial, requireStaff } from "./auth/require-role.js";
+import { requireAnyAccess, requireCapability, requireJudicial, requireStaff } from "./auth/require-role.js";
 import { requireSameOrigin } from "./auth/same-origin.js";
 import { assertRedisUrl, assertSessionSecret, assertSessionTimeouts, sessionCookieName, sessionStoreTtl } from "./auth/session.js";
 import { sessionLifetime } from "./auth/session-lifetime.js";
@@ -241,6 +241,12 @@ export async function createApp(): Promise<Express> {
   // After requireAuth, so it only fires for authenticated users. Refreshes tokens before they expire,
   // keeping sessions alive without forcing re-authentication. See ./auth/refresh-middleware.ts.
   app.use(refreshMiddleware);
+
+  // Every non-public page needs api to give the caller one area or the other (OWASP plan 01 Task 7). After the
+  // refresh, so it reads the `/me` answer just stored. **Before the persona switcher**, unlike the area gates below:
+  // an identity with no area must not be able to switch into one that has one (OWASP M1), so its refusal page
+  // deliberately carries no strip. See ./auth/require-role.ts.
+  app.use(requireAnyAccess());
 
   // The non-production persona switcher, put on `res.locals` for `src/pages/layouts/app.njk` to render.
   // Global and before the router, which is the only shape that puts it on *every* page — decision 7, a

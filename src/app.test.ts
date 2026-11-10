@@ -346,6 +346,9 @@ const gates = vi.hoisted(() => ({
   staff: function requireStaffDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
+  anyAccess: function requireAnyAccessDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
   noStore: function noStoreDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
@@ -379,7 +382,8 @@ vi.mock("./auth/require-role.js", () => ({
           : gates.gazette
   ),
   requireJudicial: () => gates.judicial,
-  requireStaff: () => gates.staff
+  requireStaff: () => gates.staff,
+  requireAnyAccess: () => gates.anyAccess
 }));
 vi.mock("./auth/persona-switcher.js", () => ({ personaSwitcherLocals: () => gates.persona }));
 vi.mock("./auth/same-origin.js", () => ({ requireSameOrigin: () => gates.sameOrigin }));
@@ -446,6 +450,46 @@ describe("createApp's judicial gate", () => {
         layer.matchers.some((matches) => matches(path) !== false),
         path
       ).toBe(true);
+    }
+  });
+});
+
+/**
+ * OWASP plan 01 Task 7: the global any-area gate. Mounted once and for every path, like `requireAuth`, so a page added
+ * later is covered by being a page; the gate itself skips the public paths (`require-role.test.ts`).
+ *
+ * After `refreshMiddleware`, so it reads the `/me` answer the refresh or backfill just stored. **Before the persona
+ * switcher's locals and its route**, unlike the area gates: an identity api gives no area to must not be able to switch
+ * into one that has one, which is OWASP M1, so its refusal page deliberately carries no strip (Steve, 2026-11-09).
+ */
+describe("createApp's any-area gate", () => {
+  let stack: MountedLayer[];
+  const at = (handle: unknown) => stack.findIndex((layer) => layer.handle === handle);
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+  });
+
+  it("should mount the any-area gate once", () => {
+    expect(stack.filter((layer) => layer.handle === gates.anyAccess)).toHaveLength(1);
+  });
+
+  it("should mount it for every path rather than one area", () => {
+    const layer = stack[at(gates.anyAccess)];
+
+    for (const url of ["/", "/deed-polls", "/deed-polls/abc", "/judicial/referrals/mine", "/switch-persona"]) {
+      expect(layer.match(url), url).toBe(true);
+    }
+  });
+
+  it("should mount it after requireAuth and refreshMiddleware, and before the persona switcher and every area gate", () => {
+    expect(at(gates.anyAccess)).toBeGreaterThan(at(gates.auth));
+    expect(at(gates.anyAccess)).toBeGreaterThan(at(refreshMiddleware));
+    for (const later of [gates.persona, gates.judicial, gates.staff, gates.gazette, gates.router]) {
+      expect(at(gates.anyAccess)).toBeLessThan(at(later));
     }
   });
 });
