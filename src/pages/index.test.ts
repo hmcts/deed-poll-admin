@@ -34,12 +34,13 @@ describe("service root", () => {
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls");
     });
 
-    it("should redirect a signed-in user with neither role to the case list", () => {
+    // OWASP plan 01 Task 7. `/` is public, so the global gate skips it and the refusal has to be made here, the same
+    // way: the no-access page, not a redirect to a case list that would refuse them in turn.
+    it("should refuse a signed-in user api gives neither area to, rather than redirecting them", () => {
       const res = pageResponse();
 
-      GET(pageRequest(), res);
-
-      expect(res.redirect).toHaveBeenCalledWith("/deed-polls");
+      expect(() => GET(pageRequest({ persona: "none" }), res)).toThrow(expect.objectContaining({ name: "ForbiddenError", reason: "no-access" }));
+      expect(res.redirect).not.toHaveBeenCalled();
     });
 
     // Back here after signing in, not to either home: the persona cannot be resolved before the token
@@ -83,11 +84,14 @@ describe("staff role landing", () => {
     }
   });
 
-  it("should send a judge to the case list when the stored answer is malformed, rather than trust a stale flag", () => {
+  // A malformed (pre-`/me`) answer reads as no access, so it is refused here as the global gate refuses it everywhere
+  // else (OWASP plan 01 Task 7), and is never sent to My referrals on the strength of its stale judicial flag.
+  it("should refuse a session whose stored answer is malformed, rather than trust a stale judicial flag", () => {
     const res = pageResponse();
 
-    GET(pageRequest({ access: { roles: ["caseworker-deedpoll-judicial"], isJudicial: true } }), res);
-
-    expect(res.redirect).toHaveBeenCalledWith("/deed-polls");
+    expect(() => GET(pageRequest({ access: { roles: ["caseworker-deedpoll-judicial"], isJudicial: true } }), res)).toThrow(
+      expect.objectContaining({ name: "ForbiddenError", reason: "no-access" })
+    );
+    expect(res.redirect).not.toHaveBeenCalled();
   });
 });

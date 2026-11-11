@@ -47,7 +47,8 @@ export class ForbiddenError extends Error {
   }
 }
 
-export type ForbiddenReason = "role" | "same-origin" | "api";
+/** `no-access`: the caller is signed in but api gives them neither the staff nor the judicial area (OWASP plan 01 Task 7). */
+export type ForbiddenReason = "role" | "same-origin" | "api" | "no-access";
 
 export interface ForbiddenDetails {
   reason?: ForbiddenReason;

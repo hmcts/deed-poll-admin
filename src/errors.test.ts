@@ -67,6 +67,19 @@ describe("domainErrorHandler", () => {
     error.mockRestore();
   });
 
+  // OWASP plan 01 Task 7: a signed-in user api gives no area to knows who they are, so they are told they have no
+  // access rather than shown "page not found" — and not told to sign in again, which cannot help.
+  it("should answer a no-access refusal with a 403 on the login flow's no-access page", () => {
+    const res = pageResponse();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    domainErrorHandler()(new ForbiddenError("/deed-polls requires staff or judicial access", { reason: "no-access" }), REQUEST, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.render).toHaveBeenCalledWith("errors/403", { refusal: "no-access" });
+    error.mockRestore();
+  });
+
   // The render is the end of the road — the starter's handler, the only thing in the chain that logs, is never
   // reached — so a refusal on the app's one authorization boundary leaves no trace unless this line writes it.
   it("should log the refusal, because nothing downstream of it will", () => {
@@ -117,6 +130,12 @@ describe("domainErrorHandler", () => {
       domainErrorHandler()(error, refusedRequest, pageResponse(), next);
 
       expect(vi.mocked(trackEvent).mock.calls).toEqual([["authz.denied", { ...common, source: "role", requiredCapability: "ACCESS_GAZETTE" }]]);
+    });
+
+    it("should emit one authz.denied sourced to the role gate for a no-access refusal", () => {
+      domainErrorHandler()(new ForbiddenError("/deed-polls requires staff or judicial access", { reason: "no-access" }), refusedRequest, pageResponse(), next);
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([["authz.denied", { ...common, source: "role" }]]);
     });
 
     it("should emit one authz.denied sourced to api when api refuses, which is what a bare ForbiddenError means", () => {

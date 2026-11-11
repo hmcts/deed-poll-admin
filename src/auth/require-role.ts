@@ -7,6 +7,7 @@
 import { type Capability, can, ForbiddenError, staffAccess } from "@hmcts/deed-poll";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { userFromRequest } from "./current-user.js";
+import { isPublicPath } from "./require-auth.js";
 
 export function requireJudicial(): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction) => {
@@ -34,6 +35,24 @@ export function requireStaff(): RequestHandler {
     }
 
     next(new ForbiddenError(`${req.method} ${req.baseUrl}${req.path} requires staff access`, { reason: "role" }));
+  };
+}
+
+/**
+ * Every non-public page needs api to give the caller one area or the other (OWASP plan 01 Task 7). The IDAM callback
+ * already refuses such a sign-in (Task 6), so this catches a session whose access was removed after it signed in: the
+ * refresh re-reads `/me` within one token lifetime, and nothing else refuses on the new answer. Mounted for every path
+ * after `refreshMiddleware` and **before the persona switcher**, so an identity with no area cannot switch into one
+ * that has one (OWASP M1). Refused as `no-access`, which `src/errors.ts` renders as the login flow's no-access page:
+ * the caller knows who they are, and signing in again cannot help.
+ */
+export function requireAnyAccess(): RequestHandler {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (isPublicPath(req.path)) return next();
+    const access = staffAccess(userFromRequest(req));
+    if (access.staff || access.judicial) return next();
+
+    next(new ForbiddenError(`${req.method} ${req.baseUrl}${req.path} requires staff or judicial access`, { reason: "no-access" }));
   };
 }
 

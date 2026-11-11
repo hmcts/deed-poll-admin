@@ -6,7 +6,7 @@ import type { NextFunction } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
 import { requireAuth } from "./require-auth.js";
-import { requireCapability, requireJudicial, requireStaff } from "./require-role.js";
+import { requireAnyAccess, requireCapability, requireJudicial, requireStaff } from "./require-role.js";
 
 describe("requireJudicial", () => {
   let next: NextFunction;
@@ -97,6 +97,57 @@ describe("requireJudicial", () => {
     requireJudicial()(pageRequest({ access, originalUrl: "/judicial/referrals" }), pageResponse(), next);
 
     expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
+  });
+});
+
+/** OWASP plan 01 Task 7: every non-public page needs api to give the caller one area or the other. */
+describe("requireAnyAccess", () => {
+  let next: NextFunction;
+
+  beforeEach(() => {
+    next = vi.fn();
+  });
+
+  const at = (path: string, options: Parameters<typeof pageRequest>[0] = {}) => Object.assign(pageRequest({ originalUrl: path, ...options }), { path });
+
+  it.each(["/deed-polls", "/judicial/referrals/mine", "/switch-persona"])("refuses a session api gives neither area to on %s, as no-access", (path) => {
+    requireAnyAccess()(at(path, { persona: "none" }), pageResponse(), next);
+
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ name: "ForbiddenError", reason: "no-access" }));
+  });
+
+  it.each([
+    ["a caseworker, who has staff access and no capability", { persona: "caseworker" as const }],
+    ["a judge, who has judicial access and no staff access", { persona: "judge" as const }],
+    ["a Delivery Manager", { deliveryManager: true }]
+  ])("lets through %s", (_who, options) => {
+    requireAnyAccess()(at("/deed-polls", options), pageResponse(), next);
+
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  it.each(["/logout", "/health", "/assets/main.js", "/accessibility-statement", "/", "/session/keep-alive"])(
+    "passes the public path %s, so a refused user can still sign out",
+    (path) => {
+      requireAnyAccess()(at(path, { persona: "none" }), pageResponse(), next);
+
+      expect(next).toHaveBeenCalledWith();
+    }
+  );
+
+  it("refuses a session whose stored answer is malformed", () => {
+    requireAnyAccess()(at("/deed-polls", { access: { staff: "true", judicial: "true", capabilities: [] } as never }), pageResponse(), next);
+
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ reason: "no-access" }));
+  });
+
+  it("does not render or set a status itself, leaving the 403 to the one error mapping", () => {
+    const res = pageResponse();
+
+    requireAnyAccess()(at("/deed-polls", { persona: "none" }), res, next);
+
+    expect(res.render).not.toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
   });
 });
 

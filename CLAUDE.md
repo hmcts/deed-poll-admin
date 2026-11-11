@@ -426,7 +426,12 @@ sentence on `errors/403`) before any session exists (OWASP plan 01 Task 6). **`/
 (Task 8): `src/app.ts` mounts `requireStaff()` on the prefix, after the persona switcher and before the capability
 gates, so a judge holding only the judicial role is refused every case page (403 on the 404 view) rather than reaching
 each one and meeting api's own `/caseworker/**` 403; `app.test.ts` reads `src/pages/deed-polls/` off the filesystem.
-The global any-area gate (Task 7) is not built yet. CCD repair has no
+**Every non-public page also needs one area or the other** (Task 7): `requireAnyAccess()` is mounted for every path
+after `refreshMiddleware` and **before the persona switcher**, so a session whose access was removed after it signed in
+is refused everywhere, and an identity with no area cannot switch into one that has one (OWASP M1). It skips
+`isPublicPath`, so a refused user can still sign out, and `/` (public) refuses the same way itself. The refusal is
+`ForbiddenError` with `reason: "no-access"`, which `src/errors.ts` renders as `errors/403` `{ refusal: "no-access" }`
+(the callback's page) and records as `authz.denied` from the role gate. CCD repair has no
 Admin UI control. `isAdmin` is derived from `OVERRIDE_PRIVACY` solely for the existing form/presentation
 interfaces, and `isJudicial` from `judicial`. `sessionUser` validates the stored answer on every read and
 recomputes the flags, ignoring stale booleans. The answer *is* persisted on the session; staleness is bounded by

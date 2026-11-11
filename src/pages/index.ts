@@ -27,7 +27,7 @@
  * sending itself, and a gate in front of it would send them to `/login?returnTo=%2F` — the same place, by a
  * route this file could no longer see. Nothing is disclosed either way: the redirect target does the refusing.
  */
-import type { CurrentUser } from "@hmcts/deed-poll";
+import { type CurrentUser, ForbiddenError, staffAccess } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { userFromRequest } from "../auth/current-user.js";
 import { sessionUser } from "../auth/session.js";
@@ -41,6 +41,13 @@ export const GET = (req: Request, res: Response) => {
   // fallback is this path for the same reason.
   if (!sessionUser(req)) {
     return res.redirect(`/login?returnTo=${encodeURIComponent("/")}`);
+  }
+
+  // `/` is public, so the global `requireAnyAccess` skips it and the refusal is made here (OWASP plan 01 Task 7): the
+  // no-access page, not a redirect to a case list that would only refuse them in turn.
+  const access = staffAccess(userFromRequest(req));
+  if (!access.staff && !access.judicial) {
+    throw new ForbiddenError("GET / requires staff or judicial access", { reason: "no-access" });
   }
 
   // 302, not 301: a permanent redirect is cached hard by browsers, and the root of a service is
@@ -65,9 +72,9 @@ export const GET = (req: Request, res: Response) => {
  * `referrals-admin-3`'s flagged open question; if the business confirms one does, the answer is a link on the case
  * list rendered when `isJudicial`, not a change here.
  *
- * A user with neither role also lands on the case list. It is not a privilege — `requireAuth` has already said
- * they are signed in and api enforces what they may read — and the alternative, a chooser or a third page, would
- * be a page built for a state no role assignment produces.
+ * A user api gives neither area to is refused here with the no-access page (OWASP plan 01 Task 7), as the global
+ * `requireAnyAccess` refuses them everywhere else. Since Task 6 such a session can only be one whose access was
+ * removed after it signed in.
  */
 function landingPath(user: CurrentUser): string {
   return user.judicial && user.capabilities.length === 0 ? MY_REFERRALS_PATH : CASE_LIST_PATH;
