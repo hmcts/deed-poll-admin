@@ -1,5 +1,5 @@
 # ---- Base image ----
-FROM hmctsprod.azurecr.io/base/node:22-alpine AS base
+FROM hmctsprod.azurecr.io/base/node:26-alpine AS base
 USER root
 RUN npm install -g corepack@0.36.0
 RUN corepack enable
