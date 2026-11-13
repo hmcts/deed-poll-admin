@@ -93,7 +93,7 @@
     "sass": "1.107.1",
     "supertest": "7.3.2",
     "tsx": "4.23.15",
-    "turbo": "2.11.10",
+    "turbo": "2.11.11",
     "typescript": "7.0.2",
     "typescript-6": "npm:typescript@6.0.3",
     "vite": "8.3.4",
