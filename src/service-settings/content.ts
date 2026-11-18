@@ -2,7 +2,7 @@
  * The Delivery Manager settings pages' words: the page itself, a Master's "Change" page and the bank holiday removal's
  * confirmation, shared because the routes that render the one settings template each need all of them.
  *
- * The London Gazette strings moved here with the recipient form and keep their Welsh. Everything else is new copy
+ * The Gazette strings moved here with the recipient form and keep their Welsh. Everything else is new copy
  * awaiting translation, so `cy` mirrors it and `yarn welsh:check` counts it.
  */
 
@@ -49,16 +49,16 @@ export const en = {
   processConflict: "The referral process has changed since you opened this page. Reload the settings and check the current values before saving again.",
   processReloadLink: "Reload referral process settings",
   processRefused: "The referral process could not be saved. Reload the settings and try again.",
-  gazetteHeading: "London Gazette recipient",
-  gazetteIntro: "Set the email address at The London Gazette that should receive publication requests and spreadsheet download links.",
+  gazetteHeading: "Gazette recipient",
+  gazetteIntro: "Set the email address at The Gazette that should receive publication requests and spreadsheet download links.",
   gazetteHint: "Use the Gazette recipient’s address, not the court’s contact or reply-to address.",
   gazetteEmailLabel: "Recipient email address",
   gazetteNotSet: "The recipient email address has not been set.",
   gazetteSave: "Save recipient",
-  gazetteBack: "Applications ready for the London Gazette",
+  gazetteBack: "Applications ready for the Gazette",
   gazetteSaved: "Recipient email address saved.",
-  gazetteUnavailable: "The London Gazette recipient could not be loaded. Try again later.",
-  gazetteRequired: "Enter the London Gazette recipient email address",
+  gazetteUnavailable: "The Gazette recipient could not be loaded. Try again later.",
+  gazetteRequired: "Enter the Gazette recipient email address",
   gazetteInvalid: "Enter a valid email address, like name@example.com",
   gazetteReload: "Reload the settings before saving",
   gazetteConflict: "The recipient has changed since you opened this page. Reload the settings and check the current address before saving again.",
@@ -138,15 +138,15 @@ export const cy = {
   errorSummaryTitle: "Mae problem wedi codi",
   lastChanged: "Newidiwyd ddiwethaf",
   by: "gan",
-  gazetteHeading: "Derbynnydd y London Gazette",
-  gazetteIntro: "Gosodwch gyfeiriad e-bost y London Gazette a ddylai dderbyn ceisiadau cyhoeddi a dolenni i lawrlwytho taenlenni.",
+  gazetteHeading: "Derbynnydd y Gazette",
+  gazetteIntro: "Gosodwch gyfeiriad e-bost y Gazette a ddylai dderbyn ceisiadau cyhoeddi a dolenni i lawrlwytho taenlenni.",
   gazetteHint: "Defnyddiwch gyfeiriad y derbynnydd yn y Gazette, nid cyfeiriad cyswllt neu ateb y llys.",
   gazetteEmailLabel: "Cyfeiriad e-bost y derbynnydd",
   gazetteNotSet: "Nid yw cyfeiriad e-bost y derbynnydd wedi’i osod.",
   gazetteSave: "Cadw’r derbynnydd",
-  gazetteBack: "Ceisiadau sy’n barod ar gyfer y London Gazette",
+  gazetteBack: "Ceisiadau sy’n barod ar gyfer y Gazette",
   gazetteSaved: "Mae cyfeiriad e-bost y derbynnydd wedi’i gadw.",
-  gazetteRequired: "Rhowch gyfeiriad e-bost derbynnydd y London Gazette",
+  gazetteRequired: "Rhowch gyfeiriad e-bost derbynnydd y Gazette",
   gazetteInvalid: "Rhowch gyfeiriad e-bost dilys, fel enw@enghraifft.com",
   gazetteReload: "Ail-lwythwch y gosodiadau cyn cadw",
   gazetteConflict: "Mae’r derbynnydd wedi newid ers i chi agor y dudalen hon. Ail-lwythwch y gosodiadau a gwiriwch y cyfeiriad presennol cyn cadw eto.",

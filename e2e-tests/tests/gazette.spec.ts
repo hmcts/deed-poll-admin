@@ -12,18 +12,18 @@ const SAME_ORIGIN = { "sec-fetch-site": "same-origin" };
 test("Delivery Manager follows the empty and populated Gazette worklist, application details and paginated history", async ({ page, request }) => {
   test.slow();
   await signInAsDeliveryManager(page);
-  await expect(page.getByText("Applications ready for the London Gazette: 0", { exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "View London Gazette applications" }).click();
-  await expect(page.getByText("There are no applications ready for the London Gazette.")).toBeVisible();
+  await expect(page.getByText("Applications ready for the Gazette: 0", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "View Gazette applications" }).click();
+  await expect(page.getByText("There are no applications ready for the Gazette.")).toBeVisible();
   await accessible(page);
   await page.getByRole("link", { name: "Send history", exact: true }).click();
-  await expect(page.getByText("No notices have been sent to the London Gazette.")).toBeVisible();
+  await expect(page.getByText("No notices have been sent to the Gazette.")).toBeVisible();
   await accessible(page);
 
   const firstId = await seedGazette(request);
   await page.goto("/deed-polls");
-  await expect(page.getByText("Applications ready for the London Gazette: 26", { exact: true })).toBeVisible();
-  const readyLink = page.getByRole("link", { name: "View London Gazette applications" });
+  await expect(page.getByText("Applications ready for the Gazette: 26", { exact: true })).toBeVisible();
+  const readyLink = page.getByRole("link", { name: "View Gazette applications" });
   await readyLink.focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(READY);
@@ -56,16 +56,16 @@ test("Delivery Manager follows the empty and populated Gazette worklist, applica
   await expect(page.getByText("26 to 26 of 26 sends", { exact: true })).toBeVisible();
   await expect(page.locator("tbody tr")).toHaveCount(1);
   await expect(page.getByText("Only some application references are shown.")).toHaveCount(0);
-  await page.getByRole("link", { name: "Applications ready for the London Gazette", exact: true }).click();
+  await page.getByRole("link", { name: "Applications ready for the Gazette", exact: true }).click();
   await expect(page).toHaveURL(READY);
 
   // This test owns its login/session; changing locale cannot affect another spec's saved session.
   await page.goto(`${READY}?lng=cy`);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Ceisiadau sy’n barod ar gyfer y London Gazette");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Ceisiadau sy’n barod ar gyfer y Gazette");
   await expect(page.getByText("1 i 25 o 26 o geisiadau", { exact: true })).toBeVisible();
   await accessible(page);
   await page.getByRole("link", { name: "Hanes anfon", exact: true }).click();
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Hanes anfon i’r London Gazette");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Hanes anfon i’r Gazette");
   await expect(page.getByText("Dim ond rhai cyfeirnodau ceisiadau sy’n cael eu dangos.")).toBeVisible();
   await accessible(page);
 });
@@ -81,8 +81,8 @@ for (const [role, signIn] of [
     await page.goto("/deed-polls?filter=readyForPublication");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Deed poll cases");
     await expect(page.getByText("All applications", { exact: true })).toHaveAttribute("aria-current", "page");
-    await expect(page.getByRole("link", { name: "View London Gazette applications" })).toHaveCount(0);
-    await expect(page.getByText(/Applications ready for the London Gazette:/)).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "View Gazette applications" })).toHaveCount(0);
+    await expect(page.getByText(/Applications ready for the Gazette:/)).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Service settings" })).toHaveCount(0);
     for (const path of [
       SETTINGS,
@@ -106,11 +106,11 @@ for (const [role, signIn] of [
 test("Delivery Manager sets and changes the Gazette recipient, with validation and stale-edit protection", async ({ page, context }) => {
   await signInAsDeliveryManager(page);
   await page.goto(READY);
-  await page.getByRole("link", { name: "London Gazette recipient", exact: true }).click();
+  await page.getByRole("link", { name: "Gazette recipient", exact: true }).click();
   await expect(page).toHaveURL(`${SETTINGS}#gazette-recipient`);
   await expect(page.getByText("The recipient email address has not been set.")).toBeVisible();
   await page.getByRole("button", { name: "Save recipient", exact: true }).click();
-  await expect(page.getByRole("link", { name: "Enter the London Gazette recipient email address", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Enter the Gazette recipient email address", exact: true })).toBeVisible();
   await accessible(page);
   await page.getByLabel("Recipient email address", { exact: true }).fill("gazette@example.com");
   await page.getByRole("button", { name: "Save recipient", exact: true }).click();
@@ -130,8 +130,8 @@ test("Delivery Manager sets and changes the Gazette recipient, with validation a
   await accessible(stale);
   await stale.close();
   await page.goto(`${SETTINGS}?lng=cy`);
-  await page.getByRole("tab", { name: "Derbynnydd y London Gazette", exact: true }).click();
-  await expect(page.getByRole("heading", { level: 2, name: "Derbynnydd y London Gazette" })).toBeVisible();
+  await page.getByRole("tab", { name: "Derbynnydd y Gazette", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Derbynnydd y Gazette" })).toBeVisible();
   await expect(page.getByLabel("Cyfeiriad e-bost y derbynnydd", { exact: true })).toHaveValue("new-gazette@example.com");
   await accessible(page);
 });
@@ -337,7 +337,7 @@ test("Delivery Manager completes mandatory reviews and confirms Gazette requests
       await expect(page.getByText("Canlyniad ansicr", { exact: true })).toBeVisible();
       await accessible(page);
       await page.goto(`${READY}/batch?lng=cy`);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Adolygu ceisiadau ar gyfer y London Gazette");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Adolygu ceisiadau ar gyfer y Gazette");
       await page.getByRole("button", { name: `Adolygu’r cais ${references[0]}`, exact: true }).click();
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Cwblhau rhestr wirio’r cais");
       await accessible(page);

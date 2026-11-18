@@ -28,8 +28,8 @@ import {
 import { gazetteSendTimeLeft } from "../../../gazette/send-deadline.js";
 
 const en = {
-  title: "Review applications for the London Gazette",
-  heading: "Review applications for the London Gazette",
+  title: "Review applications for the Gazette",
+  heading: "Review applications for the Gazette",
   intro:
     "Complete all five checks for each application before selecting it. You can review up to 100 applications in one visit. Reviews apply to this visit only. Changes to an application require another review.",
   reference: "Reference",
@@ -42,9 +42,9 @@ const en = {
   next: "Next page",
   preview: "Check selected applications",
   back: "Back to selection",
-  ready: "Applications ready for the London Gazette",
+  ready: "Applications ready for the Gazette",
   requests: "Gazette requests",
-  settings: "London Gazette recipient",
+  settings: "Gazette recipient",
   empty: "There are no applications on this page.",
   countFor: (count: number) => `${count} applications selected`,
   reviewHeading: "Complete the application checklist",
@@ -56,7 +56,7 @@ const en = {
   queries: "There is no open referral or unresolved query against the application.",
   names: "The former and new names match the application’s declaration.",
   documents: "There is no outstanding document or witness issue recorded against the application.",
-  signOff: "I have checked this application and it is ready to be sent to the London Gazette.",
+  signOff: "I have checked this application and it is ready to be sent to the Gazette.",
   saveReview: "Complete review",
   checklist: "Required checks",
   checkAll: "Complete all five checks before selecting this application",
@@ -83,7 +83,7 @@ const en = {
   unavailable: "The applications could not be checked. No new email has been requested from this page. Try again or check Gazette requests.",
   again: "Review selection again",
   incomplete: "Only applications with a completed checklist can be selected",
-  RECIPIENT_NOT_CONFIGURED: "Set the London Gazette recipient before checking this selection again.",
+  RECIPIENT_NOT_CONFIGURED: "Set the Gazette recipient before checking this selection again.",
   RECIPIENT_CHANGED: "The recipient has changed. Check the selection and confirm the current recipient again.",
   SELECTION_CHANGED: "The selected data has changed. Review the applications and obtain a new confirmation.",
   CASE_NOT_READY: "An application is no longer ready. Check the selection and review the applications again.",
@@ -94,8 +94,8 @@ const en = {
   GAZETTE_UNAVAILABLE: "Gazette sending is unavailable. Check with support before trying again."
 };
 const cy = {
-  title: "Adolygu ceisiadau ar gyfer y London Gazette",
-  heading: "Adolygu ceisiadau ar gyfer y London Gazette",
+  title: "Adolygu ceisiadau ar gyfer y Gazette",
+  heading: "Adolygu ceisiadau ar gyfer y Gazette",
   intro:
     "Cwblhewch bob un o’r pum gwiriad ar gyfer pob cais cyn ei ddewis. Gallwch adolygu hyd at 100 o geisiadau mewn un ymweliad. Mae adolygiadau’n berthnasol i’r ymweliad hwn yn unig. Mae angen adolygu cais eto os yw’n newid.",
   reference: "Cyfeirnod",
@@ -108,9 +108,9 @@ const cy = {
   next: "Y dudalen nesaf",
   preview: "Gwirio’r ceisiadau a ddewiswyd",
   back: "Yn ôl i’r dewis",
-  ready: "Ceisiadau sy’n barod ar gyfer y London Gazette",
+  ready: "Ceisiadau sy’n barod ar gyfer y Gazette",
   requests: "Ceisiadau Gazette",
-  settings: "Derbynnydd y London Gazette",
+  settings: "Derbynnydd y Gazette",
   empty: "Nid oes ceisiadau ar y dudalen hon.",
   countFor: (count: number) => `${count} o geisiadau wedi’u dewis`,
   reviewHeading: "Cwblhau rhestr wirio’r cais",
@@ -122,7 +122,7 @@ const cy = {
   queries: "Nid oes atgyfeiriad agored na mater heb ei ddatrys yn erbyn y cais.",
   names: "Mae’r enwau blaenorol a newydd yn cyfateb i ddatganiad y cais.",
   documents: "Nid oes mater heb ei ddatrys ynghylch dogfen neu dyst wedi’i gofnodi yn erbyn y cais.",
-  signOff: "Rwyf wedi gwirio’r cais hwn ac mae’n barod i’w anfon i’r London Gazette.",
+  signOff: "Rwyf wedi gwirio’r cais hwn ac mae’n barod i’w anfon i’r Gazette.",
   saveReview: "Cwblhau’r adolygiad",
   checklist: "Gwiriadau gofynnol",
   checkAll: "Cwblhewch bob un o’r pum gwiriad cyn dewis y cais hwn",
@@ -151,7 +151,7 @@ const cy = {
     "Ni ellid gwirio’r ceisiadau. Nid oes e-bost newydd wedi’i ofyn amdano o’r dudalen hon. Rhowch gynnig arall arni neu gwiriwch geisiadau Gazette.",
   again: "Adolygu’r dewis eto",
   incomplete: "Dim ond ceisiadau â rhestr wirio gyflawn y gellir eu dewis",
-  RECIPIENT_NOT_CONFIGURED: "Gosodwch dderbynnydd y London Gazette cyn gwirio’r dewis hwn eto.",
+  RECIPIENT_NOT_CONFIGURED: "Gosodwch dderbynnydd y Gazette cyn gwirio’r dewis hwn eto.",
   RECIPIENT_CHANGED: "Mae’r derbynnydd wedi newid. Gwiriwch y dewis a chadarnhewch y derbynnydd presennol eto.",
   SELECTION_CHANGED: "Mae’r data a ddewiswyd wedi newid. Adolygwch y ceisiadau a chael cadarnhad newydd.",
   CASE_NOT_READY: "Nid yw cais yn barod mwyach. Gwiriwch y dewis ac adolygwch y ceisiadau eto.",

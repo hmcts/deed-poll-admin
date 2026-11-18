@@ -540,7 +540,7 @@ describe("buildDetailTabs — full-width bands", () => {
   });
 
   it.each([
-    ["enrolment", ["Date enrolled", "Days received to enrolled", "Date notice sent to London Gazette"]],
+    ["enrolment", ["Date enrolled", "Days received to enrolled", "Date notice sent to Gazette"]],
     ["refund", ["Refund amount", "Date of refund", "Refund reference"]]
   ])("stacks the %s tab in one column, as the source does", (tabId, expected) => {
     // Both sections leave the right cell empty in the source. The fallback had split

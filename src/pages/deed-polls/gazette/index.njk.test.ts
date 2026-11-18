@@ -98,7 +98,7 @@ describe("Gazette ready list", () => {
   it("should show an empty queue with history navigation and no table or paging", async () => {
     vi.mocked(findGazetteReadyCases).mockResolvedValue({ ...PAGE, cases: [], total: 0, totalPages: 0 } as never);
     const { markup } = await render();
-    expect(markup).toContain("There are no applications ready for the London Gazette");
+    expect(markup).toContain("There are no applications ready for the Gazette");
     expect(markup).toContain('href="/deed-polls/gazette/history"');
     expect(markup).not.toMatch(/govuk-table|govuk-pagination|0 to 0/);
   });
@@ -132,7 +132,7 @@ describe("Gazette ready list", () => {
 
   it("should render Welsh page copy and paging summary", async () => {
     const { markup } = await render({}, "cy");
-    expect(markup).toContain("Ceisiadau sy’n barod ar gyfer y London Gazette");
+    expect(markup).toContain("Ceisiadau sy’n barod ar gyfer y Gazette");
     expect(markup).toContain("Hanes anfon");
     expect(markup).toContain("Cyfeirnod");
     expect(markup).toContain("1 i 25 o 26 o geisiadau");

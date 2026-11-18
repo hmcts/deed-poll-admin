@@ -36,7 +36,7 @@ describe("referrals/legacy-referral-view", () => {
 
     expect(value("Date referred")).toBe("4 March 2024");
     expect(value("Master decision")).toBe("Approved");
-    expect(value("Publish to London Gazette")).toBe("Yes");
+    expect(value("Publish to Gazette")).toBe("Yes");
     expect(value("Master directions")).toBe("Enrol once the declarant's consent is filed.");
   });
 
@@ -67,7 +67,7 @@ describe("referrals/legacy-referral-view", () => {
 
     expect(view?.rows).toEqual([
       { key: "Master name", value: "Master Smith" },
-      { key: "Publish to London Gazette", value: "No" }
+      { key: "Publish to Gazette", value: "No" }
     ]);
   });
 

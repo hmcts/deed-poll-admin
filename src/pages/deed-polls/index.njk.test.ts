@@ -118,7 +118,7 @@ describe("deed-polls list template", () => {
   });
 
   it.each([
-    ["the Gazette area", ["/deed-polls/gazette", "Applications ready for the London Gazette:"]],
+    ["the Gazette area", ["/deed-polls/gazette", "Applications ready for the Gazette:"]],
     ["the referral queue", ['href="/deed-polls/referrals"', ">Referrals</a>"]],
     ["the management information page", ["/deed-polls/management-information"]],
     ["the service settings page", ["/deed-polls/settings", "Service settings"]]
@@ -132,7 +132,7 @@ describe("deed-polls list template", () => {
     vi.mocked(countGazetteReadyCases).mockResolvedValue(count);
     const markup = await render({}, true);
     expect(markup).toContain('href="/deed-polls/gazette"');
-    expect(markup).toContain(`Applications ready for the London Gazette: ${count}`);
+    expect(markup).toContain(`Applications ready for the Gazette: ${count}`);
     expect(markup).not.toContain("Try opening the ready list");
   });
 
@@ -152,8 +152,8 @@ describe("deed-polls list template", () => {
     vi.mocked(countGazetteReadyCases).mockRejectedValue(new Error("unavailable"));
     const markup = await render({}, true);
     expect(markup).toContain('href="/deed-polls/gazette"');
-    expect(markup).toContain("The number of applications ready for the London Gazette could not be loaded");
-    expect(markup).not.toContain("Applications ready for the London Gazette: 0");
+    expect(markup).toContain("The number of applications ready for the Gazette could not be loaded");
+    expect(markup).not.toContain("Applications ready for the Gazette: 0");
     log.mockRestore();
   });
 
@@ -321,6 +321,8 @@ describe("deed-polls list template", () => {
     const markup = await render();
 
     expect(markup).toContain('<option value="state">Status</option>');
+    expect(markup).toContain('<option value="dateNoticeSentToLondonGazette">Date notice sent to Gazette</option>');
+    expect(markup).not.toContain("London Gazette");
     expect(markup).not.toContain('value="daysReceivedToEnroled"');
   });
 
