@@ -11,9 +11,9 @@
  * derives the reference number's year from it — a create without it comes back as a 400 attributed to
  * that field, which is why the field is on this form at all rather than left to the Application tab.
  *
- * Off in prod until the later migration phases (`caseCreationEnabled`, `src/case-creation.ts`): both verbs then
- * render a sentence instead of the form and call nothing. api refuses the create there too, with a 409, and that
- * refusal is the control, so a 409 from api renders the same sentence in case the two settings disagree.
+ * If creation is disabled (`caseCreationEnabled`, `src/case-creation.ts`), both verbs render a sentence
+ * instead of the form and call nothing. API enforces its matching switch with a 409, handled here if the
+ * two deployments disagree.
  */
 import {
   ConflictError,

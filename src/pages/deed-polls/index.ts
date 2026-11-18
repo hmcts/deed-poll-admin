@@ -441,7 +441,7 @@ function render(
 
   res.render("deed-polls/index", {
     cases,
-    // Off in prod until the later migration phases; see src/case-creation.ts.
+    // Respect the deployment switch; API enforces the matching setting.
     showNewCase: caseCreationEnabled(),
     showSettings,
     // The referral queue's link, from the session's capability as the settings link is (plan Fa1).

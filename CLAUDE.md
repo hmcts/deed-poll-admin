@@ -932,16 +932,14 @@ api's). **Deploy order:** api #165/#166 on every replica first. Facts that span 
   read-only, so `e2e-tests/tests/management-information.spec.ts` stays in `yarn test:e2e`.
 - **Welsh is pending**: `src/management-information` is on the extractor's `INCLUDE`, and its `cy` mirrors `en`.
 
-## Case creation off in prod
+## Case creation
 
-`caseCreation.enabled` (`CASE_CREATION_ENABLED`) is `true` everywhere except prod, where the chart sets it `false`
-until the later migration phases (Steve, 2026-11-05): migrated cases keep their Power App references while the Power
-App goes on allocating from its own sequence, so a reference api allocated in prod would very likely duplicate one.
-**api is the control**: it refuses every create there with a 409 (deed-poll-api#167). This app only stops offering
-it: `caseCreationEnabled()` (`src/case-creation.ts`, `=== true`, so an unparsed value reads as off) hides the case
-list's New case button, and `/deed-polls/new` renders a sentence instead of the form on GET and POST without asking
-api. A 409 from api on the create renders the same sentence, in case the two charts ever disagree; api's prose is
-never shown. `src/deployment-chart.test.ts` pins the chart value, the mapping and the default.
+`caseCreation.enabled` (`CASE_CREATION_ENABLED`) is `true` in every environment, including prod, following
+Steve's request to re-enable creation on 2026-11-18. This supersedes the temporary production restriction
+introduced on 2026-11-05. `caseCreationEnabled()` controls the New case button and `/deed-polls/new` GET/POST.
+The switch remains available for disabling creation; API enforces its matching switch with a 409, which
+Admin renders using its own sentence. Enable the API setting before Admin so the offered form can save.
+`src/deployment-chart.test.ts` pins the enabled chart value, mapping and default.
 
 ## Redirect paths
 

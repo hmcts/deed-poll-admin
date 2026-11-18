@@ -360,18 +360,16 @@ describe("charts/deed-poll-admin", () => {
   });
 
   // Flux reconciles on the chart version, so a values.yaml change without a bump never deploys.
-  it("should carry the chart version that ships CASE_CREATION_ENABLED", () => {
+  it("should carry the chart version that re-enables case creation", () => {
     const chart = yamlLoad(readFileSync(path.join(CHART_DIR, "Chart.yaml"), "utf8")) as { version: string };
 
-    expect(chart.version).toBe("0.0.6");
+    expect(chart.version).toBe("0.0.7");
   });
 
-  it("should turn case creation off in prod only, and map it to caseCreation.enabled defaulting on", () => {
+  it("should enable case creation in every environment and map it to caseCreation.enabled defaulting on", () => {
     const defaults = (JSON.parse(readFileSync(path.join(APP_DIR, "../config/default.json"), "utf8")) as { caseCreation: { enabled: unknown } }).caseCreation;
 
-    expect(readValues("values.yaml").nodejs.environment?.CASE_CREATION_ENABLED).toBe(
-      "{{ if eq .Values.global.environment `prod` }}false{{ else }}true{{ end }}"
-    );
+    expect(readValues("values.yaml").nodejs.environment?.CASE_CREATION_ENABLED).toBe("true");
     expect(readMapping().caseCreation?.enabled).toEqual({ __name: "CASE_CREATION_ENABLED", __format: "json" });
     expect(defaults.enabled).toBe(true);
   });
