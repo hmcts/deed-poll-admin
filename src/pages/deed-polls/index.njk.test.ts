@@ -136,6 +136,20 @@ describe("deed-polls list template", () => {
     expect(markup).not.toContain("Try opening the ready list");
   });
 
+  it.each([0, 26])("should render the Welsh Gazette link and count for %s ready cases", async (count) => {
+    vi.mocked(countGazetteReadyCases).mockResolvedValue(count);
+    const res = pageResponse();
+    res.locals.locale = "cy";
+
+    await GET(pageRequest({ deliveryManager: true }), res);
+    const model = res.render.mock.calls[0][1];
+    const markup = environment.render("deed-polls/index.njk", { ...model.cy, ...model });
+
+    expect(markup).toContain('href="/deed-polls/gazette">Gweld ceisiadau’r Gazette</a>');
+    expect(markup).toContain(`Ceisiadau sy’n barod ar gyfer y Gazette: ${count}`);
+    expect(markup).not.toContain("London Gazette");
+  });
+
   // A Delivery Manager holds MANAGE_PROCESS_CONFIG, ALLOCATE_REFERRALS and VIEW_MANAGEMENT_INFORMATION.
   it.each([
     ["the service settings page", '<a class="govuk-link" href="/deed-polls/settings">Service settings</a>'],
