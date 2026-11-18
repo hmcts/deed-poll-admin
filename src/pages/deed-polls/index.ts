@@ -128,7 +128,9 @@ const en = {
   searchButton: "Search",
   // The first group's own label. Labelled because plan 11 puts saved queries in a second group beside it,
   // and an unlabelled bar of both reads as one list — decision 8.
-  statusGroupLabel: "Status",
+  statusGroupLabel: "Quick filters",
+  awaitingEnrolmentFilter: "Awaiting enrolment",
+  referredToMasterFilter: "Referred to Master",
   // The saved-query groups' labels, each rendered only when the caseworker has queries of that kind in their
   // own bar — plan 14. They match the library screen's two headings word for word on purpose: the same query
   // must not appear under "Your queries" on one screen and something else on the other.
@@ -532,7 +534,7 @@ function filterGroups(view: ListView, content: typeof en, savedQueries: SavedQue
 }
 
 /**
- * The status tabs as a nav group.
+ * Quick filters as a nav group.
  *
  * Each tab carries the query, the search term and the order, so switching tab narrows the same conditions
  * within another saved query rather than throwing them away — decision 6, and plan 12's decision 1. The
@@ -543,21 +545,46 @@ function filterGroups(view: ListView, content: typeof en, savedQueries: SavedQue
  * `f.key == activeFilter` only worked while every entry in the bar was a status — a saved query's identity
  * is its id, and the page it points at is not named by its label.
  *
- * **The order is carried to every tab that has one to carry, which is not all of them.** The
- * awaiting-confirmation worklist is ordered by api — longest wait first — so its link leaves the order behind
- * the way every tab leaves the page number behind: a queue's order is not another tab's to supply. The handler
- * drops it on arrival in any case (`isReorderable`), and this is what stops the URL from stating an order the
- * list is not in.
+ * Status-condition shortcuts replace each other when switching quick filters, while unrelated query
+ * conditions remain. The confirmation worklist is reached from its banner rather than this group.
  */
 function statusGroup({ filter, q, conditions, sort }: ListView, content: typeof en): FilterGroup {
+  // These statuses have no named API filter. Use the published query conditions rather than inventing keys.
+  const statusFilters = [
+    { key: "awaitingEnrolment", label: content.awaitingEnrolmentFilter, state: "AwaitingEnrolment" },
+    { key: "referredToMaster", label: content.referredToMasterFilter, state: "ReferredToMaster" }
+  ];
+  const selected = statusFilters.find(
+    (entry) =>
+      filter.key === "all" &&
+      conditions.some(
+        (condition) => condition.field === "state" && condition.operator === "is" && condition.values.length === 1 && condition.values[0] === entry.state
+      )
+  );
+  const otherConditions = selected
+    ? conditions.filter(
+        (condition) => !(condition.field === "state" && condition.operator === "is" && condition.values.length === 1 && condition.values[0] === selected.state)
+      )
+    : conditions;
+
   return {
     label: content.statusGroupLabel,
-    entries: filterTabs().map((tab) => ({
-      key: tab.key,
-      label: tab.label,
-      href: listHref({ filter: tab.key, q, conditions, sort: isReorderable(tab.key) ? sort : undefined }),
-      current: tab.key === filter.key
-    }))
+    entries: [
+      ...filterTabs()
+        .filter((tab) => tab.key !== AWAITING_CONFIRMATION_FILTER)
+        .map((tab) => ({
+          key: tab.key,
+          label: tab.label,
+          href: listHref({ filter: tab.key, q, conditions: otherConditions, sort }),
+          current: !selected && tab.key === filter.key
+        })),
+      ...statusFilters.map((entry) => ({
+        key: entry.key,
+        label: entry.label,
+        href: listHref({ filter: "all", q, conditions: [...otherConditions, { field: "state", operator: "is", values: [entry.state] }], sort }),
+        current: selected?.key === entry.key
+      }))
+    ]
   };
 }
 
