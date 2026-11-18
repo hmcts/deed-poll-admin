@@ -116,7 +116,7 @@ describe("deed-polls list page", () => {
     expect(res.render.mock.calls[0][1]).toMatchObject({
       showGazette: true,
       gazetteFailed: false,
-      gazetteCount: `Applications ready for the London Gazette: ${count}`
+      gazetteCount: `Applications ready for the Gazette: ${count}`
     });
   });
 
@@ -197,7 +197,7 @@ describe("deed-polls list page", () => {
     await GET(pageRequest({ deliveryManager: true }), res);
     expect(res.render.mock.calls[0][1]).toMatchObject({
       gazetteFailed: false,
-      gazetteCount: "Applications ready for the London Gazette: 7",
+      gazetteCount: "Applications ready for the Gazette: 7",
       returnedForActionFailed: true,
       awaitingConfirmationFailed: true
     });

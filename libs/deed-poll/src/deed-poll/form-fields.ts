@@ -300,7 +300,7 @@ export const LEGACY_REFERRAL_TAB: TabDef = {
         { name: "masterDateOfDecision", label: "Master date of decision", kind: "date", column: 1 },
         { name: "dateDecisionDirectionsReceived", label: "Date decision/directions received", kind: "date", column: 1 },
         // a Gazette process flag; `dateNoticeSentToLondonGazette` on the Enrolment tab is the queryable fact
-        { name: "publishToLondonGazette", label: "Publish to London Gazette", kind: "boolean", queryable: false, column: 1 }
+        { name: "publishToLondonGazette", label: "Publish to Gazette", kind: "boolean", queryable: false, column: 1 }
       ]
     }
   ]
@@ -337,7 +337,7 @@ const ENROLMENT_TAB: TabDef = {
       fields: [
         { name: "dateEnroled", label: "Date enrolled", kind: "date", column: 1 },
         { name: "daysReceivedToEnroled", label: "Days received to enrolled", kind: "number", readOnly: true, column: 1 },
-        { name: "dateNoticeSentToLondonGazette", label: "Date notice sent to London Gazette", kind: "date", column: 1 }
+        { name: "dateNoticeSentToLondonGazette", label: "Date notice sent to Gazette", kind: "date", column: 1 }
       ]
     }
   ]

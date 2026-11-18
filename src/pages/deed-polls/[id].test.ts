@@ -512,7 +512,7 @@ describe("case detail page", () => {
       { key: "Master decision", value: "Approved" },
       // Part of the record once there is one, and never the reason there is one — api publishes a Gazette answer
       // for every case, so counting it as evidence headed all of them "Previous system referral information".
-      { key: "Publish to London Gazette", value: "Yes" }
+      { key: "Publish to Gazette", value: "Yes" }
     ]);
   });
 

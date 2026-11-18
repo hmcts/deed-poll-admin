@@ -6,7 +6,7 @@ const LIST_PATH = "/deed-polls/gazette/requests";
 const en = {
   title: "Gazette requests",
   heading: "Gazette requests",
-  back: "Applications ready for the London Gazette",
+  back: "Applications ready for the Gazette",
   intro: "Requests include attempts that have not been sent. Older sends appear in send history.",
   history: "Send history",
   submitted: "Submitted at",
@@ -31,7 +31,7 @@ const en = {
 const cy = {
   title: "Ceisiadau Gazette",
   heading: "Ceisiadau Gazette",
-  back: "Ceisiadau sy’n barod ar gyfer y London Gazette",
+  back: "Ceisiadau sy’n barod ar gyfer y Gazette",
   intro: "Mae’r ceisiadau’n cynnwys ymdrechion nad ydynt wedi’u hanfon. Mae cofnodion anfon hŷn yn ymddangos yn yr hanes anfon.",
   history: "Hanes anfon",
   submitted: "Cyflwynwyd am",

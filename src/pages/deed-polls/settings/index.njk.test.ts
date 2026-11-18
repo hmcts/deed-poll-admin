@@ -125,7 +125,7 @@ describe("service settings page", () => {
     const tabs = [...markup.matchAll(/class="govuk-tabs__tab" href="#([^"]+)"[^>]*>\s*([^<]+?)\s*</g)].map(([, id, label]) => [id, label]);
     expect(tabs).toEqual([
       ["process-settings", "Referral process"],
-      ["gazette-recipient", "London Gazette recipient"],
+      ["gazette-recipient", "Gazette recipient"],
       ["masters", "Masters"],
       ["bank-holidays", "Bank holidays"],
       ["staff-and-access", "Staff and access"]
@@ -262,7 +262,7 @@ describe("service settings page", () => {
     const { markup } = await render(GET, { access: PROCESS_ONLY });
 
     expect(markup).not.toContain('id="gazette-recipient"');
-    expect(markup).not.toContain("London Gazette");
+    expect(markup).not.toContain("Gazette");
   });
 
   it("should degrade the Gazette section to a sentence with no Save when its read fails", async () => {
@@ -270,7 +270,7 @@ describe("service settings page", () => {
 
     const { markup } = await render(GET);
 
-    expect(markup).toContain("The London Gazette recipient could not be loaded. Try again later.");
+    expect(markup).toContain("The Gazette recipient could not be loaded. Try again later.");
     expect(form(markup, "/deed-polls/settings/gazette-recipient#gazette-recipient")).toBe("");
     expect(markup).toContain("Save referral process");
   });
@@ -397,7 +397,7 @@ describe("service settings page", () => {
       const { markup } = await render(postProcess, { body: { ...BODY, processingDays: "x" } });
 
       expect(markup).toContain("Enter the processing window as a whole number of days from 1 to 30");
-      expect(markup).toContain("The London Gazette recipient could not be loaded. Try again later.");
+      expect(markup).toContain("The Gazette recipient could not be loaded. Try again later.");
       expect(markup).not.toContain("Save recipient");
       expectSummaryLinksResolve(markup);
     });

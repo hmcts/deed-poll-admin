@@ -108,12 +108,12 @@ const WAITING_FOR_ASSIGNMENT_PATH = `${LIST_PATH}${caseListSearch({ conditions: 
 const AWAITING_CONFIRMATION_PATH = `${LIST_PATH}${caseListSearch({ filter: AWAITING_CONFIRMATION_FILTER })}`;
 
 const en = {
-  gazetteLink: "View London Gazette applications",
+  gazetteLink: "View Gazette applications",
   settingsLink: "Service settings",
   referralsLink: "Referrals",
   managementInformationLink: "Management information",
-  gazetteCountFor: (count: number) => `Applications ready for the London Gazette: ${count}`,
-  gazetteUnavailable: "The number of applications ready for the London Gazette could not be loaded. Try opening the ready list.",
+  gazetteCountFor: (count: number) => `Applications ready for the Gazette: ${count}`,
+  gazetteUnavailable: "The number of applications ready for the Gazette could not be loaded. Try opening the ready list.",
   title: "Deed poll cases",
   heading: "Deed poll cases",
   // True of every group in the bar rather than of the first one: plan 11's decision 4. "Filter by status"
@@ -238,9 +238,9 @@ const en = {
 // translating is a content change rather than a page rewrite.
 const cy = {
   ...en,
-  gazetteLink: "Gweld ceisiadau’r London Gazette",
-  gazetteCountFor: (count: number) => `Ceisiadau sy’n barod ar gyfer y London Gazette: ${count}`,
-  gazetteUnavailable: "Ni ellid llwytho nifer y ceisiadau sy’n barod ar gyfer y London Gazette. Ceisiwch agor y rhestr."
+  gazetteLink: "Gweld ceisiadau’r Gazette",
+  gazetteCountFor: (count: number) => `Ceisiadau sy’n barod ar gyfer y Gazette: ${count}`,
+  gazetteUnavailable: "Ni ellid llwytho nifer y ceisiadau sy’n barod ar gyfer y Gazette. Ceisiwch agor y rhestr."
 };
 
 export const GET = async (req: Request, res: Response) => {

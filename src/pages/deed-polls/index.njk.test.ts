@@ -118,7 +118,7 @@ describe("deed-polls list template", () => {
   });
 
   it.each([
-    ["the Gazette area", ["/deed-polls/gazette", "Applications ready for the London Gazette:"]],
+    ["the Gazette area", ["/deed-polls/gazette", "Applications ready for the Gazette:"]],
     ["the referral queue", ['href="/deed-polls/referrals"', ">Referrals</a>"]],
     ["the management information page", ["/deed-polls/management-information"]],
     ["the service settings page", ["/deed-polls/settings", "Service settings"]]
@@ -132,8 +132,22 @@ describe("deed-polls list template", () => {
     vi.mocked(countGazetteReadyCases).mockResolvedValue(count);
     const markup = await render({}, true);
     expect(markup).toContain('href="/deed-polls/gazette"');
-    expect(markup).toContain(`Applications ready for the London Gazette: ${count}`);
+    expect(markup).toContain(`Applications ready for the Gazette: ${count}`);
     expect(markup).not.toContain("Try opening the ready list");
+  });
+
+  it.each([0, 26])("should render the Welsh Gazette link and count for %s ready cases", async (count) => {
+    vi.mocked(countGazetteReadyCases).mockResolvedValue(count);
+    const res = pageResponse();
+    res.locals.locale = "cy";
+
+    await GET(pageRequest({ deliveryManager: true }), res);
+    const model = res.render.mock.calls[0][1];
+    const markup = environment.render("deed-polls/index.njk", { ...model.cy, ...model });
+
+    expect(markup).toContain('href="/deed-polls/gazette">Gweld ceisiadau’r Gazette</a>');
+    expect(markup).toContain(`Ceisiadau sy’n barod ar gyfer y Gazette: ${count}`);
+    expect(markup).not.toContain("London Gazette");
   });
 
   // A Delivery Manager holds MANAGE_PROCESS_CONFIG, ALLOCATE_REFERRALS and VIEW_MANAGEMENT_INFORMATION.
@@ -152,8 +166,8 @@ describe("deed-polls list template", () => {
     vi.mocked(countGazetteReadyCases).mockRejectedValue(new Error("unavailable"));
     const markup = await render({}, true);
     expect(markup).toContain('href="/deed-polls/gazette"');
-    expect(markup).toContain("The number of applications ready for the London Gazette could not be loaded");
-    expect(markup).not.toContain("Applications ready for the London Gazette: 0");
+    expect(markup).toContain("The number of applications ready for the Gazette could not be loaded");
+    expect(markup).not.toContain("Applications ready for the Gazette: 0");
     log.mockRestore();
   });
 
@@ -321,6 +335,8 @@ describe("deed-polls list template", () => {
     const markup = await render();
 
     expect(markup).toContain('<option value="state">Status</option>');
+    expect(markup).toContain('<option value="dateNoticeSentToLondonGazette">Date notice sent to Gazette</option>');
+    expect(markup).not.toContain("London Gazette");
     expect(markup).not.toContain('value="daysReceivedToEnroled"');
   });
 

@@ -138,7 +138,7 @@ test("one tester works as a caseworker, a judge, a Team leader and a Delivery Ma
 
   await expect(page).toHaveURL(CASE_LIST_PATH);
   await expect(currentPersona(page)).toHaveText("Team leader (current)");
-  await expect(page.getByRole("link", { name: "View London Gazette applications" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "View Gazette applications" })).toHaveCount(0);
 
   // The same note page as before the switches, and the control `caseworker-deedpoll-team-leader` unlocks is now on
   // it. Nothing about the URL changed, so the only thing that can have is api's `GET /me` answer for the token
@@ -158,7 +158,7 @@ test("one tester works as a caseworker, a judge, a Team leader and a Delivery Ma
   await switchTo(page, "Delivery Manager").click();
   await expect(page).toHaveURL(CASE_LIST_PATH);
   await expect(currentPersona(page)).toHaveText("Delivery Manager (current)");
-  await expect(page.getByRole("link", { name: "View London Gazette applications" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "View Gazette applications" })).toBeVisible();
   await page.goto(seeded.noteEditUrl);
   await expect(deleteNote(page)).toBeVisible();
   await expectNoAccessibilityViolations(page);

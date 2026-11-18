@@ -385,13 +385,13 @@ it("should render Welsh checklist and confirmation copy and escape names and pre
 it.each([
   {
     locale: "en",
-    selection: "Review applications for the London Gazette",
+    selection: "Review applications for the Gazette",
     review: "Complete the application checklist",
     confirmation: "Check the Gazette email"
   },
   {
     locale: "cy",
-    selection: "Adolygu ceisiadau ar gyfer y London Gazette",
+    selection: "Adolygu ceisiadau ar gyfer y Gazette",
     review: "Cwblhau rhestr wirio’r cais",
     confirmation: "Gwirio e-bost y Gazette"
   }

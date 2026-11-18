@@ -91,7 +91,7 @@ describe("Gazette send history", () => {
   it("should show empty history with navigation and no table or pagination", async () => {
     vi.mocked(findGazetteHistory).mockResolvedValue({ ...PAGE, batches: [], total: 0, totalPages: 0 });
     const markup = await render();
-    expect(markup).toContain("No notices have been sent to the London Gazette.");
+    expect(markup).toContain("No notices have been sent to the Gazette.");
     expect(markup).toContain('href="/deed-polls/gazette"');
     expect(markup).not.toMatch(/govuk-table|govuk-pagination|0 to 0/);
   });
@@ -130,7 +130,7 @@ describe("Gazette send history", () => {
 
   it("should render Welsh headings, truncation and paging copy", async () => {
     const markup = await render({}, "cy");
-    expect(markup).toContain("Hanes anfon i’r London Gazette");
+    expect(markup).toContain("Hanes anfon i’r Gazette");
     expect(markup).toContain("Anfonwyd gan");
     expect(markup).toContain("Dim ond rhai cyfeirnodau ceisiadau sy’n cael eu dangos.");
     expect(markup).toContain("1 i 25 o 26 o gofnodion anfon");

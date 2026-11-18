@@ -398,7 +398,7 @@ describe("case detail template — the referrals tab", () => {
     it("should keep an explicit No on the Gazette question, which is an answer somebody recorded", async () => {
       const panel = referralsPanel(await page([], LEGACY_RECORD));
 
-      expect(panel).toContain("Publish to London Gazette");
+      expect(panel).toContain("Publish to Gazette");
       expect(panel).toContain("No");
     });
 

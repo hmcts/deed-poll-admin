@@ -12,7 +12,7 @@ test("Delivery Manager opens the settings from the case list and changes the ref
   await expect(page).toHaveURL("/deed-polls/settings");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Service settings");
   // Each section is a tab, in the page's order, and the page opens on the first.
-  await expect(page.getByRole("tab")).toHaveText(["Referral process", "London Gazette recipient", "Masters", "Bank holidays", "Staff and access"]);
+  await expect(page.getByRole("tab")).toHaveText(["Referral process", "Gazette recipient", "Masters", "Bank holidays", "Staff and access"]);
   await expect(page.getByRole("tab", { name: "Referral process", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByLabel("Processing window", { exact: true })).toHaveValue("7");
   await expect(page.getByLabel("Reminder interval", { exact: true })).toHaveValue("48");
