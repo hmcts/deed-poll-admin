@@ -269,8 +269,43 @@ describe("deed-polls list page", () => {
 
     const groups = res.render.mock.calls[0][1].filterGroups;
     expect(groups).toHaveLength(1);
-    expect(groups[0].label).toBe("Status");
-    expect(groups[0].entries).toHaveLength(6);
+    expect(groups[0].label).toBe("Quick filters");
+    expect(groups[0].entries).toHaveLength(7);
+  });
+
+  it.each([
+    ["awaitingEnrolment", "Awaiting enrolment", "AwaitingEnrolment"],
+    ["referredToMaster", "Referred to Master", "ReferredToMaster"]
+  ])("should query the API for the %s quick filter and mark only that entry current", async (key, label, state) => {
+    const res = pageResponse();
+    await GET(pageRequest({ query: { q: "Smith", filter: "returned", where: "type:is:Adult", sort: "dateReceived:asc", page: "3" } }), res);
+    const entries = res.render.mock.calls[0][1].filterGroups[0].entries;
+    expect(entries.some((entry: { key: string }) => entry.key === "awaitingConfirmation")).toBe(false);
+    const entry = entries.find((entry: { key: string }) => entry.key === key);
+    expect(entry.label).toBe(label);
+    const query = Object.fromEntries(new URL(entry.href, "http://localhost").searchParams);
+    expect(query).not.toHaveProperty("filter");
+    expect(query).not.toHaveProperty("page");
+    const where = new URL(entry.href, "http://localhost").searchParams.getAll("where");
+    expect(where).toEqual(["type:is:Adult", `state:is:${state}`]);
+
+    const selected = pageResponse();
+    await GET(pageRequest({ query: { ...query, where } }), selected);
+
+    expect(findDeedPolls).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        filter: "all",
+        q: "Smith",
+        conditions: [
+          { field: "type", operator: "is", values: ["Adult"] },
+          { field: "state", operator: "is", values: [state] }
+        ]
+      }),
+      expect.anything()
+    );
+    expect(currentEntries(selected)).toEqual([key]);
+    const all = selected.render.mock.calls[0][1].filterGroups[0].entries.find((entry: { key: string }) => entry.key === "all");
+    expect(new URL(all.href, "http://localhost").searchParams.getAll("where")).toEqual(["type:is:Adult"]);
   });
 
   it("passes the filter tabs without their where clauses", async () => {
@@ -335,7 +370,7 @@ describe("deed-polls list page", () => {
 
       await GET(pageRequest(), res);
 
-      expect(groupLabels(res)).toEqual(["Status", "Query library"]);
+      expect(groupLabels(res)).toEqual(["Quick filters", "Query library"]);
       expect(savedGroup(res).entries.map((entry: { key: string }) => entry.key)).toEqual(["q-1"]);
     });
 
@@ -350,7 +385,7 @@ describe("deed-polls list page", () => {
 
       await GET(pageRequest(), res);
 
-      expect(groupLabels(res)).toEqual(["Status", "Your queries", "Query library"]);
+      expect(groupLabels(res)).toEqual(["Quick filters", "Your queries", "Query library"]);
       expect(res.render.mock.calls[0][1].filterGroups[1].entries.map((entry: { key: string }) => entry.key)).toEqual(["mine"]);
       expect(res.render.mock.calls[0][1].filterGroups[2].entries.map((entry: { key: string }) => entry.key)).toEqual(["theirs"]);
     });
@@ -800,13 +835,13 @@ describe("deed-polls list page", () => {
       expect(findDeedPolls).toHaveBeenCalledWith({ filter: "awaitingConfirmation", conditions: [], sort: undefined }, expect.anything());
     });
 
-    it("leaves the order behind on the link into the worklist, so the URL states no order either", async () => {
+    it("leaves the order behind on the banner link into the worklist", async () => {
       const res = pageResponse();
 
       await GET(pageRequest({ query: { filter: "returned", sort: "state:desc" } }), res);
 
       const entries = res.render.mock.calls[0][1].filterGroups[0].entries;
-      expect(entries[5].href).toBe("/deed-polls?filter=awaitingConfirmation");
+      expect(res.render.mock.calls[0][1].awaitingConfirmationHref).toBe("/deed-polls?filter=awaitingConfirmation");
       // Every other tab still carries it: this is one tab's order being api's, not the order being dropped.
       expect(entries[2].href).toBe("/deed-polls?filter=received&sort=state%3Adesc");
     });
@@ -934,7 +969,8 @@ describe("deed-polls list page", () => {
         "/deed-polls?filter=received&where=type%3Ais%3AAdult",
         "/deed-polls?filter=enroled&where=type%3Ais%3AAdult",
         "/deed-polls?filter=returned&where=type%3Ais%3AAdult",
-        "/deed-polls?filter=awaitingConfirmation&where=type%3Ais%3AAdult"
+        "/deed-polls?where=type%3Ais%3AAdult&where=state%3Ais%3AAwaitingEnrolment",
+        "/deed-polls?where=type%3Ais%3AAdult&where=state%3Ais%3AReferredToMaster"
       ]);
     });
 
@@ -1117,7 +1153,8 @@ describe("deed-polls list page", () => {
         "/deed-polls?filter=received&q=Smith",
         "/deed-polls?filter=enroled&q=Smith",
         "/deed-polls?filter=returned&q=Smith",
-        "/deed-polls?filter=awaitingConfirmation&q=Smith"
+        "/deed-polls?q=Smith&where=state%3Ais%3AAwaitingEnrolment",
+        "/deed-polls?q=Smith&where=state%3Ais%3AReferredToMaster"
       ]);
     });
 

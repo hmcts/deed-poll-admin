@@ -839,7 +839,21 @@ describe("deed-polls list template", () => {
       const nav = filterNav(await render());
 
       expect(nav).toContain('<ul class="app-filter-nav__list">');
-      expect([...group(nav, 0).matchAll(/<li class="app-filter-nav__item">/g)]).toHaveLength(6);
+      expect([...group(nav, 0).matchAll(/<li class="app-filter-nav__item">/g)]).toHaveLength(7);
+      expect(nav).toContain('href="/deed-polls?where=state%3Ais%3AAwaitingEnrolment">Awaiting enrolment</a>');
+      expect(nav).toContain('href="/deed-polls?where=state%3Ais%3AReferredToMaster">Referred to Master</a>');
+      expect(nav).not.toContain("Awaiting confirmation");
+      expect(nav).not.toContain("filter=awaitingConfirmation");
+    });
+
+    it.each([
+      ["AwaitingEnrolment", "Awaiting enrolment"],
+      ["ReferredToMaster", "Referred to Master"]
+    ])("should mark only %s current when its quick filter is selected", async (state, label) => {
+      const nav = filterNav(await render({ where: `state:is:${state}` }));
+
+      expect(nav).toContain(`<span class="app-filter-nav__current" aria-current="page">${label}</span>`);
+      expect([...nav.matchAll(/aria-current=/g)]).toHaveLength(1);
     });
 
     it("marks the current tab with aria-current=page rather than a strong, since you-are-here is not importance", async () => {
@@ -848,14 +862,14 @@ describe("deed-polls list template", () => {
       expect(nav).toContain('<span class="app-filter-nav__current" aria-current="page">Enrolled</span>');
       expect(nav).not.toContain("<strong");
       expect(nav).not.toContain('aria-current="true"');
-      // One current entry, so the other five are still links to somewhere.
+      // One current entry, so the other six are still links to somewhere.
       expect([...nav.matchAll(/aria-current=/g)]).toHaveLength(1);
     });
 
     it("does not fade the tabs a caseworker has already used, which would read as progress through them", async () => {
       const nav = filterNav(await render());
 
-      expect([...nav.matchAll(/class="govuk-link govuk-link--no-visited-state"/g)]).toHaveLength(5);
+      expect([...nav.matchAll(/class="govuk-link govuk-link--no-visited-state"/g)]).toHaveLength(6);
     });
 
     it("leaves the spacing to the component, so the markup carries no override utilities", async () => {
@@ -953,9 +967,9 @@ describe("deed-polls list template", () => {
     it("labels the group, ready for plan 11's saved queries to sit in a second one", async () => {
       const nav = filterNav(await render());
 
-      expect(nav).toMatch(/<div class="app-filter-nav__group">\s*<h2 class="app-filter-nav__group-label">Status<\/h2>/);
+      expect(nav).toMatch(/<div class="app-filter-nav__group">\s*<h2 class="app-filter-nav__group-label">Quick filters<\/h2>/);
       // Wording true of every group the bar can hold, since the second one is saved queries and not
-      // statuses — plan 11's decision 4. The group's own label is what says "status".
+      // statuses — plan 11's decision 4.
       expect(nav).toContain('aria-label="Filter cases"');
       expect(nav).not.toContain("Filter by status");
     });
