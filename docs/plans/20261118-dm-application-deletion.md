@@ -5,6 +5,10 @@
 Status: planned, 2026-11-18. Steve confirmed permanent deletion of applications created in error or duplicated,
 with the reason retained in the audit trail. Do not implement voiding, archiving or a retained read-only application.
 
+**Steve's answers, 2026-11-18 (review by Aspen):** for applications created in error, now that prod creates cases again
+(api#174); CCD removal goes through Retain and Dispose; documents are deleted permanently; a **mandatory free-text
+reason** is required as well as the reason code; no re-import protection. The API plan carries the detail.
+
 Add a Delivery Manager-only action on the application detail page, a reason/confirmation page and a deletion
 progress page. API owns permission, eligibility, permanent cleanup, idempotency and audit. Admin never deletes
 data directly and never reports an accepted deletion request as completed deletion.
@@ -46,10 +50,11 @@ Use API's published `DELETE_APPLICATION` capability; only Delivery Managers rece
 
 Proposed API contract, to be checked against the merged generated spec in Task 1:
 
-- `POST /caseworker/cases/{id}/deletion-requests`, UUID `Idempotency-Key`, body `{ reason, expectedModifiedOn }`, 202 with
-  `{ requestId, status }`. Reasons `CREATED_IN_ERROR` and `DUPLICATE`, mandatory; no free text or duplicate target.
+- `POST /caseworker/cases/{id}/deletion-requests`, UUID `Idempotency-Key`, body `{ reason, note, expectedModifiedOn }`,
+  202 with `{ requestId, status }`. Reasons `CREATED_IN_ERROR` and `DUPLICATE`, mandatory, plus a mandatory free-text
+  `note` (10–500 characters; API's exact bounds win); no duplicate target.
 - `GET /caseworker/application-deletions/{requestId}` gives identifiers, reason, timestamps, status and optional
-  allowlisted failure code. Statuses `Pending`, `InProgress`, `NeedsAttention`, `Completed`.
+  allowlisted failure code. Statuses `Pending`, `InProgress`, `AwaitingDisposal`, `NeedsAttention`, `Completed`.
 - Both require the capability. API rejects protected/unsafe deletion with 409; unknown IDs 404. Repeating the
   original key/body retrieves the same request even when the application has already gone.
 
@@ -62,7 +67,9 @@ pages. Never ship a mock-only route or a guessed request shape.
    `/deed-polls/{id}/delete`. Do not copy API eligibility rules into Admin or infer eligibility from dates/status.
 2. GET confirmation loads the application once and shows its reference and enough existing identity context to
    distinguish it, following current detail-page privacy rules. Require one reason radio: **Created in error** or
-   **Duplicate application**, with neither preselected. Warn that deletion permanently removes the application
+   **Duplicate application**, with neither preselected, and a required **Why are you deleting this application?**
+   textarea. Its hint says to explain the reason and **not to include the applicant's personal details**, because the
+   note is kept in the audit trail after the application is gone. Enforce API's bounds and redraw the text on errors. Warn that deletion permanently removes the application
    and associated records/documents, cannot be undone, and retains an audit record of who deleted it and why.
    Provide a warning-styled **Permanently delete application** submit and Cancel returning to the application.
    Do not promise deletion of externally delivered emails or backups, or display database/storage implementation detail.
@@ -73,7 +80,8 @@ pages. Never ship a mock-only route or a guessed request shape.
 4. POST validates reason and explicit confirmation, then calls API with the original key. 202 redirects with 303
    to `/deed-polls/deletions/{requestId}`. Page routes use encoded IDs. Cancel/GET never writes.
 5. Status GET reads only the deletion resource, so it still works after the application is gone. Pending/InProgress
-   says deletion is in progress; NeedsAttention says it has not completed and needs investigation. Both offer
+   says deletion is in progress; AwaitingDisposal says the application is waiting to be removed from the case platform,
+   which happens in an overnight run, so it can take until the next day; NeedsAttention says it has not completed and needs investigation. Both offer
    Refresh and Back to applications, no new-delete/resend/cancel button. Completed alone says **Application deleted**
    and displays the reason and completion time. It does not attempt to reload the deleted application.
 6. A timeout/transport failure admitting a request is an **unknown outcome**. Preserve the original signed request,
@@ -137,7 +145,7 @@ mock routes/store and capability fixtures; `libs/deed-poll/src/auth/capabilities
 **Files:** new `libs/deed-poll/src/deletion/{service,schemas}.ts`, library export index, new
 `src/application-deletion/` journey module and co-located tests. Read existing Gazette journey seams first.
 
-- [ ] Add functions that forward only caller token, case/key/reason/confirmation timestamp or request ID through `callApi`. Validate form
+- [ ] Add functions that forward only caller token, case/key/reason/note/confirmation timestamp or request ID through `callApi`. Validate form
   reason against API's enum; reject missing/repeated/object-shaped controls rather than stringifying them.
 - [ ] Bind case/key/original timestamp/confirmed body to tamper-resistant journey state. Keep independent tabs independent and preserve
   the original state on lost responses; a recovery action cannot edit the body or mint a replacement key.
