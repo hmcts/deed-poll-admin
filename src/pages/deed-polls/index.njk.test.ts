@@ -108,7 +108,7 @@ describe("deed-polls list template", () => {
     expect(markup).toContain('href="/deed-polls/new"');
   });
 
-  it("should offer no New case button while case creation is off, as in prod until the later migration phases", async () => {
+  it("should offer no New case button while case creation is off", async () => {
     caseCreationEnabled.mockReturnValueOnce(false);
 
     const markup = await render();

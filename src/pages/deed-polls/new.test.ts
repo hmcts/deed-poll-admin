@@ -32,7 +32,7 @@ describe("new deed poll page", () => {
     vi.clearAllMocks();
   });
 
-  describe("when case creation is off, as in prod until the later migration phases", () => {
+  describe("when case creation is off", () => {
     it("should render the sentence instead of the form on GET", () => {
       caseCreationEnabled.mockReturnValueOnce(false);
       const res = response();
