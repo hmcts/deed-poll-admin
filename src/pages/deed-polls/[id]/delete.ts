@@ -26,7 +26,8 @@ import {
   findDeedPoll,
   findProcessSettings,
   InvalidInputError,
-  requestDeletion
+  requestDeletion,
+  UnauthorizedError
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import {
@@ -129,9 +130,8 @@ export const GET = async (req: Request, res: Response) => {
   // Built before any read, so an unusable id is the 404 it would be anyway.
   casePath(req.params.id);
   const caller = callerFromRequest(req);
-  const graceRead = graceDays(caller);
-  const found = await findDeedPoll(req.params.id, caller);
-  const days = await graceRead;
+  // Together, so a refusal of either read reaches the error handler rather than being left unhandled.
+  const [found, days] = await Promise.all([findDeedPoll(req.params.id, caller), graceDays(caller)]);
 
   if (!found.lastChangedOn) {
     console.error("application deletion unavailable: the case detail carries no lastChangedOn");
@@ -195,6 +195,8 @@ async function graceDays(caller: Caller): Promise<number | null> {
   try {
     return (await findProcessSettings(caller)).deletionGraceDays;
   } catch (error) {
+    // A refused token is not a missing number: it goes to the handler that ends the session.
+    if (error instanceof UnauthorizedError) throw error;
     console.error(`deletion grace period unavailable: ${forLog(error instanceof Error ? error.message : String(error))}`);
     return null;
   }
@@ -206,15 +208,15 @@ async function graceDays(caller: Caller): Promise<number | null> {
  */
 async function redrawForm(req: Request, res: Response, journey: DeletionJourney, values: FormValues, errors: Record<string, string>) {
   const caller = callerFromRequest(req);
-  const graceRead = graceDays(caller);
-  const found = await summaryOf(req.params.id, caller);
-  return renderForm(req, res, 400, { journey, found, days: await graceRead, values, errors });
+  const [found, days] = await Promise.all([summaryOf(req.params.id, caller), graceDays(caller)]);
+  return renderForm(req, res, 400, { journey, found, days, values, errors });
 }
 
 async function summaryOf(caseId: string, caller: Caller): Promise<FoundCase | null> {
   try {
     return await findDeedPoll(caseId, caller);
   } catch (error) {
+    if (error instanceof UnauthorizedError) throw error;
     console.error(`application deletion summary unavailable: ${forLog(error instanceof Error ? error.message : String(error))}`);
     return null;
   }

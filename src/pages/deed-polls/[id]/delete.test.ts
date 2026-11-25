@@ -7,7 +7,8 @@ import {
   findProcessSettings,
   InvalidInputError,
   NotFoundError,
-  requestDeletion
+  requestDeletion,
+  UnauthorizedError
 } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type DeletionJourney, newDeletionJourney, sealDeletionJourney } from "../../../application-deletion/journey.js";
@@ -117,6 +118,19 @@ describe("application deletion confirmation page", () => {
       const model = res.render.mock.calls[0][1];
       expect(model.state).toBe("form");
       expect(model.restoreSentence).toBe("A Delivery Manager can restore it for a set number of days after you delete it.");
+    });
+
+    it("should leave api's 401 on the process settings to the session-ending handler rather than draw the form", async () => {
+      // Arrange
+      vi.mocked(findProcessSettings).mockRejectedValue(new UnauthorizedError("deed-poll-api call failed (unauthorized)"));
+      const res = pageResponse();
+
+      // Act
+      const result = GET(request(), res);
+
+      // Assert
+      await expect(result).rejects.toBeInstanceOf(UnauthorizedError);
+      expect(res.render).not.toHaveBeenCalled();
     });
 
     it("should offer no form when the case detail carries no lastChangedOn to confirm against", async () => {
@@ -422,6 +436,20 @@ describe("application deletion confirmation page", () => {
       expect(res.status).toHaveBeenCalledWith(400);
       expect(model).toMatchObject({ state: "form", summaryRows: [], values: { reason: "DUPLICATE", note: NOTE } });
       expect(model.journey).toBe(await sealDeletionJourney(request(), journey));
+    });
+
+    it("should leave api's 401 on the redraw's reads to the session-ending handler rather than redraw the form", async () => {
+      // Arrange
+      vi.mocked(requestDeletion).mockRejectedValueOnce(new InvalidInputError("bad", [{ field: "note", message: "api prose" }]));
+      vi.mocked(findDeedPoll).mockRejectedValue(new UnauthorizedError("deed-poll-api call failed (unauthorized)"));
+      const res = pageResponse();
+
+      // Act
+      const result = POST(await posted({ action: "delete", reason: "DUPLICATE", note: NOTE }), res);
+
+      // Assert
+      await expect(result).rejects.toBeInstanceOf(UnauthorizedError);
+      expect(res.render).not.toHaveBeenCalled();
     });
 
     it("should unseal a replayed recovery request that api answers 400, so the answers can be corrected under the same key", async () => {
