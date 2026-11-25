@@ -340,6 +340,9 @@ const gates = vi.hoisted(() => ({
   managementInformation: function requireManagementInformationDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
+  deletion: function requireDeletionDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
   judicial: function requireJudicialDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
@@ -379,7 +382,9 @@ vi.mock("./auth/require-role.js", () => ({
         ? gates.referrals
         : capability === "VIEW_MANAGEMENT_INFORMATION"
           ? gates.managementInformation
-          : gates.gazette
+          : capability === "DELETE_APPLICATION"
+            ? gates.deletion
+            : gates.gazette
   ),
   requireJudicial: () => gates.judicial,
   requireStaff: () => gates.staff,
@@ -826,6 +831,45 @@ describe("createApp's management information gate", () => {
       ).toBe(true);
     }
     for (const url of ["/deed-polls", "/deed-polls/abc", "/deed-polls/management-information-other", "/deed-polls/settings", "/login"]) {
+      expect(
+        stack[index].matchers.every((matches) => matches(url) === false),
+        url
+      ).toBe(true);
+    }
+  });
+});
+
+describe("createApp's application deletion gate", () => {
+  it("should require DELETE_APPLICATION after authentication and before routing for the confirmation and every deletions page", async () => {
+    const { requireCapability } = await import("./auth/require-role.js");
+    const { DELETE_APPLICATION } = await import("@hmcts/deed-poll");
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    const stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+    const index = stack.findIndex((entry) => entry.handle === gates.deletion);
+    const paths = judicialPagePaths("deed-polls/deletions");
+
+    expect(requireCapability).toHaveBeenCalledWith(DELETE_APPLICATION);
+    expect(stack.filter((entry) => entry.handle === gates.deletion)).toHaveLength(1);
+    expect(index).toBeGreaterThan(stack.findIndex((entry) => entry.handle === gates.auth));
+    expect(index).toBeGreaterThan(stack.findIndex((entry) => entry.handle === gates.staff));
+    expect(index).toBeLessThan(stack.findIndex((entry) => entry.handle === gates.router));
+    expect(paths).toEqual(expect.arrayContaining(["/deed-polls/deletions/a-sample-id", "/deed-polls/deletions/a-sample-id/restore"]));
+    for (const url of [...paths, "/deed-polls/deletions", "/deed-polls/case-1/delete", "/deed-polls/a%2Fb/delete"]) {
+      expect(
+        stack[index].matchers.some((matches) => matches(url) !== false),
+        url
+      ).toBe(true);
+    }
+    for (const url of [
+      "/deed-polls",
+      "/deed-polls/case-1",
+      "/deed-polls/case-1/edit/application",
+      "/deed-polls/case-1/notes/n-1/edit",
+      "/deed-polls/queries/q-1/delete",
+      "/deed-polls/deletions-other",
+      "/login"
+    ]) {
       expect(
         stack[index].matchers.every((matches) => matches(url) === false),
         url

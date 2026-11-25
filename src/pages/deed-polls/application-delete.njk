@@ -1,0 +1,97 @@
+{% extends "layouts/app.njk" %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/radios/macro.njk" import govukRadios %}
+{% from "govuk/components/character-count/macro.njk" import govukCharacterCount %}
+{% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{#
+  The application deletion confirmation and its two other states (`[id]/delete.ts`):
+
+  - `form`: the reason radios (neither preselected) and the note, then the warning-styled submit. Cancel is a link,
+    so the submit, whose action is the literal `delete`, is the only thing that can act.
+  - `unknown`: api's answer never came. The one control replays the sealed request (`check`); there is no form to
+    change it and no way to start another.
+  - `stopped`: a refusal, a stale, expired or forged confirmation, or an application that cannot be checked. Links
+    only, so nothing here resubmits.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if state == "form" %}
+
+      {% if errorList.length %}
+        {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
+      {% endif %}
+
+      <span class="govuk-caption-l">{{ reference }}</span>
+      <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+      {% set items = [] %}
+      {% for row in summaryRows %}
+        {% set items = (items.push({ key: { text: row.key }, value: { text: row.value } }), items) %}
+      {% endfor %}
+      {{ govukSummaryList({ rows: items }) }}
+
+      <p class="govuk-body">{{ disappears }} {{ restoreSentence }}</p>
+      <p class="govuk-body">{{ permanent }}</p>
+      <p class="govuk-body">{{ audit }}</p>
+
+      <form method="post" action="{{ actionPath }}" novalidate>
+        <input type="hidden" name="journey" value="{{ journey }}">
+
+        {{ govukRadios({
+          idPrefix: "reason",
+          name: "reason",
+          fieldset: { legend: { text: reasonLegend, classes: "govuk-fieldset__legend--m" } },
+          items: reasonItems,
+          errorMessage: { text: errors.reason } if errors.reason
+        }) }}
+
+        {{ govukCharacterCount({
+          id: "note",
+          name: "note",
+          rows: 4,
+          maxlength: noteMax,
+          value: values.note,
+          label: { text: noteLabel, classes: "govuk-label--m" },
+          hint: { text: noteHint },
+          errorMessage: { text: errors.note } if errors.note
+        }) }}
+
+        {{ govukWarningText({ text: warning, iconFallbackText: warningIcon }) }}
+
+        <div class="govuk-button-group">
+          {{ govukButton({ text: confirm, name: "action", value: "delete", classes: "govuk-button--warning", preventDoubleClick: true }) }}
+          <a class="govuk-link" href="{{ applicationPath }}">{{ cancel }}</a>
+        </div>
+      </form>
+
+    {% elif state == "unknown" %}
+
+      <h1 class="govuk-heading-xl">{{ heading }}</h1>
+      <p class="govuk-body">{{ unknown }}</p>
+      <form method="post" action="{{ actionPath }}" novalidate>
+        <input type="hidden" name="journey" value="{{ journey }}">
+        <div class="govuk-button-group">
+          {{ govukButton({ text: check, name: "action", value: "check", preventDoubleClick: true }) }}
+          <a class="govuk-link" href="{{ listPath }}">{{ backToApplications }}</a>
+        </div>
+      </form>
+
+    {% else %}
+
+      <h1 class="govuk-heading-xl">{{ heading }}</h1>
+      <p class="govuk-body">{{ sentence }}</p>
+      <ul class="govuk-list">
+        <li><a class="govuk-link" href="{{ applicationPath }}">{{ returnToApplication }}</a></li>
+        <li><a class="govuk-link" href="{{ listPath }}">{{ backToApplications }}</a></li>
+      </ul>
+
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

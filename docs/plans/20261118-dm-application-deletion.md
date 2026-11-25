@@ -223,11 +223,11 @@ tests, the mock's process settings.
 **Files:** new `src/pages/deed-polls/[id]/delete.ts`, confirmation template, new deletion status/recovery routes
 under `src/pages/deed-polls/deletions/`, `src/app.ts`, gate tests, co-located handler/template tests.
 
-- [ ] Add explicit capability gates covering parameterised confirmation and fixed status/recovery paths, after
+- [x] Add explicit capability gates covering parameterised confirmation and fixed status/recovery paths, after
   authentication. Prove route matching does not treat `deletions` as a case ID or interfere with other case pages.
-- [ ] Implement the journey and error states above, including restore's confirmation page and POST, status
+- [x] Implement the journey and error states above, including restore's confirmation page and POST, status
   codes/303 redirects, no-store behaviour and same-origin protection. The only initial write requires the literal confirmation action; Cancel writes nothing.
-- [ ] Test both locales, all reason/error/progress states, refusal with no new write, audit-safe text, XSS escaping,
+- [x] Test both locales, all reason/error/progress states, refusal with no new write, audit-safe text, XSS escaping,
   keyboard-accessible warning form, and every error-summary target. Status survives a deleted case and failed reads.
 
 ### Task 4: Link from application detail and prove the complete browser journey
@@ -330,6 +330,28 @@ so the recovery action replays its sealed body and cannot edit it; a back-naviga
 reason is api's reused-key 409, never a second request. Validation: `yarn lint` clean (Biome's existing version info),
 `yarn build` clean, `git diff --check` clean; `libs/deed-poll` 79 files / 1837 passed (25 new); app `vitest run` 176
 files / 3508 passed (11 new), 4 files / 93 **skipped** (Redis session suites, no Redis here).
+
+**Task 3 (2026-11-25).** One gate, `requireCapability(DELETE_APPLICATION)` on `["/deed-polls/deletions",
+"/deed-polls/:id/delete"]` in `app.ts` after `requireStaff` and before the router; `app.test.ts` reads
+`src/pages/deed-polls/deletions/` off the filesystem and proves the mount misses `/deed-polls/<id>`, a case's edit and
+note pages and the saved-query delete. `src/application-deletion/routes.test.ts` drives the real route table:
+`simple-router` sorts the static `deletions` before `[id]`, so a request id is never read as a case id. Pages:
+`[id]/delete.ts` (`application-delete.njk`: form, `unknown` and `stopped` states), `deletions/[requestId].ts` (status,
+drawn by `src/application-deletion/status-page.ts`, reading only the request, with `progress.ts` deciding the state)
+and `deletions/[requestId]/restore.ts` (confirmation, POST). Decisions: **the restore address carries `?case=`**,
+because api answers 404 for a restored request (`docs/APPLICATION-DELETION.md`), so a 404 can still link to the
+application; a missing or repeated `case` is a 404 before any read. A sealed (recovery) journey replays only on
+`check`, and any other action with it is a 303 back with no write. A 400 redraws the form with the **same key,
+unsealed**, because api admitted nothing; its field errors are page-owned sentences, an unplaceable one on `#reason`.
+The confirmation reads the process settings for "can restore it for N days" (display only, degrading to no number);
+it shows the case list's fields (reference, new forename and surname, type, status, date received). A case detail
+with no `lastChangedOn` offers no form (503). Restore's 200 is a 303 to `/deed-polls/{caseId}?deletion=restored`, and
+the detail page draws a success banner for it (true of any case that page can render, since a deleted one is a 404).
+`no-store` and same-origin protection are the global layers, unchanged. `src/application-deletion` is on the Welsh
+extractor's `INCLUDE`; all new copy is untranslated (`cy` mirrors `en`). Validation: `yarn lint` clean (Biome's
+existing version info), `yarn build` clean, `git diff --check` clean; app `vitest run` 184 files / 3600 passed (93 new
+across 8 new test files plus the gate, banner and template additions), 4 files / 93 **skipped** (Redis session suites,
+no Redis here). No browser journey was run: that is Task 4.
 
 ## Post-Completion
 

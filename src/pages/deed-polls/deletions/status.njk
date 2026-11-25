@@ -1,0 +1,47 @@
+{% extends "layouts/app.njk" %}
+{% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+
+{#
+  A deletion request's progress, from api's status alone (`src/application-deletion/status-page.ts`). Only the
+  Completed state is headed as a deletion. Restore is a link to its own confirmation page, never a write from here,
+  and there is no control to delete again or resend.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if notice %}
+      {{ govukNotificationBanner({ titleText: noticeTitle, text: notice, type: "important" }) }}
+    {% endif %}
+
+    <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+    {% if progress == "unavailable" %}
+      <p class="govuk-body">{{ unavailable }}</p>
+    {% else %}
+      {% for paragraph in paragraphs %}
+        <p class="govuk-body">{{ paragraph }}</p>
+      {% endfor %}
+
+      {% set items = [] %}
+      {% for row in rows %}
+        {% set items = (items.push({ key: { text: row.key }, value: { text: row.value } }), items) %}
+      {% endfor %}
+      {{ govukSummaryList({ rows: items }) }}
+    {% endif %}
+
+    <div class="govuk-button-group">
+      {% if restoreHref %}
+        {{ govukButton({ text: restore, href: restoreHref }) }}
+      {% endif %}
+      {% if progress != "completed" %}
+        <a class="govuk-link" href="{{ statusPath }}">{{ refresh }}</a>
+      {% endif %}
+      <a class="govuk-link" href="{{ listPath }}">{{ back }}</a>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

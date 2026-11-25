@@ -5,6 +5,7 @@ import {
   ACCESS_GAZETTE,
   ALLOCATE_REFERRALS,
   assertDeedPollApiSettings,
+  DELETE_APPLICATION,
   deedPollApiStatus,
   MANAGE_PROCESS_CONFIG,
   plainHttpPermitted,
@@ -275,6 +276,10 @@ export async function createApp(): Promise<Express> {
   app.use("/deed-polls/referrals", requireCapability(ALLOCATE_REFERRALS));
   // The page and its CSV downloads alike, since both live under the prefix.
   app.use("/deed-polls/management-information", requireCapability(VIEW_MANAGEMENT_INFORMATION));
+  // Application deletion: one gate on both its addresses, the case-scoped confirmation (and its unknown-outcome
+  // recovery, which posts back to it) and the request's status and restore pages, which answer after the case is gone.
+  // `:id` is one segment, so no other case page reaches it; `deletions` sorts before `[id]` in `simple-router`.
+  app.use(["/deed-polls/deletions", "/deed-polls/:id/delete"], requireCapability(DELETE_APPLICATION));
 
   // After the gates, so a refused user is not counted, and before the router, so the cap and the limiter run
   // before the upload page's multipart parser. See ./rate-limit/routes.ts. api is authoritative; this is UX.

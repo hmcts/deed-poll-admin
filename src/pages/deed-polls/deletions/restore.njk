@@ -1,0 +1,29 @@
+{% extends "layouts/app.njk" %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+
+{#
+  Restore's confirmation (`[requestId]/restore.ts`). Cancel is a link, so the one submit is the only thing here that
+  can act. The "gone" state is api's 404 for an unknown or already restored request.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+    {% if state == "gone" %}
+      <p class="govuk-body">{{ gone }}</p>
+      <p class="govuk-body"><a class="govuk-link" href="{{ casePath }}">{{ viewApplication }}</a></p>
+    {% else %}
+      <p class="govuk-body">{{ body }}</p>
+      <form method="post" action="{{ actionPath }}" novalidate>
+        <div class="govuk-button-group">
+          {{ govukButton({ text: confirm, name: "action", value: "restore" }) }}
+          <a class="govuk-link" href="{{ statusPath }}">{{ cancel }}</a>
+        </div>
+      </form>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

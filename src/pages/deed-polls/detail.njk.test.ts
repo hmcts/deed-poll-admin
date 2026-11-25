@@ -799,3 +799,22 @@ describe("case detail template — the documents tab", () => {
     expect(panel).not.toContain("/documents/doc-1/");
   });
 });
+
+describe("case detail template — the restored banner", () => {
+  beforeEach(() => {
+    vi.mocked(findDeedPoll).mockResolvedValue(found as never);
+    vi.mocked(findReferrals).mockResolvedValue([]);
+    vi.mocked(findCaseEmails).mockResolvedValue(CASE_EMAILS as never);
+  });
+
+  it("should draw a success banner only when the page is reached from a restore", async () => {
+    const restored = pageResponse();
+    const ordinary = pageResponse();
+
+    await GET(pageRequest({ params: { id: "case-1" }, query: { deletion: "restored" }, accessToken: "session-token" }), restored);
+    await GET(pageRequest({ params: { id: "case-1" }, query: { deletion: "anything" }, accessToken: "session-token" }), ordinary);
+
+    expect(html(restored.render.mock.calls[0][1])).toContain("The application has been restored and is back on the service.");
+    expect(html(ordinary.render.mock.calls[0][1])).not.toContain("has been restored");
+  });
+});
