@@ -1,4 +1,4 @@
-import { ForbiddenError, findDeletion, NotFoundError } from "@hmcts/deed-poll";
+import { ForbiddenError, findDeletion, NotFoundError, TooManyRequestsError } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
 import { renderDeletionStatus } from "./status-page.js";
@@ -102,11 +102,14 @@ describe("deletion request status page", () => {
     expect(res.render.mock.calls[0][1]).toMatchObject({ progress: "unavailable", statusPath: `/deed-polls/deletions/${REQUEST_ID}` });
   });
 
-  it.each([new NotFoundError("Deletion request not found"), new ForbiddenError("refused")])("should leave %s to the existing flow", async (error) => {
-    vi.mocked(findDeletion).mockRejectedValue(error);
+  it.each([new NotFoundError("Deletion request not found"), new ForbiddenError("refused"), new TooManyRequestsError("rate limited", 30)])(
+    "should leave %s to the existing flow",
+    async (error) => {
+      vi.mocked(findDeletion).mockRejectedValue(error);
 
-    await expect(renderDeletionStatus(request(), pageResponse(), REQUEST_ID)).rejects.toBe(error);
-  });
+      await expect(renderDeletionStatus(request(), pageResponse(), REQUEST_ID)).rejects.toBe(error);
+    }
+  );
 
   it("should refuse a dot-segment request id before reading", async () => {
     await expect(renderDeletionStatus(request(), pageResponse(), "..")).rejects.toBeInstanceOf(NotFoundError);

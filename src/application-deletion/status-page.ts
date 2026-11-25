@@ -3,12 +3,12 @@
  * restore (plan step 8), which is why it lives outside `src/pages` (every `.ts` there is a route).
  *
  * **It reads only the request** (`findDeletion`), so it still answers once the application is gone, and it never
- * reloads the application. A 404 is the not-found page and a 401 or 403 the existing flows; any other failure is a
+ * reloads the application. A 404 is the not-found page, a 401 or 403 the existing flows and a 429 the shared 429 page; any other failure is a
  * page that says progress could not be checked, which is not a claim about the request itself. Only `Completed` is
  * worded as a deletion (`./progress.ts`). No page offers a new deletion or a resend: the request is api's, and it is
  * recoverable from api whatever the browser does.
  */
-import { ForbiddenError, findDeletion, formatTimestamp, NotFoundError, UnauthorizedError } from "@hmcts/deed-poll";
+import { ForbiddenError, findDeletion, formatTimestamp, NotFoundError, TooManyRequestsError, UnauthorizedError } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../auth/current-user.js";
 import { forLog } from "../for-log.js";
@@ -72,7 +72,8 @@ export async function renderDeletionStatus(req: Request, res: Response, requestI
   try {
     request = await findDeletion(requestId, callerFromRequest(req));
   } catch (error) {
-    if (error instanceof NotFoundError || error instanceof ForbiddenError || error instanceof UnauthorizedError) throw error;
+    if (error instanceof NotFoundError || error instanceof ForbiddenError || error instanceof UnauthorizedError || error instanceof TooManyRequestsError)
+      throw error;
     console.error(`application deletion status unavailable: ${forLog(error instanceof Error ? error.message : String(error))}`);
     res
       .status(503)
