@@ -13,6 +13,12 @@ const OPTIONAL_INTS = {
     min: PROCESS_SETTINGS_LIMITS.minWindowCap,
     max: PROCESS_SETTINGS_LIMITS.maxWindowCap,
     message: `Enter a cap from ${PROCESS_SETTINGS_LIMITS.minWindowCap} to ${PROCESS_SETTINGS_LIMITS.maxWindowCap} referrals per window, across all Masters.`
+  },
+  // api#175's grace period, optional on the PUT as the others are: absent leaves it alone.
+  deletionGraceDays: {
+    min: PROCESS_SETTINGS_LIMITS.minDeletionGraceDays,
+    max: PROCESS_SETTINGS_LIMITS.maxDeletionGraceDays,
+    message: `Enter a deletion grace period from ${PROCESS_SETTINGS_LIMITS.minDeletionGraceDays} to ${PROCESS_SETTINGS_LIMITS.maxDeletionGraceDays} days, in whole days.`
   }
 } as const;
 const KEYS = new Set<string>([PROCESSING_WINDOW, REVISION, ...Object.keys(OPTIONAL_INTS), ...WINDOW_TIMES]);
@@ -54,7 +60,10 @@ export function createProcessSettings() {
   };
 }
 
-/** api's seeded row: seven days, 48 hours, ten per window, 07:00-10:30 and 14:00-14:30 Europe/London. */
+/**
+ * api's seeded row: seven days, 48 hours, ten per window, 07:00-10:30 and 14:00-14:30 Europe/London, and V50's
+ * 14-day deletion grace period.
+ */
 function seeded(): WireProcessSettings {
   return {
     referralClaimExpiryMinutes: 10080,
@@ -64,6 +73,7 @@ function seeded(): WireProcessSettings {
     morningWindowEnd: "10:30",
     afternoonWindowStart: "14:00",
     afternoonWindowEnd: "14:30",
+    deletionGraceDays: 14,
     revision: 0,
     updatedAt: null,
     updatedBy: null

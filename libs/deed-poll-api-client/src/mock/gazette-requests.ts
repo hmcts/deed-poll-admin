@@ -20,6 +20,10 @@ export function createGazetteRequests() {
       outcome = "Sent";
       loseResponse = false;
     },
+    /** Whether any request holds the case as a member, which is Gazette evidence api will not delete (api#175). */
+    holds(caseId: string): boolean {
+      return [...requests.values()].some((request) => request.cases.some((member) => member.caseId === caseId));
+    },
     seed(body: unknown): Reply {
       const parsed = SEEDED_REQUEST.safeParse(body);
       if (!parsed.success) return invalid();

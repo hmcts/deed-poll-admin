@@ -22,6 +22,7 @@ import {
   directJudicialReferral,
   downloadDocument,
   downloadJudicialDocument,
+  getApplicationDeletion,
   getCase,
   getCaseEmails,
   getGazetteMembers,
@@ -39,6 +40,8 @@ import {
   patchSavedQuery,
   previewEmail,
   recordConfirmation,
+  requestApplicationDeletion,
+  restoreApplicationDeletion,
   reviseDirection,
   selectSavedQuery,
   sendEmail,
@@ -63,6 +66,20 @@ const OPERATIONS: Operation[] = [
   },
   { name: "getCase", ids: ["case-1"], path: "/caseworker/cases/case-1", call: ([a], c) => getCase(a, c) },
   { name: "patchCase", ids: ["case-1"], path: "/caseworker/cases/case-1", call: ([a], c) => patchCase(a, {}, c) },
+  {
+    name: "requestApplicationDeletion",
+    ids: ["case-1"],
+    path: "/caseworker/cases/case-1/deletion-requests",
+    call: ([a], c) =>
+      requestApplicationDeletion(a, { reason: "DUPLICATE", note: "A duplicate of another", expectedLastChangedOn: "2026-11-25T10:00:00" }, KEY, c)
+  },
+  { name: "getApplicationDeletion", ids: ["request-1"], path: "/caseworker/application-deletions/request-1", call: ([a], c) => getApplicationDeletion(a, c) },
+  {
+    name: "restoreApplicationDeletion",
+    ids: ["request-1"],
+    path: "/caseworker/application-deletions/request-1/restore",
+    call: ([a], c) => restoreApplicationDeletion(a, c)
+  },
   { name: "listNotes", ids: ["case-1"], path: "/caseworker/cases/case-1/notes", call: ([a], c) => listNotes(a, c) },
   { name: "getNote", ids: ["case-1", "note-1"], path: "/caseworker/cases/case-1/notes/note-1", call: ([a, b], c) => getNote(a, b, c) },
   { name: "createNote", ids: ["case-1"], path: "/caseworker/cases/case-1/notes", call: ([a], c) => createNote(a, "text", c) },
@@ -188,6 +205,20 @@ describe("client path segments", () => {
     await getCase(".hidden", config);
 
     expect(paths).toEqual(["/caseworker/cases/a%2Fb/notes/...", "/caseworker/cases/%252E%252E", "/caseworker/cases/.hidden"]);
+  });
+
+  it("should encode a deletion's case and request ids once", async () => {
+    const body = { reason: "DUPLICATE" as const, note: "A duplicate of another", expectedLastChangedOn: "2026-11-25T10:00:00" };
+
+    await requestApplicationDeletion("a/b?c", body, KEY, config);
+    await getApplicationDeletion("x#y", config);
+    await restoreApplicationDeletion("%2F", config);
+
+    expect(paths).toEqual([
+      "/caseworker/cases/a%2Fb%3Fc/deletion-requests",
+      "/caseworker/application-deletions/x%23y",
+      "/caseworker/application-deletions/%252F/restore"
+    ]);
   });
 });
 

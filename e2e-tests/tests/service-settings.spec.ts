@@ -12,7 +12,14 @@ test("Delivery Manager opens the settings from the case list and changes the ref
   await expect(page).toHaveURL("/deed-polls/settings");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Service settings");
   // Each section is a tab, in the page's order, and the page opens on the first.
-  await expect(page.getByRole("tab")).toHaveText(["Referral process", "Gazette recipient", "Masters", "Bank holidays", "Staff and access"]);
+  await expect(page.getByRole("tab")).toHaveText([
+    "Referral process",
+    "Gazette recipient",
+    "Masters",
+    "Bank holidays",
+    "Application deletion",
+    "Staff and access"
+  ]);
   await expect(page.getByRole("tab", { name: "Referral process", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByLabel("Processing window", { exact: true })).toHaveValue("7");
   await expect(page.getByLabel("Reminder interval", { exact: true })).toHaveValue("48");
@@ -124,6 +131,35 @@ test("Delivery Manager adds a Master, marks them unavailable, and adds and remov
   await expect(page).toHaveURL("/deed-polls/settings?saved=bank-holiday-removed#bank-holidays");
   await expect(page.getByText("Bank holiday removed.", { exact: true })).toBeVisible();
   await expect(holidays.getByRole("row", { name: /Extra bank holiday/ })).toHaveCount(0);
+});
+
+test("Delivery Manager changes the application deletion grace period on its own tab", async ({ page }) => {
+  await signInAsDeliveryManager(page);
+  await page.goto("/deed-polls/settings");
+  const processingWindow = await page.getByLabel("Processing window", { exact: true }).inputValue();
+  await page.getByRole("tab", { name: "Application deletion", exact: true }).click();
+  const grace = page.getByLabel("Grace period", { exact: true });
+  await expect(grace).toHaveValue("14");
+  await accessible(page);
+
+  // A refused save renders at the form's address, whose fragment opens this tab with the error in view.
+  await grace.fill("91");
+  await page.getByRole("button", { name: "Save application deletion", exact: true }).click();
+  await expect(page).toHaveURL("/deed-polls/settings/deletion#deletion");
+  await expect(page.getByRole("tab", { name: "Application deletion", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("link", { name: "Enter the grace period as a whole number of days from 1 to 90", exact: true })).toBeVisible();
+  await expect(grace).toHaveValue("91");
+  await accessible(page);
+
+  await grace.fill("30");
+  await page.getByRole("button", { name: "Save application deletion", exact: true }).click();
+  await expect(page).toHaveURL("/deed-polls/settings?saved=deletion#deletion");
+  await expect(page.getByText("Application deletion saved.", { exact: true })).toBeVisible();
+  await expect(grace).toHaveValue("30");
+  // The referral process keeps its own values: the grace period's save sent nothing of the process form's.
+  await page.getByRole("tab", { name: "Referral process", exact: true }).click();
+  await expect(page.getByLabel("Processing window", { exact: true })).toHaveValue(processingWindow);
+  await accessible(page);
 });
 
 async function accessible(page: Page): Promise<void> {

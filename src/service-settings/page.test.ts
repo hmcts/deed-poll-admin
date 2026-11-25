@@ -15,7 +15,7 @@ import {
 } from "@hmcts/deed-poll";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
-import { addBankHolidaySection, addMasterSection, saveGazetteSection, saveProcessSection, showSettings } from "./page.js";
+import { addBankHolidaySection, addMasterSection, saveDeletionSection, saveGazetteSection, saveProcessSection, showSettings } from "./page.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
@@ -38,6 +38,7 @@ const PROCESS = {
   morningWindowEnd: "10:30",
   afternoonWindowStart: "14:00",
   afternoonWindowEnd: "14:30",
+  deletionGraceDays: 14,
   revision: 4,
   updatedBy: "Dee Manager",
   updatedAt: new Date("2026-10-20T09:30:00Z")
@@ -101,6 +102,10 @@ describe("service settings GET", () => {
       isNeverChanged: false,
       updatedBy: "Dee Manager",
       updatedAt: "20 October 2026 at 10:30"
+    });
+    expect(model(res).deletion).toEqual({
+      isAvailable: true,
+      values: { deletionGraceDays: "14", referralClaimExpiryMinutes: "10080", revision: "4" }
     });
     expect(model(res).gazette).toMatchObject({ isAvailable: true, values: { recipientEmail: "lg@example.com", revision: "2" }, isUnset: false });
     expect(model(res).errorList).toEqual([]);
@@ -175,6 +180,7 @@ describe("service settings GET", () => {
 
     expect(model(res).savedSection).toBe("process-settings");
     expect(model(res).process).toEqual({ isAvailable: false });
+    expect(model(res).deletion).toEqual({ isAvailable: false });
     expect(model(res).gazette.isAvailable).toBe(true);
     expect(findProcessSettings).toHaveBeenCalledTimes(1);
   });
@@ -198,10 +204,11 @@ describe("service settings GET", () => {
 describe("process section POST", () => {
   const body = { ...STORED_VALUES, processingDays: " 14 ", morningWindowStart: "07:15" };
 
-  it("should save every field, the window in minutes, with the original revision and redirect to the saved section", async () => {
+  it("should save every field and no grace period, the window in minutes, with the original revision and redirect to the saved section", async () => {
     const res = pageResponse();
 
-    await saveProcessSection(request({ body: { ...body, updatedBy: "forged" } }), res);
+    // A posted grace period is not this section's: the referral process sends its seven fields and never that one.
+    await saveProcessSection(request({ body: { ...body, updatedBy: "forged", deletionGraceDays: "30" } }), res);
 
     expect(saveProcessSettings).toHaveBeenCalledExactlyOnceWith(
       {
@@ -245,7 +252,7 @@ describe("process section POST", () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(model(res).process).toEqual({ isAvailable: true, values: input, errors: { [control]: message } });
     expect(model(res).errorList).toEqual([{ text: message, href: `#${control}` }]);
-    expect(findProcessSettings).not.toHaveBeenCalled();
+    expect(findProcessSettings).toHaveBeenCalledExactlyOnceWith(CALLER);
     expect(findGazetteSettings).toHaveBeenCalledExactlyOnceWith(CALLER);
   });
 
@@ -276,7 +283,7 @@ describe("process section POST", () => {
     expect(saveProcessSettings).not.toHaveBeenCalled();
     expect(model(res).process.reloadText).toBe("Reload the settings before saving");
     expect(model(res).errorList).toEqual([{ text: "Reload the settings before saving", href: "#reload-process-settings" }]);
-    expect(findProcessSettings).not.toHaveBeenCalled();
+    expect(findProcessSettings).toHaveBeenCalledExactlyOnceWith(CALLER);
   });
 
   it("should keep the typed text and original revision on api's 409, and require a reload", async () => {
@@ -287,7 +294,7 @@ describe("process section POST", () => {
 
     expect(res.status).toHaveBeenCalledWith(409);
     expect(model(res).process).toMatchObject({ values: body, errors: {}, reloadText: expect.stringContaining("has changed") });
-    expect(findProcessSettings).not.toHaveBeenCalled();
+    expect(findProcessSettings).toHaveBeenCalledExactlyOnceWith(CALLER);
     expect(saveProcessSettings).toHaveBeenCalledTimes(1);
     expect(res.redirect).not.toHaveBeenCalled();
   });
@@ -357,6 +364,148 @@ describe("process section POST", () => {
 
       expect(res.render).not.toHaveBeenCalled();
       expect(res.redirect).not.toHaveBeenCalled();
+    }
+  );
+});
+
+describe("Application deletion section POST", () => {
+  const body = { deletionGraceDays: " 21 ", referralClaimExpiryMinutes: "10080", revision: "4" };
+  const GRACE_ERROR = "Enter the grace period as a whole number of days from 1 to 90";
+
+  it("should send only the grace period, the stored processing window and the original revision, and redirect to the tab", async () => {
+    // Arrange
+    const res = pageResponse();
+
+    // Act
+    await saveDeletionSection(request({ body: { ...body, windowCap: "99", updatedBy: "forged" } }), res);
+
+    // Assert
+    expect(saveProcessSettings).toHaveBeenCalledExactlyOnceWith({ deletionGraceDays: 21, referralClaimExpiryMinutes: 10080, revision: 4 }, CALLER);
+    expect(res.redirect).toHaveBeenCalledWith(303, "/deed-polls/settings?saved=deletion#deletion");
+    expect(findProcessSettings).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "0", "91", "+2", "2.0", "1e1"])("should refuse grace period %j with no write, keeping the typed text", async (deletionGraceDays) => {
+    // Arrange
+    const res = pageResponse();
+    const input = { ...body, deletionGraceDays };
+
+    // Act
+    await saveDeletionSection(request({ body: input }), res);
+
+    // Assert
+    expect(saveProcessSettings).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(model(res).deletion).toEqual({ isAvailable: true, values: input, error: GRACE_ERROR });
+    expect(model(res).errorList).toEqual([{ text: GRACE_ERROR, href: "#deletionGraceDays" }]);
+  });
+
+  it("should refuse an absent grace period, and redraw a repeated one empty", async () => {
+    const absent = pageResponse();
+    const repeated = pageResponse();
+    const { deletionGraceDays: _days, ...withoutDays } = body;
+
+    await saveDeletionSection(request({ body: withoutDays }), absent);
+    await saveDeletionSection(request({ body: { ...body, deletionGraceDays: ["1", "2"] } }), repeated);
+
+    expect(saveProcessSettings).not.toHaveBeenCalled();
+    expect(model(absent).deletion).toMatchObject({ values: { deletionGraceDays: "" }, error: GRACE_ERROR });
+    expect(model(repeated).deletion).toMatchObject({ values: { deletionGraceDays: "" }, error: GRACE_ERROR });
+  });
+
+  it.each([
+    ["a missing revision", { revision: undefined }],
+    ["a forged processing window", { referralClaimExpiryMinutes: "1e4" }]
+  ])("should require a reload for %s rather than read a fresh one", async (_name, change) => {
+    // Arrange
+    const res = pageResponse();
+
+    // Act
+    await saveDeletionSection(request({ body: { ...body, ...change } }), res);
+
+    // Assert
+    expect(saveProcessSettings).not.toHaveBeenCalled();
+    expect(model(res).deletion.reloadText).toBe("Reload the settings before saving");
+    expect(model(res).errorList).toEqual([{ text: "Reload the settings before saving", href: "#reload-deletion" }]);
+  });
+
+  it("should redraw the section from the body and re-read the row only for the referral process", async () => {
+    // Arrange
+    const res = pageResponse();
+
+    // Act
+    await saveDeletionSection(request({ body: { ...body, deletionGraceDays: "0" } }), res);
+
+    // Assert
+    expect(findProcessSettings).toHaveBeenCalledExactlyOnceWith(CALLER);
+    expect(model(res).process).toMatchObject({ isAvailable: true, values: STORED_VALUES });
+    expect(model(res).deletion.values.deletionGraceDays).toBe("0");
+  });
+
+  it("should keep the typed text and original revision on api's 409, and require a reload", async () => {
+    // Arrange
+    vi.mocked(saveProcessSettings).mockRejectedValue(new ConflictError("private prose"));
+    const res = pageResponse();
+
+    // Act
+    await saveDeletionSection(request({ body }), res);
+
+    // Assert
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(model(res).deletion).toEqual({ isAvailable: true, values: body, reloadText: expect.stringContaining("have changed") });
+    expect(model(res).errorList).toEqual([{ text: expect.stringContaining("have changed"), href: "#reload-deletion" }]);
+    expect(saveProcessSettings).toHaveBeenCalledTimes(1);
+    expect(res.redirect).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [[{ field: "deletionGraceDays", message: "x" }], { error: "Enter the grace period as a whole number of days from 1 to 90" }],
+    [[{ field: "revision", message: "x" }], { reloadText: "Reload the settings before saving" }],
+    [[{ field: "referralClaimExpiryMinutes", message: "x" }], { reloadText: "The grace period could not be saved. Reload the settings and try again." }],
+    [[], { reloadText: "The grace period could not be saved. Reload the settings and try again." }]
+  ])("should map api's 400 naming %j", async (errors, expected) => {
+    // Arrange
+    vi.mocked(saveProcessSettings).mockRejectedValue(new InvalidInputError("private prose", errors));
+    const res = pageResponse();
+
+    // Act
+    await saveDeletionSection(request({ body }), res);
+
+    // Assert
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(model(res).deletion).toEqual({ isAvailable: true, values: body, ...expected });
+  });
+
+  it("should degrade the referral process with no form when its read fails after a refusal", async () => {
+    vi.mocked(findProcessSettings).mockRejectedValue(new Error("down"));
+    vi.mocked(saveProcessSettings).mockRejectedValue(new ConflictError("x"));
+    const res = pageResponse();
+
+    await saveDeletionSection(request({ body }), res);
+
+    expect(model(res).process).toEqual({ isAvailable: false });
+    expect(model(res).deletion.isAvailable).toBe(true);
+    expect(model(res).errorList).toHaveLength(1);
+  });
+
+  it("should use the Welsh content's messages for a Welsh request", async () => {
+    const res = pageResponse();
+    res.locals.locale = "cy";
+
+    await saveDeletionSection(request({ body: { ...body, deletionGraceDays: "x" } }), res);
+
+    expect(model(res).deletion.error).toBe(GRACE_ERROR);
+  });
+
+  it.each([new Error("unavailable"), new ForbiddenError("forbidden"), new UnauthorizedError("unauthorized")])(
+    "should propagate $name unchanged without rendering",
+    async (error) => {
+      vi.mocked(saveProcessSettings).mockRejectedValue(error);
+      const res = pageResponse();
+
+      await expect(saveDeletionSection(request({ body }), res)).rejects.toBe(error);
+
+      expect(res.render).not.toHaveBeenCalled();
     }
   );
 });

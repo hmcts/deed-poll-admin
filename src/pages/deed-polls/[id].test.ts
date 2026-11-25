@@ -815,6 +815,40 @@ describe("case detail page", () => {
     expect(res.render.mock.calls[0][1].emailBanner).toBeNull();
   });
 
+  it("says the application is back after a restore, and says nothing on an ordinary visit", async () => {
+    const restored = response();
+    const ordinary = response();
+
+    await GET(pageRequest({ params: { id: "case-1" }, query: { deletion: "restored" } }), restored);
+    await GET(request(), ordinary);
+
+    expect(restored.render.mock.calls[0][1].isRestored).toBe(true);
+    expect(restored.render.mock.calls[0][1].en.applicationRestored).toBe("The application has been restored and is back on the service.");
+    expect(ordinary.render.mock.calls[0][1].isRestored).toBe(false);
+  });
+
+  it("links a Delivery Manager to the deletion confirmation, encoding the case id, with no other read", async () => {
+    vi.mocked(findDeedPoll).mockResolvedValue({ ...found, id: "case/1" } as never);
+    const res = response();
+
+    await GET(pageRequest({ params: { id: "case/1" }, deliveryManager: true }), res);
+
+    expect(res.render.mock.calls[0][1].deleteHref).toBe("/deed-polls/case%2F1/delete");
+    expect(res.render.mock.calls[0][1].en.deleteApplication).toBe("Delete application");
+    expect(findDeedPoll).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no deletion to a caseworker or a Team leader, whose sessions lack the capability", async () => {
+    const caseworker = response();
+    const teamLeader = response();
+
+    await GET(pageRequest({ params: { id: "case-1" } }), caseworker);
+    await GET(pageRequest({ params: { id: "case-1" }, teamLeader: true }), teamLeader);
+
+    expect(caseworker.render.mock.calls[0][1].deleteHref).toBeNull();
+    expect(teamLeader.render.mock.calls[0][1].deleteHref).toBeNull();
+  });
+
   it("confirms a completed send and links to the email the journey named", async () => {
     // `emails/[template]/send.ts` redirects here rather than rendering a confirmation of its own, so this is
     // where the outcome is worded.

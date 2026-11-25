@@ -17,6 +17,11 @@ import { BANK_HOLIDAY_LIMITS, DOCUMENT_PREVIEW_LIMITS, MASTER_LIMITS, PROCESS_SE
 import deferredContract from "./deferred-contract.json";
 import {
   CAPABILITY,
+  DELETION_FAILURE,
+  DELETION_NOTE_LIMITS,
+  DELETION_REASON,
+  DELETION_REFUSAL_CODE,
+  DELETION_STATUS,
   DOCUMENT_PREVIEW_ERROR_CODE,
   GAZETTE_RECIPIENT_EMAIL_PATTERN,
   MI_GRANULARITY,
@@ -81,6 +86,9 @@ const IMPLEMENTED_OPERATIONS = [
   "POST /caseworker/cases/{id}/documents",
   "GET /caseworker/cases/{id}/documents/{documentId}/file",
   "GET /caseworker/cases/{id}/documents/{documentId}/preview",
+  "POST /caseworker/cases/{id}/deletion-requests",
+  "GET /caseworker/application-deletions/{requestId}",
+  "POST /caseworker/application-deletions/{requestId}/restore",
   "GET /caseworker/cases/{id}/referrals",
   "POST /caseworker/cases/{id}/referrals",
   "GET /caseworker/cases/{id}/referrals/{referralId}",
@@ -378,6 +386,83 @@ describe("openapi.json and the wire schemas", () => {
     }
   });
 
+  /**
+   * api#175's application deletion (refreshed from api `e6a84c3`, whose deletion contract is `576d559`'s). What the
+   * pages will branch on is pinned in api's declaration order, because the generic enum comparison sorts.
+   */
+  describe("the application deletion", () => {
+    const schemas = spec.components.schemas;
+    const admission = spec.paths["/caseworker/cases/{id}/deletion-requests"].post;
+    const restore = spec.paths["/caseworker/application-deletions/{requestId}/restore"].post;
+
+    it("should publish a closed admission body of exactly reason, note and expectedLastChangedOn", () => {
+      const body = schemas.CreateDeletionRequest;
+      expect(body.additionalProperties).toBe(false);
+      expect(body.required?.toSorted()).toEqual(["expectedLastChangedOn", "note", "reason"]);
+      expect(body.properties?.reason?.enum).toEqual([...DELETION_REASON]);
+      expect(body.properties?.note).toMatchObject({ minLength: DELETION_NOTE_LIMITS.minLength, maxLength: DELETION_NOTE_LIMITS.maxLength });
+      expect(body.properties?.expectedLastChangedOn).toMatchObject({ type: "string", format: "date-time" });
+      const write = WIRE_SCHEMAS.CreateDeletionRequest;
+      const valid = { reason: "DUPLICATE", note: "A duplicate of another", expectedLastChangedOn: "2026-11-25T10:00:00.123" };
+      expect(write.safeParse(valid).success).toBe(true);
+      for (const extra of [{ idempotencyKey: "key" }, { requestedBy: "forged" }, { modifiedOn: "2026-11-25T10:00:00" }]) {
+        expect(write.safeParse({ ...valid, ...extra }).success).toBe(false);
+      }
+    });
+
+    it("should require a UUID Idempotency-Key on the admission and take no body on the restore", () => {
+      expect(admission.parameters?.find((parameter) => parameter.name === "Idempotency-Key")).toMatchObject({
+        in: "header",
+        required: true,
+        schema: { type: "string", format: "uuid" }
+      });
+      expect(restore.requestBody).toBeUndefined();
+      expect(Object.keys(admission.responses ?? {}).sort()).toEqual(["202", "400", "403", "404", "409", "413", "415"]);
+      expect(Object.keys(restore.responses ?? {}).sort()).toEqual(["200", "403", "404", "409"]);
+    });
+
+    it("should publish the statuses, refusal codes and failures in api's declaration order", () => {
+      expect(schemas.DeletionAdmissionResponse.properties?.status?.enum).toEqual([...DELETION_STATUS]);
+      expect(schemas.DeletionRequestResponse.properties?.status?.enum).toEqual([...DELETION_STATUS]);
+      expect(schemas.DeletionRequestResponse.properties?.reason?.enum).toEqual([...DELETION_REASON]);
+      expect(schemas.DeletionRequestResponse.properties?.failure?.enum).toEqual([...DELETION_FAILURE]);
+      expect(schemas.DeletionError.properties?.code?.enum).toEqual([...DELETION_REFUSAL_CODE]);
+      expect(schemas.DeletionRestoreResponse.properties?.status?.enum).toEqual(["Restored"]);
+    });
+
+    it("should publish no note, requester, key or CCD reference on the status", () => {
+      expect(Object.keys(schemas.DeletionRequestResponse.properties ?? {}).sort()).toEqual([
+        "caseId",
+        "completedAt",
+        "failure",
+        "reason",
+        "requestId",
+        "requestedAt",
+        "restorableUntil",
+        "status"
+      ]);
+    });
+
+    it("should publish lastChangedOn on the case detail only, and the grace period on the process settings", () => {
+      expect(schemas.CaseDetailResponse.properties?.lastChangedOn).toMatchObject({ type: "string", format: "date-time" });
+      expect(schemas.SavedCaseResponse.properties?.lastChangedOn).toBeUndefined();
+      for (const name of ["ProcessSettingsResponse", "UpdateProcessSettingsRequest"]) {
+        expect(schemas[name].properties?.deletionGraceDays, name).toMatchObject({
+          type: "integer",
+          minimum: PROCESS_SETTINGS_LIMITS.minDeletionGraceDays,
+          maximum: PROCESS_SETTINGS_LIMITS.maxDeletionGraceDays
+        });
+      }
+      const write = WIRE_SCHEMAS.UpdateProcessSettingsRequest;
+      for (const days of [0, 91, 1.5]) expect(write.safeParse({ referralClaimExpiryMinutes: 10080, deletionGraceDays: days, revision: 0 }).success).toBe(false);
+      expect(write.safeParse({ referralClaimExpiryMinutes: 10080, deletionGraceDays: 90, revision: 0 }).success).toBe(true);
+    });
+
+    it("should grant the capability by name and keep it last", () => {
+      expect(CAPABILITY.at(-1)).toBe("DELETE_APPLICATION");
+    });
+  });
+
   it("should publish the capability members in api's declaration order", () => {
     // Array items, so the property enum comparison below does not reach them. Order is pinned as well as
     // membership because api promises declaration order and the mock reproduces it.
@@ -606,6 +691,7 @@ describe("openapi.json and the wire schemas", () => {
     const requests = [
       "UpdateGazetteSettingsRequest",
       "UpdateProcessSettingsRequest",
+      "CreateDeletionRequest",
       "CreateMasterRequest",
       "UpdateMasterRequest",
       "CreateBankHolidayRequest",
@@ -741,7 +827,11 @@ describe("openapi.json and the wire schemas", () => {
       )
     );
 
-    expect(required.toSorted()).toEqual(["POST /caseworker/cases/{id}/emails/{template} Idempotency-Key", "POST /caseworker/gazette-notices Idempotency-Key"]);
+    expect(required.toSorted()).toEqual([
+      "POST /caseworker/cases/{id}/deletion-requests Idempotency-Key",
+      "POST /caseworker/cases/{id}/emails/{template} Idempotency-Key",
+      "POST /caseworker/gazette-notices Idempotency-Key"
+    ]);
 
     // A UUID, so the adapter may not send an opaque token: api parses the value into a `UUID` and a 400 names
     // the header. The preview deliberately has none — it writes nothing, so there is nothing to make idempotent.
@@ -877,6 +967,8 @@ interface OpenApiSpec {
  */
 interface OpenApiOperation {
   description?: string;
+  /** Read only to pin that the restore takes none. */
+  requestBody?: unknown;
   /** api D2's former pool and claim, kept for one release. */
   deprecated?: boolean;
   /** Only on the two document previews. */
@@ -903,6 +995,16 @@ interface OpenApiSchema {
   minProperties?: number;
   properties?: Record<
     string,
-    { enum?: (string | null)[]; pattern?: string; maxLength?: number; minLength?: number; items?: { $ref?: string; enum?: string[] } }
+    {
+      enum?: (string | null)[];
+      pattern?: string;
+      maxLength?: number;
+      minLength?: number;
+      type?: string | string[];
+      format?: string;
+      minimum?: number;
+      maximum?: number;
+      items?: { $ref?: string; enum?: string[] };
+    }
   >;
 }

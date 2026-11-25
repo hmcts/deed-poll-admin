@@ -15,7 +15,15 @@ const TEAM_LEADER: readonly Capability[] = [...LEGACY_ADMIN, "ACCESS_GAZETTE", "
 export const ROLE_ACCESS: Readonly<Record<string, RoleAccess>> = {
   "caseworker-deedpoll": { area: "staff", capabilities: [] },
   "caseworker-deedpoll-team-leader": { area: "staff", capabilities: TEAM_LEADER },
-  "caseworker-deedpoll-delivery-manager": { area: "staff", capabilities: [...TEAM_LEADER, "MANAGE_PROCESS_CONFIG"] },
+  "caseworker-deedpoll-delivery-manager": {
+    area: "staff",
+    capabilities: [
+      ...TEAM_LEADER,
+      "MANAGE_PROCESS_CONFIG",
+      // api#175: permanent application deletion and its restore, Delivery Managers only.
+      "DELETE_APPLICATION"
+    ]
+  },
   // Migration-only at api: the casework grants and the queue, never the Gazette or management information.
   "caseworker-deedpoll-admin": { area: "staff", capabilities: LEGACY_ADMIN },
   "caseworker-deedpoll-judicial": { area: "judicial", capabilities: [] }

@@ -799,3 +799,42 @@ describe("case detail template — the documents tab", () => {
     expect(panel).not.toContain("/documents/doc-1/");
   });
 });
+
+describe("case detail template — the restored banner", () => {
+  beforeEach(() => {
+    vi.mocked(findDeedPoll).mockResolvedValue(found as never);
+    vi.mocked(findReferrals).mockResolvedValue([]);
+    vi.mocked(findCaseEmails).mockResolvedValue(CASE_EMAILS as never);
+  });
+
+  it("should draw a success banner only when the page is reached from a restore", async () => {
+    const restored = pageResponse();
+    const ordinary = pageResponse();
+
+    await GET(pageRequest({ params: { id: "case-1" }, query: { deletion: "restored" }, accessToken: "session-token" }), restored);
+    await GET(pageRequest({ params: { id: "case-1" }, query: { deletion: "anything" }, accessToken: "session-token" }), ordinary);
+
+    expect(html(restored.render.mock.calls[0][1])).toContain("The application has been restored and is back on the service.");
+    expect(html(ordinary.render.mock.calls[0][1])).not.toContain("has been restored");
+  });
+});
+
+describe("case detail template — the deletion action", () => {
+  beforeEach(() => {
+    vi.mocked(findDeedPoll).mockResolvedValue(found as never);
+    vi.mocked(findReferrals).mockResolvedValue([]);
+    vi.mocked(findCaseEmails).mockResolvedValue(CASE_EMAILS as never);
+  });
+
+  it("should draw a warning button to the confirmation for a Delivery Manager only", async () => {
+    const deliveryManager = pageResponse();
+    const teamLeader = pageResponse();
+
+    await GET(pageRequest({ params: { id: "case-1" }, deliveryManager: true, accessToken: "session-token" }), deliveryManager);
+    await GET(pageRequest({ params: { id: "case-1" }, teamLeader: true, accessToken: "session-token" }), teamLeader);
+
+    const rendered = html(deliveryManager.render.mock.calls[0][1]);
+    expect(rendered).toMatch(/<a href="\/deed-polls\/case-1\/delete"[^>]*class="govuk-button govuk-button--warning[^"]*"[^>]*>\s*Delete application\s*<\/a>/);
+    expect(html(teamLeader.render.mock.calls[0][1])).not.toContain("Delete application");
+  });
+});

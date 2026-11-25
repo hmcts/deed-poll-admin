@@ -93,7 +93,7 @@ pre-send phase that alone outlasts 30 s still ends on the gateway's page, having
 a 5 s floor nothing is sent: the confirm step or the recovery page re-renders with the same journey and key, saying
 nothing was sent or checked (`docs/plans/completed/20261021-r03b-gazette-send-deadline.md`).
 
-`yarn test:gazette` runs ten browser journeys, the settings page's two included, against a fresh mock on 3216 and this app on 3316,
+`yarn test:gazette` runs eleven browser journeys, the settings page's three included, against a fresh mock on 3216 and this app on 3316,
 using Redis on 6316/database 1 and local IDAM on 5556. It is separate from `yarn test:e2e` because its
 empty-state check must never reset a shared developer mock. See README for prerequisites.
 The standalone mock resolves missing token roles from local IDAM userinfo (override with
@@ -415,13 +415,13 @@ The judicial gate still requires `judicial` in the `/me` answer.
 
 api owns the capability matrix (`RoleCapabilities.java`); the mock mirrors it, and admin holds no copy:
 
-| Role | Privacy override, note/witness deletion, shared-query management, CCD repair | Send referrals | Management information | Gazette | Process settings | Judicial |
-|---|---|---|---|---|---|---|
-| `caseworker-deedpoll` | No | No | No | No | No | No |
-| `caseworker-deedpoll-team-leader` | Yes | Yes | Yes | Yes | No | No |
-| `caseworker-deedpoll-delivery-manager` | Yes | Yes | Yes | Yes | Yes | No |
-| `caseworker-deedpoll-admin` (temporary compatibility) | Yes | Yes | No | No | No | No |
-| `caseworker-deedpoll-judicial` | No | No | No | No | No | Yes |
+| Role | Privacy override, note/witness deletion, shared-query management, CCD repair | Send referrals | Management information | Gazette | Process settings | Delete applications | Judicial |
+|---|---|---|---|---|---|---|---|
+| `caseworker-deedpoll` | No | No | No | No | No | No | No |
+| `caseworker-deedpoll-team-leader` | Yes | Yes | Yes | Yes | No | No | No |
+| `caseworker-deedpoll-delivery-manager` | Yes | Yes | Yes | Yes | Yes | Yes | No |
+| `caseworker-deedpoll-admin` (temporary compatibility) | Yes | Yes | No | No | No | No | No |
+| `caseworker-deedpoll-judicial` | No | No | No | No | No | No | Yes |
 
 `can(user, capability)` is the UI policy entry point (`libs/deed-poll/src/auth/capabilities.ts`); `staffAccess(user)`
 gives `{ staff, judicial }`. The IDAM callback refuses a sign-in whose answer has neither (403, the no-access
@@ -827,8 +827,8 @@ span several files:
 
 `/deed-polls/settings` is where a Delivery Manager changes the service's process values while it runs (plan
 `docs/plans/20261026-dm-settings-page.md`, extended for item D by `docs/plans/completed/20261028-da1-settings-contract-mock-and-page.md`).
-It holds, in order, the referral process, the London Gazette recipient, the Masters, the bank holidays and a link to
-XUI staff administration, each its own GOV.UK tab as on the case page (Steve, 2026-10-29). Add no field or placeholder
+It holds, in order, the referral process, the London Gazette recipient, the Masters, the bank holidays, the application
+deletion grace period (see "Application deletion" below) and a link to XUI staff administration, each its own GOV.UK tab as on the case page (Steve, 2026-10-29). Add no field or placeholder
 for a value api has not made a setting. **Each tab panel's id is that section's fragment, and every form's `action`
 carries it** (`/deed-polls/settings/masters#masters`): a refused save renders at the POST address, and without the
 fragment it opened on the first tab with its error in a hidden panel, where the error summary's link could not reach
@@ -847,7 +847,10 @@ files:
   lifetime, or at once on signing in again: a missing link straight after a deploy is that, not a failed deployment.
 - **One form, one Save and (where api keeps one) one revision per section.** The process section posts to
   `/deed-polls/settings` and the Gazette section to `/deed-polls/settings/gazette-recipient`, each with only its own
-  revision, so a conflict in one never touches the other's stored value. The Masters and Bank holidays add forms post
+  revision, so a conflict in one never touches the other's stored value. The Application deletion section is the
+  exception: it posts to `/deed-polls/settings/deletion` at the **process** section's revision, because the grace
+  period is a field of the same api row, so saving either of those two makes the other stale (a 409 and a reload
+  sentence). `/deed-polls/settings/deletion` also answers a `GET` with a 302 to `#deletion`. The Masters and Bank holidays add forms post
   to `/deed-polls/settings/masters` and `/deed-polls/settings/bank-holidays` with no revision, since a new row has none. A browser submits only the form whose button was pressed, so unsaved edits in the other
   section are lost, and the intro says "Save each section before you change another". A refused Gazette save renders
   at `/deed-polls/settings/gazette-recipient`, so that address also answers a `GET` with a 302 back to the page's
@@ -897,6 +900,68 @@ files:
   (`linkIfListed`, api's `MasterLinking`), and an email change unlinks. Saving sends no email.
 - **The page's Welsh is pending.** `src/service-settings` is on the extractor's `INCLUDE`; the new copy's `cy` mirrors
   its `en`, so it adds to `yarn welsh:check`'s identical count.
+
+## Application deletion
+
+A Delivery Manager can permanently delete an application that was **created in error** or is a **duplicate** (plan
+`docs/plans/20261118-dm-application-deletion.md`; api#175, `docs/APPLICATION-DELETION.md` in api). This replaces the
+earlier rule that nothing here deletes an application (`docs/plans/deed-poll-api-01-foundation.md`, "no deletes"),
+which Steve superseded on 2026-11-18. There is no voiding, archiving or retained read-only application. api owns
+permission, eligibility, the grace period, the permanent clean-up, idempotency and the audit; this app asks the
+questions, binds what was reviewed and reports api's answer. **Deploy order:** api#175 on every replica first. Admin
+may be deployed before api's clean-up is switched on (see `docs/DEPLOYMENT.md#application-deletion`). Facts that span
+several files:
+
+- **One capability, `DELETE_APPLICATION`, Delivery Managers only.** Never derive it from `admin`, a role string or
+  another capability. `src/app.ts` mounts `requireCapability(DELETE_APPLICATION)` once on `/deed-polls/deletions` and
+  `/deed-polls/:id/delete`, after `requireStaff`; `app.test.ts` reads `src/pages/deed-polls/deletions/` off the
+  filesystem and proves the mount misses a case's other pages. The detail page's **Delete application** link is drawn
+  from the session's capability alone, with no eligibility read: api decides eligibility, and a stale session that still
+  draws the link meets the gate and api on the next request. A grant or removal reaches a session within one token
+  lifetime, or at once on signing in again.
+- **The confirmation binds what was reviewed** (`src/pages/deed-polls/[id]/delete.ts`, `src/application-deletion/journey.ts`).
+  It asks one reason radio (neither preselected) and a required note whose hint says not to include the applicant's
+  personal details, because the note is audit text kept after the application is gone. `deletionFormSchema`
+  (`libs/deed-poll/src/deletion/schemas.ts`) applies api's rule exactly: 10–500 code points after trimming, no control
+  character, so a line break is refused, not rewritten. The signed `journey` control (HMAC over the session id) carries
+  the `Idempotency-Key` minted at render, the case id and the case detail's **`lastChangedOn`** as api published it
+  (text, never a re-serialised `Date`, never `modifiedOn`), sent as `expectedLastChangedOn`. A double submit, a
+  back-navigated resubmit and a retry all carry the same key. Only the literal `delete` action writes; Cancel is a link.
+  The token is bound to the session and expires `DELETION_JOURNEY_TTL_MS` (8 h) after the form first rendered; an
+  expired, other-session or other-application token writes nothing. On the recovery page that stop says the outcome is
+  still unknown, never that nothing was sent, because the sealed request may already have been admitted.
+- **A 202 is a request, not a deletion.** It is a 303 to `/deed-polls/deletions/{requestId}`, whose page reads only the
+  request (`findDeletion`), so it still answers after the application is gone, and never reloads the case. Only
+  `Completed` says "Application deleted" (`src/application-deletion/progress.ts`). `Pending` before `restorableUntil`
+  offers **Restore application**; `Pending` after it says the application will be permanently removed, with no date and
+  no claim that removal is under way, because api's clean-up may be switched off. `InProgress`, `AwaitingDisposal` (the
+  overnight Retain and Dispose run) and `NeedsAttention` (a page-owned sentence per `failure` code where one helps) each
+  have their own wording. A failed status read says progress could not be checked, which is not a claim about the request.
+- **An admission whose answer never came is an unknown outcome** (`DeletionOutcomeUnknownError`, from
+  `callDeletionAdmissionApi` beside `callGazetteApi`): a timeout, transport failure, 5xx, unreadable 202 or 429. The page
+  keeps the sealed body and key and offers only **Check deletion request**, which replays the same POST. Never read the
+  case to guess: a 404 there is also what an admitted deletion looks like. Never mint a new key.
+- **A 409's sentence comes from api's `code`, never its prose.** The adapter keeps a deletion 409's `DeletionError.code`
+  and `callApi` puts it on `ConflictError.code`. `STALE_CONFIRMATION` (anything on the application changed since review,
+  including after a restore) links back to the application to review it again; the retention refusals, the three
+  `*_UNRESOLVED` refusals, `KEY_REUSED` and `CONFLICTING_REASON` each have a page-owned sentence, and an unknown code gets
+  a generic one. No 409 offers a resubmit. A 400 redraws the form with the same key, since api admitted nothing.
+- **Restore is a confirmation and one POST with no body** (`deletions/[requestId]/restore`). The address carries
+  `?case=`, because api answers 404 for a restored request and the page must still link to the application. 200 is a 303
+  to the application with `?deletion=restored` and its banner; 409 `RESTORE_WINDOW_CLOSED` or `CLEANUP_STARTED`
+  redraws the status page from a fresh read with this app's sentence; 404 says the request no longer exists.
+- **The grace period is the Application deletion tab of `/deed-polls/settings`** (`#deletion`, `POST
+  /deed-polls/settings/deletion`), whole days 1–90, digits only, default 14. A change affects only requests admitted
+  afterwards. api's PUT requires `referralClaimExpiryMinutes`, so the form carries the stored processing window back as
+  a hidden control at the same revision; the referral-process form never sends `deletionGraceDays`.
+- **The audit is api's.** api records who deleted the application, the reason and the note in the admission's own
+  transaction, so a failed audit admits nothing. This app logs no note and stores nothing in the session: the
+  confirmation's state is the signed hidden `journey` control.
+- **`yarn test:application-deletion` runs the browser journeys** on a mock of their own (3220, app 3320, Redis database
+  6), out of `yarn test:e2e`, because they switch the mock's deletion outcomes (`/__mock/application-deletions`,
+  `/__mock/application-deletion-outcome`). The mock hides an admitted case from every read, removes nothing remotely,
+  and moves a request only through those controls; nothing it does proves api's permanent clean-up.
+- **Welsh is pending**: `src/application-deletion` is on the extractor's `INCLUDE`, and its `cy` mirrors `en`.
 
 ## Management information
 

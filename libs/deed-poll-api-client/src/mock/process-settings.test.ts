@@ -30,7 +30,7 @@ function put(body: unknown, accessToken = DELIVERY_MANAGER) {
 }
 
 describe("process settings adapter and mock", () => {
-  it("should start at api's seeded seven days, 48 hours, ten per window and two windows, at revision 0 with no attribution", async () => {
+  it("should start at api's seeded seven days, 48 hours, ten per window, two windows and a 14-day deletion grace period, at revision 0 with no attribution", async () => {
     // Act
     const result = await getProcessSettings(config());
 
@@ -45,6 +45,7 @@ describe("process settings adapter and mock", () => {
         morningWindowEnd: "10:30",
         afternoonWindowStart: "14:00",
         afternoonWindowEnd: "14:30",
+        deletionGraceDays: 14,
         revision: 0,
         updatedAt: null,
         updatedBy: null
@@ -84,6 +85,23 @@ describe("process settings adapter and mock", () => {
     expect(await getProcessSettings(config())).toEqual(result);
   });
 
+  it("should send the deletion grace period with only the processing window and revision, and persist it", async () => {
+    // Act
+    const result = await updateProcessSettings({ deletionGraceDays: 30, referralClaimExpiryMinutes: 10080, revision: 0 }, config());
+
+    // Assert
+    expect(result).toMatchObject({ ok: true, data: { deletionGraceDays: 30, referralClaimExpiryMinutes: 10080, windowCap: 10, revision: 1 } });
+    expect(await getProcessSettings(config())).toEqual(result);
+  });
+
+  it("should leave the deletion grace period alone when a save does not name it", async () => {
+    // Act
+    const result = await updateProcessSettings({ referralClaimExpiryMinutes: 2880, revision: 0 }, config());
+
+    // Assert
+    expect(result).toMatchObject({ ok: true, data: { referralClaimExpiryMinutes: 2880, deletionGraceDays: 14 } });
+  });
+
   it("should keep a setting the adapter leaves out at its stored value", async () => {
     // Act
     const result = await updateProcessSettings({ referralClaimExpiryMinutes: 2880, windowCap: 3, revision: 0 }, config());
@@ -110,6 +128,7 @@ describe("process settings adapter and mock", () => {
         morningWindowEnd: "10:30",
         afternoonWindowStart: "14:00",
         afternoonWindowEnd: "14:30",
+        deletionGraceDays: 14,
         revision: 0,
         updatedAt: null,
         updatedBy: null

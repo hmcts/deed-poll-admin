@@ -272,9 +272,34 @@ database to connect to: that is api's, along with the schema and the Flyway migr
 | **Referral assignment** (`PUT /caseworker/cases/{id}/referrals/{referralId}/assignment` and the Masters list; api D2 `41b238d` on `feat/d-referral-assignment`, unmerged) | Superseded by the referral queue below, which builds on it: this version offers Masters no pool and no claim, so against an api older than D2 an `Open` referral has no way to reach a judge |
 | **Referral queue** (`GET /caseworker/referral-queue`, `POST /caseworker/referral-queue/sends`, the assignment `PUT` restricted to `ALLOCATE_REFERRALS` and `Claimed`, no `masterId` on `POST …/referrals`, `windowCap` in the process settings, and `ALLOCATE_REFERRALS` in `/me`; api F1 `cc1deef` on `feat/f-referral-queue`, unmerged) | Must be serving on **every** api replica before this version, with no expand-then-contract step. Against D2 the Referrals screen's reads fail, every raised referral stays `Open` with nothing in this app able to send it, and a referral-process save is refused because it sends `windowCap`. Until `/me` carries `ALLOCATE_REFERRALS` the whole `/deed-polls/referrals` area answers 403 on the 404 view and the case list shows no Referrals link; an existing Team leader or Delivery Manager session gets it within one token lifetime, or at once on signing in again |
 | **Management information** (`GET /caseworker/management-information/{volume,stage-durations,referral-outcomes,completion}` and `VIEW_MANAGEMENT_INFORMATION` in `/me`; api #165/#166, master `e7ee862`) | Must be serving on **every** api replica before this version. Until `/me` carries `VIEW_MANAGEMENT_INFORMATION` the whole `/deed-polls/management-information` area, its CSVs included, answers 403 on the 404 view and the case list shows no link; if the capability arrives but the endpoints do not, each KPI section shows its unavailable sentence and each CSV is the error page. An existing Team leader or Delivery Manager session gets the link within one token lifetime, or at once on signing in again |
+| **Application deletion** (`POST /caseworker/cases/{id}/deletion-requests`, `GET /caseworker/application-deletions/{requestId}`, its `restore`, `lastChangedOn` on the case detail, `deletionGraceDays` in the process settings, and `DELETE_APPLICATION` in `/me`; api#175 `576d559`, spec from master `e6a84c3`) | Must be serving on **every** api replica before this version. See [Application deletion](#application-deletion) for the release note |
 | `DEED_POLL_API_URL` | Set in `charts/deed-poll-admin/values.yaml` to `http://deed-poll-api-{env}.service.core-compute-{env}.internal` — the CNP internal host of api's `charts/deed-poll-api`, cluster-internal and cleartext, not an ingress. Preview overrides it to AAT's, because api's preview deploys are per-PR hosts with no stable name |
 | `DEED_POLL_API_TIMEOUT_MS` | Optional, and when set it overrides every call's timeout except the Gazette submit, its status-check replay and the document preview, which it can only shorten. Unset, each call keeps its own: 10 s for JSON calls, 60 s for uploads (`UPLOAD_TIMEOUT_MS`), 27 s for a document preview (`PREVIEW_TIMEOUT_MS`, above api's 25 s conversion budget and inside the gateways' 30 s), and for the Gazette submit what is left of a 25 s budget from the request's arrival, capped at 20 s (`GAZETTE_SUBMIT_TIMEOUT_MS`, findings R03 and R03b). A value below 20 s turns a slow but successful Gazette send back into an unknown outcome; a value above 20 s does not lengthen it. An unparseable value falls back to those per-call defaults rather than becoming `NaN`. The readiness probe does **not** use it: `HEALTH_PROBE_TIMEOUT_MS` is fixed at 2s, because a probe must answer on its own terms |
 | **An S2S credential** | **Nothing to add, and adding one would be wrong.** api authenticates a *forwarded IDAM access token* and nothing else — see its `SecurityConfiguration`, an OAuth2 resource server with no `ServiceAuthorization` filter, and `openapi.json`, whose only security scheme is `bearerAuth`. The caseworker's own token, held in this app's session, is the whole credential. If api ever adds S2S, the answer is a token provider minting one per call against `service-auth-provider-api`, plus an S2S microservice name registered for **this app**; it is not a static secret in the vault. `deed-poll-web/docs/external-dependencies.md` tracks the same requirement for the other frontend |
+
+### Application deletion
+
+**Release note.** This version lets a Delivery Manager permanently delete an application created in error or
+duplicated, restore it during a grace period, and set that period on the settings page's Application deletion tab
+(plan `docs/plans/20261118-dm-application-deletion.md`; "Application deletion" in `CLAUDE.md`).
+
+- **Deploy order.** api#175 (merged as `576d559`; this app's `openapi.json` is from master `e6a84c3`, which adds only
+  api tests, see `libs/deed-poll-api-client/SPEC-PROVENANCE.md`) on **every** api replica first, with
+  `DELETE_APPLICATION` granted to Delivery Managers alone and api's migration seeding `deletionGraceDays` (14). Against
+  an older api the capability never arrives, so no link and no page is offered; a mixed rollout where `/me` grants it
+  but a replica lacks the endpoints shows the confirmation's or status page's unavailable state, and nothing is deleted.
+- **Admin may ship before api's clean-up is switched on** (Steve, 2026-11-25). With `APPLICATION_DELETION_WORKER_ENABLED`
+  and Retain and Dispose off, a deleted application is hidden at once and restorable for its grace period; after it, the
+  request stays `Pending` and the status page says the application will be permanently removed, naming no date. Permanent
+  removal starts only when api switches the worker on, a later, separate activation with its own rehearsal and evidence
+  (api `docs/APPLICATION-DELETION.md`, "Rollout order"). Do not tell the business deletion is permanent in practice until
+  that activation has been rehearsed on disposable fixtures and evidenced.
+- **Existing sessions.** A Delivery Manager gets the **Delete application** link within one token lifetime of api
+  granting the capability, or at once on signing in again.
+- **Nothing to configure here**: no new environment variable, secret or chart value. The audit (who, the reason and the
+  note) is api's; this app adds no log or event for it.
+- **Not part of this release's evidence.** The browser journeys (`yarn test:application-deletion`) run against the
+  mock, which removes nothing remotely. No live deletion was made in any environment while building it.
 
 ### Document previews
 

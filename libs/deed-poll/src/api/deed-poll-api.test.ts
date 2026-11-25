@@ -9,7 +9,8 @@
  */
 import { createServer, type Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { deedPollApiStatus } from "./deed-poll-api.js";
+import { ConflictError } from "../errors.js";
+import { callApi, deedPollApiStatus } from "./deed-poll-api.js";
 
 /** An unreferenced timer's worth of slack over the probe's own 2s bound. */
 const PROBE_TEST_TIMEOUT_MS = 10_000;
@@ -28,6 +29,33 @@ afterEach(async () => {
   server = undefined;
   restore("DEED_POLL_API_URL", previousUrl);
   restore("DEED_POLL_API_TIMEOUT_MS", previousTimeout);
+});
+
+describe("callApi's 409", () => {
+  const CALLER = { accessToken: "delivery-manager-token" };
+
+  it("should carry a deletion refusal's code onto the ConflictError, so a page can choose its sentence by it", async () => {
+    // Act
+    const error = await callApi(CALLER, async () => ({
+      ok: false as const,
+      error: { kind: "conflict" as const, status: 409, message: "api's own words", code: "STALE_CONFIRMATION" as const }
+    })).catch((caught: unknown) => caught);
+
+    // Assert
+    expect(error).toBeInstanceOf(ConflictError);
+    expect((error as ConflictError).code).toBe("STALE_CONFIRMATION");
+  });
+
+  it("should leave the code null on a 409 that carries none", async () => {
+    // Act
+    const error = await callApi(CALLER, async () => ({ ok: false as const, error: { kind: "conflict" as const, status: 409, message: "Changed" } })).catch(
+      (caught: unknown) => caught
+    );
+
+    // Assert
+    expect((error as ConflictError).code).toBeNull();
+    expect((error as ConflictError).errors).toEqual([]);
+  });
 });
 
 describe("deedPollApiStatus", () => {

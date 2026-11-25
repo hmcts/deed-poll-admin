@@ -5,6 +5,7 @@ import {
   ALLOCATE_REFERRALS,
   callerAccessFrom,
   can,
+  DELETE_APPLICATION,
   DELETE_NOTE,
   DELETE_WITNESS,
   holdsCallerAccess,
@@ -29,7 +30,7 @@ const PERSONAS = [
     access: {
       staff: true,
       judicial: false,
-      capabilities: [...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG, ALLOCATE_REFERRALS, VIEW_MANAGEMENT_INFORMATION]
+      capabilities: [...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG, ALLOCATE_REFERRALS, VIEW_MANAGEMENT_INFORMATION, DELETE_APPLICATION]
     }
   },
   { persona: "legacy admin", access: { staff: true, judicial: false, capabilities: [...CASEWORK, ALLOCATE_REFERRALS] } },
@@ -51,7 +52,7 @@ describe("staff capability contract", () => {
   });
 
   it("should name every capability api publishes, so a gate cannot key on a string api never sends", () => {
-    expect([...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG, ALLOCATE_REFERRALS, VIEW_MANAGEMENT_INFORMATION]).toEqual([...CAPABILITY]);
+    expect([...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG, ALLOCATE_REFERRALS, VIEW_MANAGEMENT_INFORMATION, DELETE_APPLICATION]).toEqual([...CAPABILITY]);
   });
 });
 

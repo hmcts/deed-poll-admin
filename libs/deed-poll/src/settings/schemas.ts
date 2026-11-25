@@ -7,6 +7,8 @@ import { settingsRevision } from "../schema-primitives.js";
 const DIGITS = /^\d{1,4}$/;
 const WINDOW_TIME = new RegExp(WINDOW_TIME_PATTERN);
 const MINUTES_PER_DAY = 1440;
+// The stored processing window travels back unchanged, in api's minutes, so it is not bounded by the days box's width.
+const STORED_MINUTES = /^\d{1,9}$/;
 // api's `MasterEmail`: exactly one `@` with something either side, and no whitespace once trimmed.
 const MASTER_EMAIL = /^[^\s@]+@[^\s@]+$/;
 const DAY = /^\d{1,2}$/;
@@ -49,6 +51,19 @@ export function processSettingsFormSchema(messages: ProcessSettingsFormMessages)
       }
       return { referralClaimExpiryMinutes: processingDays * MINUTES_PER_DAY, ...settings };
     });
+}
+
+/**
+ * Reads the Application deletion section into api's `UpdateProcessSettingsRequest`. The grace period is the only
+ * control. api requires the processing window on every PUT, so the form carries the stored one back, in minutes and
+ * read at the same revision: at that revision api sees no change to it, and at any other it refuses 409 first.
+ */
+export function deletionSettingsFormSchema(messages: DeletionSettingsFormMessages) {
+  return z.object({
+    deletionGraceDays: wholeNumber(PROCESS_SETTINGS_LIMITS.minDeletionGraceDays, PROCESS_SETTINGS_LIMITS.maxDeletionGraceDays, messages.deletionGraceDays),
+    referralClaimExpiryMinutes: z.string({ error: messages.reload }).regex(STORED_MINUTES, messages.reload).transform(Number),
+    revision: settingsRevision(messages.reload)
+  });
 }
 
 /** Reads "Add a Master" into api's `CreateMasterRequest`. A new Master is available, which is api's default. */
@@ -140,6 +155,11 @@ export interface ProcessSettingsFormMessages {
   morningOrder: string;
   windowsOrder: string;
   afternoonOrder: string;
+  reload: string;
+}
+
+export interface DeletionSettingsFormMessages {
+  deletionGraceDays: string;
   reload: string;
 }
 

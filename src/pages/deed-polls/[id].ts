@@ -55,6 +55,8 @@ import {
   buildNotesView,
   build as buildPresentation,
   buildReferralsView,
+  can,
+  DELETE_APPLICATION,
   DOCUMENT_COLUMNS,
   findCaseEmails,
   findDeedPoll,
@@ -66,6 +68,7 @@ import {
   witnessCountText
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
+import { deletionConfirmationPath } from "../../application-deletion/paths.js";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
 import { casePath } from "../../case-path.js";
 import { caseViewerScope, documentPaths } from "../../document-viewer/context.js";
@@ -167,6 +170,10 @@ const en = {
   // third attempt — `emails/[template]/send.ts` has the reasoning.
   emailAlreadySent: "This email had already been sent for this case, so it was not sent again.",
   viewSentEmail: "View the email",
+  // Where a restore lands (`deletions/[requestId]/restore.ts`). The query string is user input, but the sentence is
+  // true of any case this page can render: a deleted application is not found, so one shown here is on the service.
+  applicationRestored: "The application has been restored and is back on the service.",
+  deleteApplication: "Delete application",
   // The emails read failed. Worded, like the referrals one, so it cannot be read as "nothing has been sent".
   emailsUnavailable:
     "Email information could not be loaded, so this tab cannot say what has been sent to the applicant, and no email can be sent from here at the moment. The rest of the case is shown as normal. Try again shortly.",
@@ -229,7 +236,8 @@ export const GET = async (req: Request, res: Response) => {
 
   const referrals = referralsRead.status === "fulfilled" ? referralsRead.value : null;
   const emails = emailsRead.status === "fulfilled" ? emailsRead.value : null;
-  const { isAdmin } = userFromRequest(req);
+  const user = userFromRequest(req);
+  const { isAdmin } = user;
 
   // No `referToMasterChoice`: it used to decide whether the retired referral tab was shown, and that tab is
   // gone from `FORM_TABS` — see `form-presentation.ts`. The record's own values now decide whether the
@@ -274,6 +282,11 @@ export const GET = async (req: Request, res: Response) => {
     ),
     emails: emails ? buildEmailsView(emails) : unavailableEmailsView(),
     emailBanner: emailBanner(req, emails),
+    isRestored: req.query.deletion === "restored",
+    // From the session's capability alone, with no eligibility read: api decides whether this application may be
+    // deleted, and refuses on the confirmation page by code. A session granted the capability since sign-in gets the
+    // link within one token lifetime (the `/me` refresh); a forged visit without it meets the area gate and api.
+    deleteHref: can(user, DELETE_APPLICATION) ? deletionConfirmationPath(found.id) : null,
     // Off the case, so it is unaffected by the referrals read and renders on a degraded panel too: the two are
     // different records, and a failed call to api's referral endpoint says nothing about the retired fields the
     // case itself carries. `null` when the case holds none of them, and the panel then shows no section.

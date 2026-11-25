@@ -15,6 +15,7 @@ import {
   type Caller,
   ConflictError,
   can,
+  deletionSettingsFormSchema,
   ForbiddenError,
   findBankHolidays,
   findGazetteSettings,
@@ -42,6 +43,7 @@ export const SETTINGS_PATH = "/deed-polls/settings";
 export const SAVED = {
   process: { key: "process-settings", section: "process-settings" },
   gazette: { key: "gazette-recipient", section: "gazette-recipient" },
+  deletion: { key: "deletion", section: "deletion" },
   masterAdded: { key: "master-added", section: "masters" },
   masterChanged: { key: "master-changed", section: "masters" },
   bankHolidayAdded: { key: "bank-holiday-added", section: "bank-holidays" },
@@ -105,6 +107,42 @@ export async function saveProcessSection(req: Request, res: Response) {
     throw error;
   }
   savedRedirect(res, SAVED.process);
+}
+
+/**
+ * The Application deletion section: the grace period alone, saved through the process settings' PUT at the revision
+ * the page was drawn with. It shares that revision with the referral process, so a save of either one makes the other
+ * stale, which api answers 409 and this section says as a reload.
+ */
+export async function saveDeletionSection(req: Request, res: Response) {
+  const content = contentFor(res);
+  const body = bodyOf(req);
+  const values = {
+    deletionGraceDays: textOf(body.deletionGraceDays),
+    referralClaimExpiryMinutes: textOf(body.referralClaimExpiryMinutes),
+    revision: textOf(body.revision)
+  };
+  const parsed = deletionSettingsFormSchema({ deletionGraceDays: content.deletionGraceDaysError, reload: content.deletionReload }).safeParse(body);
+  if (!parsed.success) {
+    const issue = (path: string) => parsed.error.issues.find((each) => each.path[0] === path)?.message;
+    const isReload = issue("revision") !== undefined || issue("referralClaimExpiryMinutes") !== undefined;
+    return render(req, res, 400, {
+      deletion: deletionFailure(values, { error: issue("deletionGraceDays"), reloadText: isReload ? content.deletionReload : undefined })
+    });
+  }
+  try {
+    await saveProcessSettings(parsed.data, callerFromRequest(req));
+  } catch (error) {
+    if (error instanceof ConflictError) return render(req, res, 409, { deletion: deletionFailure(values, { reloadText: content.deletionConflict }) });
+    if (error instanceof InvalidInputError) {
+      const fields = error.errors.map((each) => each.field);
+      const errors = fields.includes("deletionGraceDays") ? { deletionGraceDays: content.deletionGraceDaysError } : {};
+      const reloadText = refusalReloadText(fields, errors, { reload: content.deletionReload, refused: content.deletionRefused });
+      return render(req, res, 400, { deletion: deletionFailure(values, { error: errors.deletionGraceDays, reloadText }) });
+    }
+    throw error;
+  }
+  savedRedirect(res, SAVED.deletion);
 }
 
 export async function saveGazetteSection(req: Request, res: Response) {
@@ -249,6 +287,10 @@ function processFailure(values: ProcessValues, failure: SectionErrors & { errors
   return { isAvailable: true, values, errors: failure.errors ?? {}, ...(failure.reloadText ? { reloadText: failure.reloadText } : {}) };
 }
 
+function deletionFailure(values: DeletionValues, failure: { error?: string; reloadText?: string }): DeletionForm {
+  return { isAvailable: true, values, ...(failure.error ? { error: failure.error } : {}), ...(failure.reloadText ? { reloadText: failure.reloadText } : {}) };
+}
+
 function gazetteFailure(values: GazetteValues, errors: SectionErrors & { emailError?: string }): GazetteForm {
   return { isAvailable: true, values, isUnset: false, ...errors };
 }
@@ -263,6 +305,7 @@ async function render(
   status: number,
   given: {
     process?: ProcessSection;
+    deletion?: DeletionSection;
     gazette?: GazetteSection;
     masterAdd?: AddForm<MasterAddValues, "name" | "email">;
     holidayAdd?: AddForm<HolidayAddValues, "date" | "name">;
@@ -272,18 +315,22 @@ async function render(
   const caller = callerFromRequest(req);
   const locale = res.locals.locale === "cy" ? "cy-GB" : "en-GB";
   const holdsGazette = can(userFromRequest(req), ACCESS_GAZETTE);
-  const [process, gazette, masters, bankHolidays] = await Promise.all([
-    given.process ?? storedProcess(caller, locale),
+  // The referral process and the grace period are one api row, so one read serves whichever section was not given.
+  const [settings, gazette, masters, bankHolidays] = await Promise.all([
+    degraded("process settings", () => findProcessSettings(caller)),
     holdsGazette ? (given.gazette ?? storedGazette(caller, locale)) : undefined,
     storedMasters(caller),
     storedBankHolidays(caller)
   ]);
+  const process = given.process ?? storedProcess(settings, locale);
+  const deletion = given.deletion ?? storedDeletion(settings);
   const masterAdd = given.masterAdd ?? { values: { name: "", email: "" }, errors: {} };
   const holidayAdd = given.holidayAdd ?? { values: { day: "", month: "", year: "", name: "" }, errors: {} };
   res.status(status).render("deed-polls/settings/index", {
     en,
     cy,
     process,
+    deletion,
     gazette,
     masters,
     masterAdd,
@@ -292,12 +339,11 @@ async function render(
     savedSection: saved === SAVED.gazette.key && !holdsGazette ? undefined : saved,
     // XUI checks staff-admin itself, so this is a link and never a permission. Per environment from the chart.
     xuiStaffAdminUrl: config.get<string>("externalLinks.xuiStaffAdmin"),
-    errorList: errorList(process, gazette, masterAdd, holidayAdd)
+    errorList: errorList(process, deletion, gazette, masterAdd, holidayAdd)
   });
 }
 
-async function storedProcess(caller: Caller, locale: string): Promise<ProcessSection> {
-  const settings = await degraded("process settings", () => findProcessSettings(caller));
+function storedProcess(settings: ProcessSettings | null, locale: string): ProcessSection {
   if (!settings) return { isAvailable: false };
   return {
     isAvailable: true,
@@ -314,6 +360,22 @@ async function storedProcess(caller: Caller, locale: string): Promise<ProcessSec
     errors: {},
     isNeverChanged: !settings.updatedAt,
     ...attribution(settings, locale)
+  };
+}
+
+/**
+ * The grace period, with the processing window in api's minutes for the hidden control. No attribution: api keeps one
+ * for the whole row, so "Last changed" here would name whoever last changed the referral process.
+ */
+function storedDeletion(settings: ProcessSettings | null): DeletionSection {
+  if (!settings) return { isAvailable: false };
+  return {
+    isAvailable: true,
+    values: {
+      deletionGraceDays: String(settings.deletionGraceDays),
+      referralClaimExpiryMinutes: String(settings.referralClaimExpiryMinutes),
+      revision: String(settings.revision)
+    }
   };
 }
 
@@ -390,6 +452,7 @@ function attribution(settings: { updatedBy?: string | null; updatedAt?: Date | n
 /** Every link names a control the page draws. */
 function errorList(
   process: ProcessSection,
+  deletion: DeletionSection,
   gazette: GazetteSection | undefined,
   masterAdd: AddForm<MasterAddValues, "name" | "email">,
   holidayAdd: AddForm<HolidayAddValues, "date" | "name">
@@ -402,6 +465,12 @@ function errorList(
             return text ? [{ text, href: `#${name}` }] : [];
           }),
           ...(process.reloadText ? [{ text: process.reloadText, href: "#reload-process-settings" }] : [])
+        ]
+      : []),
+    ...(deletion.isAvailable
+      ? [
+          ...(deletion.error ? [{ text: deletion.error, href: "#deletionGraceDays" }] : []),
+          ...(deletion.reloadText ? [{ text: deletion.reloadText, href: "#reload-deletion" }] : [])
         ]
       : []),
     ...(gazette?.isAvailable
@@ -424,6 +493,21 @@ type ProcessControl = (typeof PROCESS_CONTROLS)[number];
 type ProcessValues = Record<ProcessControl | "revision", string>;
 
 type ProcessErrors = Partial<Record<ProcessControl, string>>;
+
+/** The app holds no dependency on the api client, so api's row type is reached through the service that reads it. */
+type ProcessSettings = Awaited<ReturnType<typeof findProcessSettings>>;
+
+type DeletionValues = Record<"deletionGraceDays" | "referralClaimExpiryMinutes" | "revision", string>;
+
+/** `reloadText` set means the row must be read again before this section can save, so it has no Save. */
+interface DeletionForm {
+  isAvailable: true;
+  values: DeletionValues;
+  error?: string;
+  reloadText?: string;
+}
+
+type DeletionSection = { isAvailable: false } | DeletionForm;
 
 interface GazetteValues {
   recipientEmail: string;

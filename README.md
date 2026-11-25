@@ -204,7 +204,8 @@ referral process (the processing window in days, the reminder interval, the numb
 referral windows' times, effective immediately for every referral), holds the London Gazette
 recipient for Delivery Managers who also have Gazette access, lists the Masters (adding one, and changing a Master's
 name, email or availability; a signed-in Master whose email changes signs in again before they see their referrals),
-lists the bank holidays (adding one, and removing one after a confirmation page), and links to Manage Case staff
+lists the bank holidays (adding one, and removing one after a confirmation page), sets the application deletion grace
+period (whole days, 1–90, default 14, applying only to deletions requested afterwards), and links to Manage Case staff
 administration for adding staff and changing their access. Each section saves on its own. The page needs `MANAGE_PROCESS_CONFIG` from
 the API's `GET /me`, so an existing session sees the link within one token lifetime or after signing in again.
 Deploy the API's D1 settings contract (Masters, bank holidays and the extended process settings) to every replica
@@ -246,7 +247,7 @@ the local IDAM simulator (`yarn idam:build` if its image is missing, then `docke
 and seed it with `yarn idam:users`. Then provide a separate Redis instance on port 6316 (for example,
 `docker run --rm -p 6316:6379 redis:8-alpine`). Run `yarn test:gazette` from this repository root.
 The suite starts/stops its own app on 3316 and fresh mock on 3216, uses Redis database 1, and refuses
-to reuse occupied app/mock ports. All ten journeys, the two service settings journeys included (the referral-process save, and the Masters and bank holidays), sign in through IDAM and include axe checks; the Delivery Manager
+to reuse occupied app/mock ports. All eleven journeys, the three service settings journeys included (the referral-process save, the Masters and bank holidays, and the application deletion grace period), sign in through IDAM and include axe checks; the Delivery Manager
 read and recipient-settings journeys also check Welsh. The dedicated config keeps the empty-state fixture, and the settings journey's
 referral-process save, out of the shared `yarn test:e2e` suite. It never resets an existing mock. These checks cover ready/history reads, recipient settings (including invalid and stale edits),
 all request outcomes and complete legacy membership, with Welsh and axe checks;
@@ -271,6 +272,14 @@ For the referral queue journeys (`yarn test:referrals`), prepare the same way: `
 seeded with `yarn idam:users`, and Redis on 6379. The suite starts its own app on 3318 and a fresh mock on 3218, uses
 Redis database 5, and is kept out of `yarn test:e2e` because it moves the mock's referral clock in and out of a window
 and lowers the window's cap, which would refuse every send a parallel worker makes on a shared mock.
+
+For the application deletion journeys (`yarn test:application-deletion`), prepare the same way: `yarn build`, the IDAM
+simulator seeded with `yarn idam:users`, and Redis on 6379. The suite starts its own app on 3320 and a fresh mock on
+3220, uses Redis database 6, and is kept out of `yarn test:e2e` because it switches the mock's deletion outcomes (a lost
+admission response, an injected refusal, status reads down) and moves requests on. Its seven journeys cover both
+reasons, Cancel, restore inside and after the grace period, a stale confirmation, refusals, a lost admission response
+recovered with the same key, `NeedsAttention`, a failed status read and a Team leader refused, with axe and keyboard
+checks. They prove this app's behaviour against the mock, never api's permanent clean-up.
 
 There are no database commands: this repo has no database.
 
@@ -334,7 +343,10 @@ needs `yarn idam:users` to have seeded the simulator, since the personas are fou
 Team leaders (`caseworker-deedpoll-team-leader`) can override privacy, delete notes/witnesses,
 manage shared queries, perform API CCD repair, and send referrals from the queue to Masters and reassign them
 (`ALLOCATE_REFERRALS`, `/deed-polls/referrals`). Delivery Managers (`caseworker-deedpoll-delivery-manager`)
-have those capabilities plus Gazette access and the service settings page (`MANAGE_PROCESS_CONFIG`, `/deed-polls/settings`). Both roles can view management information (`VIEW_MANAGEMENT_INFORMATION`,
+have those capabilities plus Gazette access and the service settings page (`MANAGE_PROCESS_CONFIG`, `/deed-polls/settings`). Only
+Delivery Managers can delete an application created in error or duplicated (`DELETE_APPLICATION`, the **Delete
+application** link on its detail page), and restore it during the grace period set on the settings page's Application
+deletion tab; see "Application deletion" in `CLAUDE.md`. Both roles can view management information (`VIEW_MANAGEMENT_INFORMATION`,
 `/deed-polls/management-information`). Neither role grants judicial access. The temporary legacy
 admin role keeps the Team leader's casework and referral capabilities, but not management information, and cannot use Gazette; its seeded account is only for
 migration-refusal checks. Ordinary caseworker and judge permissions are unchanged.

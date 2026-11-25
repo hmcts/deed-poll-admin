@@ -59,6 +59,7 @@
     {% set savedTexts = {
       "process-settings": processSaved,
       "gazette-recipient": gazetteSaved,
+      "deletion": deletionSaved,
       "master-added": masterAdded,
       "master-changed": masterChanged,
       "bank-holiday-added": bankHolidayAdded,
@@ -211,6 +212,29 @@
         {{ govukButton({ text: addBankHolidaySave, classes: "govuk-button--secondary" }) }}
       </form>
     {% endcall %}{% endset %}
+    {% set deletionPanel %}{% call panelColumn() %}
+      <h2 class="govuk-heading-m">{{ deletionHeading }}</h2>
+      {% if deletion.isAvailable %}
+        <p class="govuk-body">{{ deletionIntro }}</p>
+        <form method="post" action="/deed-polls/settings/deletion#deletion" novalidate>
+          <input type="hidden" name="revision" value="{{ deletion.values.revision }}">
+          <input type="hidden" name="referralClaimExpiryMinutes" value="{{ deletion.values.referralClaimExpiryMinutes }}">
+          {{ govukInput({
+            id: "deletionGraceDays", name: "deletionGraceDays", inputmode: "numeric", spellcheck: false, classes: "govuk-input--width-3",
+            label: { text: deletionGraceDaysLabel, classes: "govuk-label--s" }, hint: { text: deletionGraceDaysHint },
+            value: deletion.values.deletionGraceDays, suffix: { text: daysSuffix },
+            errorMessage: { text: deletion.error } if deletion.error
+          }) }}
+          {% if not deletion.reloadText %}{{ govukButton({ text: deletionSave }) }}{% endif %}
+        </form>
+        {% if deletion.reloadText %}
+          {# The form posts elsewhere, so this link is a plain reload of the page on this tab. #}
+          <p class="govuk-body"><a id="reload-deletion" class="govuk-link" href="/deed-polls/settings#deletion">{{ deletionReloadLink }}</a></p>
+        {% endif %}
+      {% else %}
+        <p class="govuk-body">{{ deletionUnavailable }}</p>
+      {% endif %}
+    {% endcall %}{% endset %}
     {% set staffPanel %}{% call panelColumn() %}
       <h2 class="govuk-heading-m">{{ staffHeading }}</h2>
       <p class="govuk-body">{{ staffIntro }}</p>
@@ -229,6 +253,7 @@
     {% set tabItems = (tabItems.push(
       { label: mastersHeading, id: "masters", panel: { html: mastersPanel } },
       { label: bankHolidaysHeading, id: "bank-holidays", panel: { html: bankHolidaysPanel } },
+      { label: deletionHeading, id: "deletion", panel: { html: deletionPanel } },
       { label: staffHeading, id: "staff-and-access", panel: { html: staffPanel } }
     ), tabItems) %}
     {{ govukTabs({ items: tabItems, classes: "app-case-tabs" }) }}

@@ -8,6 +8,7 @@
  * equivalents; the route and page handlers map them to status codes.
  */
 
+import type { DeletionRefusalCode } from "@hmcts/deed-poll-api-client";
 import type { ZodError } from "zod";
 
 /** A record that was asked for does not exist, or is not visible in the given scope. */
@@ -94,11 +95,17 @@ export class UnauthorizedError extends Error {
 export class ConflictError extends Error {
   /** api's field, when its 409 names one: a Master's duplicate email does, a stale revision does not. */
   readonly errors: FieldError[];
+  /**
+   * api's refusal code, on a deletion operation's 409 only (api#175's `DeletionRefusal`): the page picks its own
+   * sentence by it, never by api's words. `null` everywhere else, and on a deletion 409 that names no known code.
+   */
+  readonly code: DeletionRefusalCode | null;
 
-  constructor(message: string, errors: FieldError[] = []) {
+  constructor(message: string, errors: FieldError[] = [], code: DeletionRefusalCode | null = null) {
     super(message);
     this.name = "ConflictError";
     this.errors = errors;
+    this.code = code;
   }
 }
 
