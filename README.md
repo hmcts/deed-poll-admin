@@ -272,6 +272,14 @@ seeded with `yarn idam:users`, and Redis on 6379. The suite starts its own app o
 Redis database 5, and is kept out of `yarn test:e2e` because it moves the mock's referral clock in and out of a window
 and lowers the window's cap, which would refuse every send a parallel worker makes on a shared mock.
 
+For the application deletion journeys (`yarn test:application-deletion`), prepare the same way: `yarn build`, the IDAM
+simulator seeded with `yarn idam:users`, and Redis on 6379. The suite starts its own app on 3320 and a fresh mock on
+3220, uses Redis database 6, and is kept out of `yarn test:e2e` because it switches the mock's deletion outcomes (a lost
+admission response, an injected refusal, status reads down) and moves requests on. Its seven journeys cover both
+reasons, Cancel, restore inside and after the grace period, a stale confirmation, refusals, a lost admission response
+recovered with the same key, `NeedsAttention`, a failed status read and a Team leader refused, with axe and keyboard
+checks. They prove this app's behaviour against the mock, never api's permanent clean-up.
+
 There are no database commands: this repo has no database.
 
 ### The document viewer
@@ -334,7 +342,10 @@ needs `yarn idam:users` to have seeded the simulator, since the personas are fou
 Team leaders (`caseworker-deedpoll-team-leader`) can override privacy, delete notes/witnesses,
 manage shared queries, perform API CCD repair, and send referrals from the queue to Masters and reassign them
 (`ALLOCATE_REFERRALS`, `/deed-polls/referrals`). Delivery Managers (`caseworker-deedpoll-delivery-manager`)
-have those capabilities plus Gazette access and the service settings page (`MANAGE_PROCESS_CONFIG`, `/deed-polls/settings`). Both roles can view management information (`VIEW_MANAGEMENT_INFORMATION`,
+have those capabilities plus Gazette access and the service settings page (`MANAGE_PROCESS_CONFIG`, `/deed-polls/settings`). Only
+Delivery Managers can delete an application created in error or duplicated (`DELETE_APPLICATION`, the **Delete
+application** link on its detail page), and restore it during the grace period set on the settings page's Application
+deletion tab; see "Application deletion" in `CLAUDE.md`. Both roles can view management information (`VIEW_MANAGEMENT_INFORMATION`,
 `/deed-polls/management-information`). Neither role grants judicial access. The temporary legacy
 admin role keeps the Team leader's casework and referral capabilities, but not management information, and cannot use Gazette; its seeded account is only for
 migration-refusal checks. Ordinary caseworker and judge permissions are unchanged.

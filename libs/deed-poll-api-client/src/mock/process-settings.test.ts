@@ -85,6 +85,23 @@ describe("process settings adapter and mock", () => {
     expect(await getProcessSettings(config())).toEqual(result);
   });
 
+  it("should send the deletion grace period with only the processing window and revision, and persist it", async () => {
+    // Act
+    const result = await updateProcessSettings({ deletionGraceDays: 30, referralClaimExpiryMinutes: 10080, revision: 0 }, config());
+
+    // Assert
+    expect(result).toMatchObject({ ok: true, data: { deletionGraceDays: 30, referralClaimExpiryMinutes: 10080, windowCap: 10, revision: 1 } });
+    expect(await getProcessSettings(config())).toEqual(result);
+  });
+
+  it("should leave the deletion grace period alone when a save does not name it", async () => {
+    // Act
+    const result = await updateProcessSettings({ referralClaimExpiryMinutes: 2880, revision: 0 }, config());
+
+    // Assert
+    expect(result).toMatchObject({ ok: true, data: { referralClaimExpiryMinutes: 2880, deletionGraceDays: 14 } });
+  });
+
   it("should keep a setting the adapter leaves out at its stored value", async () => {
     // Act
     const result = await updateProcessSettings({ referralClaimExpiryMinutes: 2880, windowCap: 3, revision: 0 }, config());

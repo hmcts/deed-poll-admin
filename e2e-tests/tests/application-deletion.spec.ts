@@ -235,12 +235,16 @@ test("a lost admission response is recovered with the same request, never a seco
   await expect(page.getByRole("button", { name: "Permanently delete application" })).toHaveCount(0);
   await expect(page.getByRole("radio")).toHaveCount(0);
   await expectNoAccessibilityViolations(page);
+  const recoveryForm = await page
+    .locator("main form", { has: page.getByRole("button", { name: "Check deletion request" }) })
+    .evaluate((form) => form.outerHTML);
   await page.getByRole("button", { name: "Check deletion request" }).click();
   const requestId = await statusRequestId(page);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Application deleted from view");
 
-  // The same request: a repeat of the check lands on the same id.
-  await page.goBack();
+  // The same request: submitting that recovery form again (a second tab, a double click) lands on the same id.
+  // Not `goBack()`: the recovery page is a no-store POST response, which a browser will not redisplay without resubmitting.
+  await page.evaluate((html) => document.querySelector("main")?.insertAdjacentHTML("beforeend", html), recoveryForm);
   await page.getByRole("button", { name: "Check deletion request" }).click();
   expect(await statusRequestId(page)).toBe(requestId);
 });

@@ -237,6 +237,11 @@ actually call. **Do not add others** — in particular no deletes, no witness wr
 writes and no `validate` endpoint. They have no consumer. `apps/api` built all of them anyway from an
 imagined consumer, and not repeating that is the point.
 
+> **Superseded in part, 2026-11-18 (Steve).** Delivery Managers now permanently delete applications created in error
+> or duplicated, so application deletion has a consumer: api#175's deletion-request, status and restore operations,
+> used by `docs/plans/20261118-dm-application-deletion.md`. The rest of this rule stands as written: no operation
+> without a consumer.
+
 Separate request and response DTOs per operation under `…deedpoll.api.caseworker.dto`. **Never return an
 entity from a controller.**
 

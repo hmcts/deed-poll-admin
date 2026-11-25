@@ -251,6 +251,7 @@ src/pages/deed-polls/[id].ts,backToCases,"Back to cases","Back to cases",YES,"Yn
 src/pages/deed-polls/[id].ts,bannerTitle,"Important","Important",YES,"Pwysig",high,"GOV.UK notification banner title."
 src/pages/deed-polls/[id].ts,changeLink,"Change","Change",YES,"Newid",high,"Standard GOV.UK summary-list action."
 src/pages/deed-polls/[id].ts,declarantTag,"Declarant","Declarant",YES,"Datganwr",LOW,"LEGAL TERM — do not accept without checking. This is the person making the deed poll declaration. Needs the official HMCTS/TermCymru term, not a literal rendering."
+src/pages/deed-polls/[id].ts,deleteApplication,"Delete application","Delete application",YES,"",,""
 src/pages/deed-polls/[id].ts,directionChangedFor,"`The Master changed this direction on ${changedOn}.`","`The Master changed this direction on ${changedOn}.`",YES,"",,""
 src/pages/deed-polls/[id].ts,emailAlreadySent,"This email had already been sent for this case, so it was not sent again.","This email had already been sent for this case, so it was not sent again.",YES,"",,""
 src/pages/deed-polls/[id].ts,emailSent,"The email has been accepted by GOV.UK Notify for sending to the applicant.","The email has been accepted by GOV.UK Notify for sending to the applicant.",YES,"",,""

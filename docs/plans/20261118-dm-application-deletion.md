@@ -250,15 +250,16 @@ under `src/pages/deed-polls/deletions/`, `src/app.ts`, gate tests, co-located ha
 
 **Files:** changed files, `README.md`, `CLAUDE.md`, generated Welsh extraction and this plan.
 
-- [ ] Run the full validation/coverage/audit gates and focused browser suite; record exact commands/results and
+- [x] Run the full validation/coverage/audit gates and focused browser suite; record exact commands/results and
   outstanding environment prerequisites. Do not weaken global coverage or mock away the meaningful failure cases.
-- [ ] Update current guidance that no delete consumer exists. Document permanent deletion, the two reasons,
+- [x] Update current guidance that no delete consumer exists. Document permanent deletion, the two reasons,
   capability, the grace period and restore, the settings tab, progress/recovery behaviour, API refusals by code and
   API-owned audit. Preserve old decisions as history and
   record Steve's 2026-11-18 supersession explicitly. Regenerate translation inventory.
-- [ ] Prepare a reviewable release note requiring API compatibility on all replicas and its cleanup rehearsal/
+- [x] Prepare a reviewable release note requiring API compatibility on all replicas and its cleanup rehearsal/
   activation evidence before Admin exposure. Record the spec provenance and deployment order; no live delete or
   deployment is part of executing these implementation tasks. Move to completed only after review finishes.
+  (release note in `docs/DEPLOYMENT.md#application-deletion`; the plan stays here until review finishes)
 
 ## Success criteria
 
@@ -390,6 +391,39 @@ Team leader (#421), so the Delivery Manager adds `MANAGE_PROCESS_CONFIG` and, on
 Manager only. The rebased tree differs from the pre-rebase one by #421's files alone. Re-validated: `yarn lint` and
 `yarn build` clean; app `vitest run` 184 files / 3605 passed, 4 / 93 **skipped** (Redis); `libs/deed-poll-api-client`
 25 / 1616 and `libs/deed-poll` 79 / 1837 passed.
+
+**Task 5 (2026-11-25).** Environment: this time disposable local containers were started and removed afterwards
+(`redis:7-alpine` on 16379, 6379 and 6316, and the existing `rse-idam-simulator:local` image on 5556, seeded with
+`yarn idam:users`), so nothing below was skipped for want of Redis or IDAM. No shared developer mock or deployed
+environment was touched. Results:
+- `REDIS_URL=redis://127.0.0.1:16379 yarn turbo test test:app --concurrency=1 --force`: 8 of 8 tasks; app 188 files /
+  3698 tests passed with **none skipped** (the four Redis session suites, 93 tests, ran); `libs/deed-poll` 79 / 1837,
+  `libs/deed-poll-api-client` 25 / 1618, the starter, router, cloud-native-platform and both session libraries passed.
+- `yarn test:coverage` (same Redis): passed; app all files 80.7 % statements, 77.9 % branches, 82.08 % lines; thresholds
+  unchanged. Changed code: the app's deletion files (`src/application-deletion/*`, `[id]/delete.ts`,
+  `deletions/[requestId].ts`, `restore.ts`, `settings/deletion.ts`) 158 of 159 lines and 131 of 143 branches;
+  `libs/deed-poll/src/deletion` 100 % in its own run.
+- `yarn npm audit --recursive --environment production`: no audit suggestions, no exception added.
+- `yarn lint` clean (Biome's existing version info), `yarn build` clean, `git diff --check` clean.
+- `yarn test:application-deletion`: **7 of 7 passed** in Chromium, with axe and keyboard checks. The first run failed
+  one journey at `page.goBack()` (`net::ERR_CACHE_MISS`): the recovery page is a no-store POST response, which a browser
+  will not redisplay without resubmitting. A test fault, not an app one: the journey now resubmits the same recovery
+  form from the status page, which is the second tab or double click the step is about.
+- `yarn test:gazette` (Task 1b's settings journeys): 9 of 11. **It found a real defect, now fixed:** the api client's
+  `updateProcessSettings` copies a fixed list of fields onto the PUT and left out `deletionGraceDays`, so the
+  Application deletion tab's save sent only the processing window and revision, the mock saw no change, answered 200, and
+  the page said "saved" with the grace period unchanged. Task 1b's tests stubbed the adapter and so could not see it. The
+  adapter now forwards it, and two mock-driven adapter tests pin that the grace period is sent and persisted and that a
+  save without it leaves it alone; the grace-period journey then passed. **The two remaining failures are pre-existing
+  on master and not this branch's:** `gazette.spec.ts` (unchanged from `origin/master`, last touched in #418) expects a
+  Team leader to see no Gazette link, which #421 changed, and expects a judge to reach `/deed-polls`, which
+  `requireStaff` refuses. Follow-up for master, outside this plan.
+- Guidance: `CLAUDE.md` has an "Application deletion" section, a "Delete applications" column in the capability table
+  and the new settings tab; `README.md` the capability and the browser suite; `docs/DEPLOYMENT.md` the api row and the
+  release note (deploy order, spec provenance, Admin ahead of the clean-up activation, no live delete as evidence);
+  the foundation plan's "no deletes" rule carries Steve's 2026-11-18 supersession and otherwise stands as history.
+  `yarn welsh:extract` added the one string earlier tasks missed (the detail page's "Delete application"); `welsh:check`
+  reports 1206 strings, 982 still identical in `cy`, all new deletion copy among them, untranslated.
 
 ## Post-Completion
 

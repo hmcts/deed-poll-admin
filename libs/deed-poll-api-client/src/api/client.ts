@@ -338,6 +338,7 @@ export function updateProcessSettings(input: UpdateProcessSettings, config: ApiC
     morningWindowEnd: input.morningWindowEnd,
     afternoonWindowStart: input.afternoonWindowStart,
     afternoonWindowEnd: input.afternoonWindowEnd,
+    deletionGraceDays: input.deletionGraceDays,
     revision: input.revision
   });
 }
