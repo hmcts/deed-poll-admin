@@ -235,15 +235,16 @@ under `src/pages/deed-polls/deletions/`, `src/app.ts`, gate tests, co-located ha
 **Files:** `src/pages/deed-polls/[id].ts`, `detail.njk`, associated tests, new
 `e2e-tests/tests/application-deletion.spec.ts` and dedicated Playwright configuration/fixtures.
 
-- [ ] Show the action only for capability holders without extra eligibility calls. A stale session without the
+- [x] Show the action only for capability holders without extra eligibility calls. A stale session without the
   capability has no link and forged requests still meet API enforcement; document sign-in/refresh behaviour.
-- [ ] Drive both reasons from application detail through confirmation to actual mock removal and Completed;
+- [x] Drive both reasons from application detail through confirmation to actual mock removal and Completed;
   verify absence from search/worklists and old links, and that another application/duplicate target survives.
-- [ ] Cover restore inside the grace period (the application is back on the list and detail), restore after it
+- [x] Cover restore inside the grace period (the application is back on the list and detail), restore after it
   (409, page-owned sentence), Cancel, wrong-role direct URL/POST, stale-confirmation API409, audit failure represented as rejection, lost admission
   response followed by same-key recovery, persistent NeedsAttention and failed status reads. Never claim remote
   permanent cleanup from a browser mock result; that proof belongs to the API plan.
-- [ ] Run the isolated journeys with local IDAM/Redis, include axe and keyboard checks, and record browser results.
+- [x] Run the isolated journeys with local IDAM/Redis, include axe and keyboard checks, and record browser results.
+  (written, type-checked and listed; browser run skipped - no local IDAM or Redis in this environment, see notes)
 
 ### Task 5: Validate, document and hand off the feature
 
@@ -352,6 +353,43 @@ extractor's `INCLUDE`; all new copy is untranslated (`cy` mirrors `en`). Validat
 existing version info), `yarn build` clean, `git diff --check` clean; app `vitest run` 184 files / 3600 passed (93 new
 across 8 new test files plus the gate, banner and template additions), 4 files / 93 **skipped** (Redis session suites,
 no Redis here). No browser journey was run: that is Task 4.
+
+**Task 4 (2026-11-25).** Admin `origin/master` moved to `4d4bcd8` (admin#421, Team leader Gazette access); the branch
+was rebased onto it after this task's commit (see below). The detail page draws **Delete application** (a
+warning-styled button link under the case header) from `can(user, DELETE_APPLICATION)` alone, with no api read; the
+href is `deletionConfirmationPath(found.id)`, so the id is encoded. Sign-in/refresh: the capability comes from the
+session's `/me` answer, so a session granted or stripped of it since sign-in sees the change within one token lifetime
+(or at once on signing in again); a stale session that still draws the link meets the area gate and api on the next
+request, and one without it that forges the URL or POST is 403 at the gate. Browser journeys:
+`e2e-tests/tests/application-deletion.spec.ts`, run by `yarn test:application-deletion`
+(`playwright.application-deletion.config.ts`: mock 3220, app 3320, Redis database 6, local IDAM 5556), and excluded
+from `yarn test:e2e` by the base config's `testIgnore` because they switch the mock's deletion outcomes. Seven
+journeys: a duplicate deleted by keyboard (error summary targets, focus, axe), gone from search, the referral queue
+and its old link while the same-named original survives, then `Completed` via the mock control as the only
+"Application deleted"; Cancel, a created-in-error deletion restored (confirmation, its Cancel, the banner, back on
+search), a repeated restore as the 404 "no longer exists", and the original confirmation resubmitted after the restore
+as `STALE_CONFIRMATION`; a restore whose window closed while its confirmation was open (409, page-owned banner, no
+Restore); a note added after review (stale), api's own `RETAINED_PERMANENTLY`, and an injected `EMAIL_SEND_UNRESOLVED`
+standing for api refusing an admission it cannot complete (the plan's "audit failure represented as rejection": api
+writes the audit in the admission's transaction, so a failed audit admits nothing), each with no write and no
+resubmit; a lost admission response recovered by **Check deletion request** onto the same request id twice;
+`NeedsAttention` with `CDAM_REMOVED_DOCUMENT_UNPURGED` over two refreshes and a 503 status read; and a Team leader
+with no link and 403 on the confirmation, its forged POST, the status and the restore addresses. Welsh is not
+checked in the browser: every new string's `cy` mirrors its `en`. **Not run in a browser:** no rse-idam-simulator
+image or listener on 5556 and no Redis on 6379 here (the host's existing `deed-poll-redis` container was left alone).
+The spec type-checks under `tsc --strict` and `playwright test --list` lists all seven; run `yarn test:application-deletion`
+locally before Task 5's handoff. Nothing here proves remote permanent cleanup, which is api's. Validation: `yarn lint`
+clean (Biome's existing version info), `yarn build` clean, `git diff --check` clean; app `vitest run` 184 files / 3603
+passed (3 new: the link's capability and encoding, and the template's button), 4 files / 93 **skipped** (Redis session
+suites, no Redis here).
+
+**Rebase onto `4d4bcd8` (admin#421), after Task 4.** The branch was unpushed, so its nine commits were rebased. Two
+conflicts, both the Delivery Manager's grants: the mock's `caller-access.ts` now inherits `ACCESS_GAZETTE` from the
+Team leader (#421), so the Delivery Manager adds `MANAGE_PROCESS_CONFIG` and, on its own line, `DELETE_APPLICATION`;
+`express-doubles.ts` keeps #421's Team leader with `ACCESS_GAZETTE` and adds `DELETE_APPLICATION` to the Delivery
+Manager only. The rebased tree differs from the pre-rebase one by #421's files alone. Re-validated: `yarn lint` and
+`yarn build` clean; app `vitest run` 184 files / 3605 passed, 4 / 93 **skipped** (Redis); `libs/deed-poll-api-client`
+25 / 1616 and `libs/deed-poll` 79 / 1837 passed.
 
 ## Post-Completion
 

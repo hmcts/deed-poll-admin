@@ -78,6 +78,11 @@
   {% endfor %}
   {{ govukSummaryList({ rows: headerRows }) }}
 
+  {# Delivery Managers only (DELETE_APPLICATION); the href is built in the handler with the encoded case id. #}
+  {% if deleteHref %}
+    {{ govukButton({ text: deleteApplication, href: deleteHref, classes: "govuk-button--warning govuk-!-margin-bottom-6" }) }}
+  {% endif %}
+
   {#
     That the case is waiting for the applicant to confirm — `notify-3b` decision 2. Directly below the header, so
     it is beside the State row rather than replacing it: `Returned` is still the case's state and there is no

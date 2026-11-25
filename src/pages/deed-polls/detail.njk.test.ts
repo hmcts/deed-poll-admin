@@ -818,3 +818,23 @@ describe("case detail template — the restored banner", () => {
     expect(html(ordinary.render.mock.calls[0][1])).not.toContain("has been restored");
   });
 });
+
+describe("case detail template — the deletion action", () => {
+  beforeEach(() => {
+    vi.mocked(findDeedPoll).mockResolvedValue(found as never);
+    vi.mocked(findReferrals).mockResolvedValue([]);
+    vi.mocked(findCaseEmails).mockResolvedValue(CASE_EMAILS as never);
+  });
+
+  it("should draw a warning button to the confirmation for a Delivery Manager only", async () => {
+    const deliveryManager = pageResponse();
+    const teamLeader = pageResponse();
+
+    await GET(pageRequest({ params: { id: "case-1" }, deliveryManager: true, accessToken: "session-token" }), deliveryManager);
+    await GET(pageRequest({ params: { id: "case-1" }, teamLeader: true, accessToken: "session-token" }), teamLeader);
+
+    const rendered = html(deliveryManager.render.mock.calls[0][1]);
+    expect(rendered).toMatch(/<a href="\/deed-polls\/case-1\/delete"[^>]*class="govuk-button govuk-button--warning[^"]*"[^>]*>\s*Delete application\s*<\/a>/);
+    expect(html(teamLeader.render.mock.calls[0][1])).not.toContain("Delete application");
+  });
+});
