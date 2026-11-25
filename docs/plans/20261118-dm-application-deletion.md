@@ -25,8 +25,9 @@ data directly and never reports an accepted deletion request as completed deleti
 **Prerequisite (met):** api#175 merged to master as `576d559` on 2026-11-25 and deployed (worker and Retain and
 Dispose switched off). api#178 (test-only) may follow; it does not change the contract. Read api's
 `docs/APPLICATION-DELETION.md` ("HTTP contract", "Grace period and restore") as the specification.
-Deploying Admin to an environment additionally requires that environment's cleanup worker and Retain and Dispose
-activation, or a deleted application stays hidden indefinitely after its grace period (see Post-Completion).
+**Admin ships deletion before cleanup is activated** (Steve, 2026-11-25): the business can delete applications
+created in error now, and the permanent removal is caught up once the cleanup worker and Retain and Dispose are on.
+Until then a request stays `Pending` after its restore date, so the status page must say that honestly (step 5).
 
 ## Context
 
@@ -112,8 +113,9 @@ Never ship a mock-only route or a guessed request shape.
    to `/deed-polls/deletions/{requestId}`. Page routes use encoded IDs. Cancel/GET never writes.
 5. Status GET reads only the deletion resource, so it still works after the application is gone. `Pending` before
    `restorableUntil` says the application has been deleted from view and **can be restored until {date}**, and shows a
-   **Restore application** button (step 8) to capability holders; `Pending` at or after that date, and `InProgress`,
-   say deletion is in progress; AwaitingDisposal says the application is waiting to be removed from the case platform,
+   **Restore application** button (step 8) to capability holders. `Pending` at or after that date says it can no
+   longer be restored and **will be permanently removed** (no date, no claim that removal is under way, because
+   cleanup may not be switched on yet); `InProgress` says permanent removal is in progress; AwaitingDisposal says the application is waiting to be removed from the case platform,
    which happens in an overnight run, so it can take until the next day; NeedsAttention says it has not completed and needs investigation,
    with a page-owned sentence per `failure` code where one helps (`CDAM_REMOVED_DOCUMENT_UNPURGED`: waiting for the
    document store team to purge previously removed documents) and a generic one otherwise. All offer Refresh and Back
@@ -143,8 +145,7 @@ Never ship a mock-only route or a guessed request shape.
    referral-process parser's strictness, not `readNumericInput`). 400/409 behave as the referral-process section
    (redraw with the original revision; a conflict asks for a reload). The hint says a change affects only applications
    deleted after it. The referral-process form keeps sending its own seven fields and never `deletionGraceDays`.
-   *(A separate tab rather than a field on the referral process form, because it is not a referral setting: Aspen's
-   recommendation, for Steve to confirm.)*
+   It is its own tab, not a field on the referral process form (Steve, 2026-11-25).
 
 New copy uses the repo's `en`/`cy` convention and extraction workflow; untranslated text is recorded honestly.
 The reason codes are audit data; translated labels belong in the page. API writes the audit, not this app's logs
@@ -273,8 +274,9 @@ Record baselines, per-task validation, merged API artifact and review findings h
 
 ## Post-Completion
 
-Deploy API and verify its permanent-cleanup prerequisites before Admin exposure. **Admin exposes deletion only in an
-environment whose cleanup worker (`APPLICATION_DELETION_WORKER_ENABLED`) and Retain and Dispose are on**: with them
-off, a deleted application is hidden at once and, after its grace period, is neither restorable nor removed, and its
-status stays `Pending` indefinitely. That ordering is Steve's release decision; record it in the release note. Any environment rehearsal uses
+Admin may be deployed before cleanup is activated (Steve, 2026-11-25). With the cleanup worker
+(`APPLICATION_DELETION_WORKER_ENABLED`) and Retain and Dispose off, a deleted application is hidden at once and, after
+its grace period, is neither restorable nor removed: its request stays `Pending` until cleanup is switched on, which
+then works through every request past its date. The release note says so, and that the clean-up is a later, separate
+activation (api `docs/APPLICATION-DELETION.md`, "Rollout order"). Any environment rehearsal uses
 disposable fixtures under its own execution authority; keep local test evidence distinct from external deletion proof.
