@@ -1,6 +1,13 @@
 import { PROCESS_SETTINGS_LIMITS } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
-import { bankHolidayFormSchema, masterChangeFormSchema, masterFormSchema, PROCESSING_DAYS_LIMITS, processSettingsFormSchema } from "./schemas.js";
+import {
+  bankHolidayFormSchema,
+  deletionSettingsFormSchema,
+  masterChangeFormSchema,
+  masterFormSchema,
+  PROCESSING_DAYS_LIMITS,
+  processSettingsFormSchema
+} from "./schemas.js";
 
 const MESSAGES = {
   processingDays: "days",
@@ -135,6 +142,59 @@ describe("processSettingsFormSchema", () => {
       "windowCap"
     ]);
     expect(result.referralClaimExpiryMinutes).toBe(10080);
+  });
+
+  it("should never send the deletion grace period, even when one is posted", () => {
+    // Arrange
+    const body = { ...VALID, deletionGraceDays: "30" };
+
+    // Act
+    const result = schema.parse(body);
+
+    // Assert
+    expect(result).not.toHaveProperty("deletionGraceDays");
+  });
+});
+
+describe("deletionSettingsFormSchema", () => {
+  const deletion = deletionSettingsFormSchema({ deletionGraceDays: "grace", reload: "reload" });
+  const VALID_DELETION = { deletionGraceDays: "14", referralClaimExpiryMinutes: "10080", revision: "3" };
+  const deletionIssues = (body: Record<string, unknown>) => {
+    const result = deletion.safeParse(body);
+    return result.success ? [] : result.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message }));
+  };
+
+  it("should read the grace period, the stored processing window and the revision, and nothing else", () => {
+    // Arrange
+    const body = { ...VALID_DELETION, deletionGraceDays: " 21 ", windowCap: "99", reminderIntervalHours: "1", updatedBy: "forged" };
+
+    // Act
+    const result = deletion.parse(body);
+
+    // Assert
+    expect(result).toEqual({ deletionGraceDays: 21, referralClaimExpiryMinutes: 10080, revision: 3 });
+  });
+
+  it.each([
+    [String(PROCESS_SETTINGS_LIMITS.minDeletionGraceDays), 1],
+    [String(PROCESS_SETTINGS_LIMITS.maxDeletionGraceDays), 90]
+  ])("should accept the grace period %j at api's bound", (value, days) => {
+    expect(deletion.parse({ ...VALID_DELETION, deletionGraceDays: value }).deletionGraceDays).toBe(days);
+  });
+
+  it.each(["", " ", "0", "91", "+2", "-1", "2.0", "1.5", "1e1", "0x2", "１４", "12345", ["14"], { value: "14" }, undefined])(
+    "should refuse grace period %j as its own control's error",
+    (value) => {
+      expect(deletionIssues({ ...VALID_DELETION, deletionGraceDays: value })).toEqual([{ path: "deletionGraceDays", message: "grace" }]);
+    }
+  );
+
+  it.each([undefined, "", "-1", "1.5", "1e4", ["10080"]])("should refuse a stored processing window %j as a reload", (value) => {
+    expect(deletionIssues({ ...VALID_DELETION, referralClaimExpiryMinutes: value })).toEqual([{ path: "referralClaimExpiryMinutes", message: "reload" }]);
+  });
+
+  it.each([undefined, "", "-1", "01", "2147483648", ["0"]])("should refuse revision %j as a reload", (revision) => {
+    expect(deletionIssues({ ...VALID_DELETION, revision })).toEqual([{ path: "revision", message: "reload" }]);
   });
 });
 

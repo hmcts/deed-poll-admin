@@ -199,10 +199,10 @@ mock routes/store and capability fixtures; `libs/deed-poll/src/auth/capabilities
 **Files:** `libs/deed-poll/src/settings/{schemas,service}.ts`, `src/service-settings/`, the settings page template and
 tests, the mock's process settings.
 
-- [ ] Add `deletionGraceDays` to the settings read model and the mock (seed 14, bounds pinned to `openapi.json`).
-- [ ] Add the Application deletion tab, panel id and fragment, its form, schema and POST, as journey step 9. Prove
+- [x] Add `deletionGraceDays` to the settings read model and the mock (seed 14, bounds pinned to `openapi.json`).
+- [x] Add the Application deletion tab, panel id and fragment, its form, schema and POST, as journey step 9. Prove
   the referral-process save never sends `deletionGraceDays`, and this form sends only it and the revision.
-- [ ] Tests: bounds and digits-only, absent/blank, 400 and 409 redraws, the gate, both locales, and the tab, panel and
+- [x] Tests: bounds and digits-only, absent/blank, 400 and 409 redraws, the gate, both locales, and the tab, panel and
   fragment pins in `index.njk.test.ts`.
 
 ### Task 2: Add deletion domain services and recoverable confirmation state
@@ -291,6 +291,25 @@ status reads down); `Completed` drops the fenced case from memory. Validation: `
 mock-control tests, deletion contract pins, path-segment cases); `libs/deed-poll` 77 files / 1781 passed; app
 `vitest run` 174 files / 3467 tests passed, 4 files / 93 tests **skipped** (the Redis session suites: no Redis was
 running in this environment, so those were not run).
+
+**Task 1b (2026-11-25).** **Spec over plan:** step 9 says the form sends only `deletionGraceDays` and the revision, but
+api's `UpdateProcessSettingsRequest` requires `referralClaimExpiryMinutes` on every PUT. So the Application deletion
+form also carries the stored processing window back, in minutes, as a hidden control read at the same revision: at
+that revision api sees no change to it, at any other it is 409 first, and a forged or missing value is a reload with no
+write. The read model is api's row (the wire already held `deletionGraceDays`, mock seed 14, from Task 1); the page
+reads it **once** for both the Referral process and Application deletion tabs, so a refused save of either redraws
+that section from the body and re-reads the row only for the other. The tab sits after Bank holidays, before Staff and
+access, with panel id and fragment `deletion`; `POST /deed-polls/settings/deletion` (with a `GET` 302 to `#deletion`)
+saves through `saveDeletionSection` (`src/service-settings/page.ts`), parsed by `deletionSettingsFormSchema`
+(`libs/deed-poll/src/settings/schemas.ts`, digits only, bounds from `PROCESS_SETTINGS_LIMITS`, pinned to `openapi.json`
+in Task 1). The section shows no "Last changed": api's attribution is the whole row's. Tests prove the referral-process
+save drops a posted `deletionGraceDays` and the deletion save sends exactly `{ deletionGraceDays,
+referralClaimExpiryMinutes, revision }`. The area gate needed no change (`app.test.ts` reads the directory). Validation:
+`yarn lint` clean (Biome's existing version info), `yarn build` clean, `git diff --check` clean; `libs/deed-poll` 77
+files / 1812 passed; app `vitest run` 175 files / 3498 passed, 4 files / 93 **skipped** (Redis session suites, no Redis
+here). `yarn welsh:extract` added the 12 new strings, untranslated (`cy` mirrors `en`). The new `service-settings.spec.ts`
+journey and the updated tab list were **not run**: no local IDAM (5556) or Redis (6316) in this environment; run
+`yarn test:gazette` before Task 4's browser work.
 
 ## Post-Completion
 

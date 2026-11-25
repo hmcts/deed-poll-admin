@@ -18,6 +18,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse, withoutSignOutForm } from "../../../express-doubles.js";
 import { addPathFilters } from "../../../path-filters.js";
 import { POST as postBankHoliday } from "./bank-holidays/index.js";
+import { POST as postDeletion } from "./deletion.js";
 import { POST as postGazette } from "./gazette-recipient.js";
 import { GET, POST as postProcess } from "./index.js";
 import { POST as postMaster } from "./masters/index.js";
@@ -53,6 +54,7 @@ const PROCESS = {
   morningWindowEnd: "10:30",
   afternoonWindowStart: "14:00",
   afternoonWindowEnd: "14:30",
+  deletionGraceDays: 14,
   revision: 4,
   updatedBy: "<Dee>",
   updatedAt: new Date("2026-10-20T09:30:00Z")
@@ -128,6 +130,7 @@ describe("service settings page", () => {
       ["gazette-recipient", "Gazette recipient"],
       ["masters", "Masters"],
       ["bank-holidays", "Bank holidays"],
+      ["deletion", "Application deletion"],
       ["staff-and-access", "Staff and access"]
     ]);
     for (const [id] of tabs) expect(markup).toMatch(new RegExp(`class="govuk-tabs__panel[^"]*" id="${id}"`));
@@ -148,7 +151,8 @@ describe("service settings page", () => {
       "/deed-polls/settings#process-settings",
       "/deed-polls/settings/gazette-recipient#gazette-recipient",
       "/deed-polls/settings/masters#masters",
-      "/deed-polls/settings/bank-holidays#bank-holidays"
+      "/deed-polls/settings/bank-holidays#bank-holidays",
+      "/deed-polls/settings/deletion#deletion"
     ]);
     for (const action of actions) {
       const id = action.slice(action.indexOf("#") + 1);
@@ -615,5 +619,79 @@ describe("service settings page: bank holidays", () => {
     const { markup } = await render(GET, { query: { saved } });
 
     expect(markup).toContain(text);
+  });
+});
+
+describe("service settings page: Application deletion", () => {
+  const DELETION_BODY = { deletionGraceDays: "21", referralClaimExpiryMinutes: "10080", revision: "4" };
+  const DELETION_ACTION = "/deed-polls/settings/deletion#deletion";
+
+  it("should draw the grace period in days with the hidden revision and stored processing window, and no last-changed line", async () => {
+    // Arrange, Act
+    const { markup } = await render(GET);
+
+    // Assert
+    const deletion = form(markup, DELETION_ACTION);
+    expect(markup).toContain('<h2 class="govuk-heading-m">Application deletion</h2>');
+    expect(deletion).toMatch(/id="deletionGraceDays"[^>]*value="14"/);
+    expect(deletion).toContain("Enter 1 to 90 days. A change applies only to applications deleted after it.");
+    expect(deletion).toContain('<input type="hidden" name="revision" value="4">');
+    expect(deletion).toContain('<input type="hidden" name="referralClaimExpiryMinutes" value="10080">');
+    expect(deletion).toContain("Save application deletion");
+    expect(deletion).not.toContain("Last changed");
+    expect([...deletion.matchAll(/name="([^"]+)"/g)].map(([, name]) => name)).toEqual(["revision", "referralClaimExpiryMinutes", "deletionGraceDays"]);
+  });
+
+  it("should keep the referral process form free of the grace period", async () => {
+    const { markup } = await render(GET);
+
+    expect(form(markup, "/deed-polls/settings#process-settings")).not.toContain("deletionGraceDays");
+  });
+
+  it.each(["en", "cy"])("should redraw a refused grace period as typed with a summary link that resolves (%s)", async (locale) => {
+    // Arrange
+    const body = { ...DELETION_BODY, deletionGraceDays: "<91>" };
+
+    // Act
+    const { res, markup } = await render(postDeletion, { body, locale });
+
+    // Assert
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(form(markup, DELETION_ACTION)).toContain('value="&lt;91&gt;"');
+    expect(markup).toContain("Enter the grace period as a whole number of days from 1 to 90");
+    expectSummaryLinksResolve(markup);
+  });
+
+  it("should drop the Save and link to a reload on api's 409, keeping the original revision", async () => {
+    // Arrange
+    vi.mocked(saveProcessSettings).mockRejectedValue(new ConflictError("api prose"));
+
+    // Act
+    const { res, markup } = await render(postDeletion, { body: DELETION_BODY });
+
+    // Assert
+    expect(res.status).toHaveBeenCalledWith(409);
+    const deletion = form(markup, DELETION_ACTION);
+    expect(deletion).toContain('value="21"');
+    expect(deletion).toContain('<input type="hidden" name="revision" value="4">');
+    expect(deletion).not.toContain("Save application deletion");
+    expect(markup).toContain('id="reload-deletion"');
+    expect(markup).not.toContain("api prose");
+    expectSummaryLinksResolve(markup);
+  });
+
+  it("should say the section could not be loaded, with no form, when the read fails", async () => {
+    vi.mocked(findProcessSettings).mockRejectedValue(new Error("down"));
+
+    const { markup } = await render(GET);
+
+    expect(markup).toContain("The application deletion settings could not be loaded. Try again later.");
+    expect(form(markup, DELETION_ACTION)).toBe("");
+  });
+
+  it("should show the saved banner", async () => {
+    const { markup } = await render(GET, { query: { saved: "deletion" } });
+
+    expect(markup).toContain("Application deletion saved.");
   });
 });
