@@ -5,7 +5,7 @@
  * case page. It is a stand-in for the CONTRACT, not a second implementation of api: there is no database,
  * no signature verification, no S2S and no document storage, and it forgets everything when it stops.
  *
- * Nine routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
+ * Eleven routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
  * could be mistaken for one api serves:
  *
  *   POST /__mock/scenario   switch behaviour (see fixtures.ts)
@@ -24,12 +24,18 @@
  *                           where a send is admitted or refused (plan Fa1)
  *   POST /__mock/referrals/unassign-overdue
  *                           run api's processing-window sweep now, as its timer would
+ *   POST /__mock/application-deletions
+ *                           move one deletion request on as api's worker and Retain and Dispose would: `{ requestId,
+ *                           status?, failure?, restoreWindow?: "closed" }`. `Completed` drops the fenced case
+ *   POST /__mock/application-deletion-outcome
+ *                           `{ loseAdmissionResponse?, refuseAdmission?: <code>, statusReads?: "available" |
+ *                           "unavailable" }`: the next admission's lost response or 409, and a status-read outage
  *
  * `GET /health` and `GET /health/liveness` are outside the contract too, so `yarn dev` and Playwright's
  * `webServer` have something to wait for — and so the readiness check task 5 adds has something to probe.
  * Both, because api's actuator serves both and `checkApiReachable` deliberately probes the liveness group.
  *
- * **Sixteen of api's rules are restated here.** A mock that applied none of them would let a
+ * **Eighteen of api's rules are restated here.** A mock that applied none of them would let a
  * page ship having never seen a real reference number or a derived state:
  *
  *   1. Reference-number allocation — the year from Date Received, the prefix from Type, a per-year serial.
@@ -100,6 +106,11 @@
  *      parameter, then api's `MiParameters` refusals in api's words and every period of the range. The figures are
  *      fixed rather than computed from the mock's cases, with an empty period, a one-case period and non-zero
  *      exclusions in every range of three periods or more.
+ *  18. api#175's application deletion (`application-deletions.ts`): `DELETE_APPLICATION` before anything is read,
+ *      the closed body and canonical key, replay by key and body, `KEY_REUSED`, `CONFLICTING_REASON`, the stale check
+ *      on the detail's `lastChangedOn` to the millisecond, `RETAINED_PERMANENTLY` and `GAZETTE_EVIDENCE`, the fence
+ *      (an admitted case is gone from every read until restored), the grace period from the process settings, and
+ *      restore's `CLEANUP_STARTED` and `RESTORE_WINDOW_CLOSED`. No cleanup runs: a request moves only by `/__mock`.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
  * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `ReferralNotes`, `JudicialReferralService`,
@@ -164,6 +175,7 @@ import type {
   WireWitness
 } from "../api/wire.js";
 import { REFERRAL_REASON, REFERRAL_SEND_LIMITS, WIRE_SCHEMAS } from "../api/wire.js";
+import { createApplicationDeletions } from "./application-deletions.js";
 import { createBankHolidays } from "./bank-holidays.js";
 import { callerAccess } from "./caller-access.js";
 import { buildDocumentPreview, type DocumentPreviewMode, PREVIEW_BUSY_RETRY_AFTER_SECONDS } from "./document-preview.js";
@@ -360,6 +372,11 @@ function hasAllocateAccess(claims: { roles?: unknown }): boolean {
   return callerAccess(claims).capabilities.includes("ALLOCATE_REFERRALS");
 }
 
+/** api#175: Delivery Managers only, checked before the path id, the header or the body is read. */
+function hasDeletionAccess(claims: { roles?: unknown }): boolean {
+  return callerAccess(claims).capabilities.includes("DELETE_APPLICATION");
+}
+
 /** The MI plan's D3: Team leaders and Delivery Managers, never the legacy admin. */
 function hasManagementInformationAccess(claims: { roles?: unknown }): boolean {
   return callerAccess(claims).capabilities.includes("VIEW_MANAGEMENT_INFORMATION");
@@ -384,6 +401,18 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   const masters = createMasters({ linked: attachToLinkedMaster, unlinked: detachFromUnlinkedMaster });
   const bankHolidays = createBankHolidays();
   const gazetteBatches = new Map<string, z.infer<typeof SEEDABLE_GAZETTE_BATCH>>();
+  // The case's newest audited write that leaves no child row behind: today only a deletion's restore.
+  const audits = new WeakMap<MockCase, Date>();
+  const deletions = createApplicationDeletions<MockCase>({
+    cases,
+    now: () => new Date(),
+    graceDays: () => processSettings.read().deletionGraceDays,
+    lastChangedOn: (record) => lastChangedOn(record, audits.get(record)),
+    audited: (record, at) => audits.set(record, at),
+    hasGazetteEvidence: (record) =>
+      gazetteRequests.holds(record.id) ||
+      [...gazetteBatches.values()].some((batch) => record.displayReference != null && batch.referenceNumbers.includes(record.displayReference))
+  });
   const savedQueries = new Map<string, MockSavedQuery>();
   /**
    * The ids in "my list", for the one notional caller this mock has.
@@ -451,6 +480,15 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     }
     if (method === "POST" && pathname === "/__mock/gazette-outcome") {
       const result = gazetteRequests.configure(await readJsonBody(req));
+      return send(res, result.status, result.body);
+    }
+
+    if (method === "POST" && pathname === "/__mock/application-deletions") {
+      const result = deletions.control(await readJsonBody(req));
+      return send(res, result.status, result.body);
+    }
+    if (method === "POST" && pathname === "/__mock/application-deletion-outcome") {
+      const result = deletions.configure(await readJsonBody(req));
       return send(res, result.status, result.body);
     }
 
@@ -678,6 +716,36 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return send(res, result.status, result.body);
     }
 
+    // api#175's three deletion routes, `DELETE_APPLICATION` before the path id, the header or the body is read. The
+    // admission is matched before the case pattern below, which does not know `deletion-requests`.
+    const admission = /^\/caseworker\/cases\/([^/]+)\/deletion-requests$/.exec(pathname);
+    const deletion = /^\/caseworker\/application-deletions\/([^/]+)(\/restore)?$/.exec(pathname);
+    if (admission || deletion) {
+      const claims = await callerClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      if (!hasDeletionAccess(claims)) return send(res, 403, { error: "Delivery Manager role required" });
+      const restoring = deletion?.[2] !== undefined;
+      if ((admission || restoring) && method !== "POST") return send(res, 405, { error: "Method not allowed" });
+      if (deletion && !restoring && method !== "GET") return send(res, 405, { error: "Method not allowed" });
+      const result = admission
+        ? deletions.admit({
+            caseId: decodeURIComponent(admission[1]),
+            key: req.headers[IDEMPOTENCY_HEADER],
+            contentType: req.headers["content-type"],
+            rawBody: await readRawBody(req)
+          })
+        : restoring
+          ? deletions.restore(decodeURIComponent(deletion?.[1] ?? ""))
+          : deletions.status(decodeURIComponent(deletion?.[1] ?? ""));
+      if (result.loseResponse) {
+        res.destroy();
+        return;
+      }
+      res.setHeader("Cache-Control", "no-store");
+      if (result.location) res.setHeader("Location", result.location);
+      return send(res, result.status, result.body);
+    }
+
     if (method === "GET" && pathname === "/caseworker/document-types") return send(res, 200, MOCK_DOCUMENT_TYPES);
 
     // The collection before the `{id}` pattern, for the reason recorded above the field-rules route: matched
@@ -763,7 +831,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (!found) return send(res, 404, { error: `DeedPoll ${decodeURIComponent(rawId)} not found` });
 
     if (collection === undefined) {
-      if (method === "GET") return send(res, 200, toDetail(found));
+      if (method === "GET") return send(res, 200, { ...(toDetail(found) as object), lastChangedOn: iso(lastChangedOn(found, audits.get(found))) });
       if (method === "PATCH") return patchCase(req, res, found);
       return send(res, 405, { error: `no such route: ${method} ${pathname}` });
     }
@@ -2103,6 +2171,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     clockOffsetMinutes = 0;
     gazetteBatches.clear();
     gazetteRequests.reset();
+    deletions.reset();
     processSettings.reset();
     masters.reset();
     bankHolidays.reset();
@@ -2811,6 +2880,21 @@ function toDetail(record: MockCase): unknown {
     witnesses: record.witnesses.map(toWireWitness),
     documents: record.documents.map(toWireDocument)
   };
+}
+
+/**
+ * api#175's `lastChangedOn`: the later of the case's `modifiedOn` and its newest audited write to a note, witness,
+ * document, referral or email, published on the detail only. The mock has no audit table, so the children's own
+ * stamps stand in for it, with `audited` for a write that leaves none (a restore).
+ */
+function lastChangedOn(record: MockCase, audited: Date | undefined): Date {
+  const stamps = [
+    record.modifiedOn,
+    audited,
+    ...[...record.notes, ...record.witnesses, ...record.documents, ...record.referrals].flatMap((child) => [child.createdOn, child.modifiedOn]),
+    ...record.notifications.map((notification) => notification.createdOn)
+  ];
+  return new Date(Math.max(...stamps.map((stamp) => (stamp instanceof Date ? stamp.getTime() : Number.NEGATIVE_INFINITY))));
 }
 
 /** One document's bytes, with the headers api serves both the caseworker and the judicial download with. */

@@ -30,7 +30,7 @@ function put(body: unknown, accessToken = DELIVERY_MANAGER) {
 }
 
 describe("process settings adapter and mock", () => {
-  it("should start at api's seeded seven days, 48 hours, ten per window and two windows, at revision 0 with no attribution", async () => {
+  it("should start at api's seeded seven days, 48 hours, ten per window, two windows and a 14-day deletion grace period, at revision 0 with no attribution", async () => {
     // Act
     const result = await getProcessSettings(config());
 
@@ -45,6 +45,7 @@ describe("process settings adapter and mock", () => {
         morningWindowEnd: "10:30",
         afternoonWindowStart: "14:00",
         afternoonWindowEnd: "14:30",
+        deletionGraceDays: 14,
         revision: 0,
         updatedAt: null,
         updatedBy: null
@@ -110,6 +111,7 @@ describe("process settings adapter and mock", () => {
         morningWindowEnd: "10:30",
         afternoonWindowStart: "14:00",
         afternoonWindowEnd: "14:30",
+        deletionGraceDays: 14,
         revision: 0,
         updatedAt: null,
         updatedBy: null

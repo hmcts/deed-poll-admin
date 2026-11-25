@@ -11,6 +11,8 @@ export const MANAGE_PROCESS_CONFIG: Capability = "MANAGE_PROCESS_CONFIG";
 export const ALLOCATE_REFERRALS: Capability = "ALLOCATE_REFERRALS";
 /** api D3 of the MI plan: the management information page and its CSVs. Team leaders and Delivery Managers. */
 export const VIEW_MANAGEMENT_INFORMATION: Capability = "VIEW_MANAGEMENT_INFORMATION";
+/** api#175: permanent application deletion, its status and its restore. Delivery Managers only. */
+export const DELETE_APPLICATION: Capability = "DELETE_APPLICATION";
 
 /** No staff area, no judicial area, no capabilities: what every missing or malformed answer reads as. */
 export const NO_ACCESS: CallerAccess = Object.freeze({ staff: false, judicial: false, capabilities: Object.freeze([]) });

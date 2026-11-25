@@ -18,6 +18,7 @@ import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import type { z } from "zod";
 import { assertApiBaseUrl } from "./transport.js";
 import {
+  type DELETION_REFUSAL_CODE,
   type MI_GRANULARITY,
   type MI_STAGE_INTERVAL,
   WIRE_SCHEMAS,
@@ -29,6 +30,10 @@ import {
   type WireCaseList,
   type WireCaseWrite,
   type WireCorrespondenceDocument,
+  type WireDeletionAdmission,
+  type WireDeletionCreate,
+  type WireDeletionRequest,
+  type WireDeletionRestore,
   type WireDocument,
   type WireDocumentPreviewError,
   type WireDocumentType,
@@ -104,6 +109,13 @@ export {
   CONFIRMATION_OUTCOME,
   DEED_POLL_STATE,
   DEED_POLL_TYPE,
+  // Application deletion's vocabulary (api#175), for the same reason: the confirmation page renders a radio per
+  // reason, the status page a sentence per status and failure, and a refusal's sentence is chosen by its code.
+  DELETION_FAILURE,
+  DELETION_NOTE_LIMITS,
+  DELETION_REASON,
+  DELETION_REFUSAL_CODE,
+  DELETION_STATUS,
   DOCUMENT_DIRECTION,
   // The two saved-query vocabularies, for the same reason as the option sets above: the domain turns a
   // caseworker's chosen tab and sort order into a create body, and narrowing against the published array
@@ -908,6 +920,45 @@ export function sendEmail(caseId: string, template: string, slots: EmailSlotsWri
 }
 
 /**
+ * Ask api to delete an application permanently (api#175), `DELETE_APPLICATION` only (Delivery Managers).
+ *
+ * 202 means **admitted, not deleted**: the application is hidden at once and nothing is removed before
+ * `restorableUntil`; only a status of `Completed` is a deletion. **The caller owns the key and this never mints one**,
+ * exactly as `sendEmail`'s: one key per confirmation journey, reused with the same body on every retry, so a lost
+ * response is recovered by sending the same request again, which api answers with the same request (also once the
+ * case is gone). A 409 carries api's `code` on the error, which is how a page tells a stale review from a refusal.
+ */
+export function requestApplicationDeletion(
+  caseId: string,
+  body: DeletionCreate,
+  idempotencyKey: string,
+  config: ApiConfig
+): Promise<ApiResult<DeletionAdmission>> {
+  return deletionRequest(
+    config,
+    "POST",
+    `/caseworker/cases/${encodeURIComponent(caseId)}/deletion-requests`,
+    WIRE_SCHEMAS.DeletionAdmissionResponse,
+    { reason: body.reason, note: body.note, expectedLastChangedOn: body.expectedLastChangedOn },
+    { "idempotency-key": idempotencyKey }
+  );
+}
+
+/** A deletion request's status, whether or not its case still exists. Reading never starts or retries work. */
+export function getApplicationDeletion(requestId: string, config: ApiConfig): Promise<ApiResult<DeletionStatusResponse>> {
+  return request(config, "GET", deletionPath(requestId), WIRE_SCHEMAS.DeletionRequestResponse);
+}
+
+/**
+ * Restore an application during its grace period. No body. A 404 is an unknown or already restored request, so a
+ * repeated restore whose first answer was lost reads as 404 with the application visible; a 409 carries its `code`
+ * (`RESTORE_WINDOW_CLOSED` or `CLEANUP_STARTED`).
+ */
+export function restoreApplicationDeletion(requestId: string, config: ApiConfig): Promise<ApiResult<DeletionRestore>> {
+  return deletionRequest(config, "POST", `${deletionPath(requestId)}/restore`, WIRE_SCHEMAS.DeletionRestoreResponse);
+}
+
+/**
  * The caller's saved-query library: every shared query plus their own, each flagged `selected` and
  * `editable`.
  *
@@ -1129,6 +1180,10 @@ function miPath(kpi: string, query: ManagementInformationQuery): string {
   if (query.includeMigrated !== undefined) parameters.set("includeMigrated", String(query.includeMigrated));
 
   return `/caseworker/management-information/${kpi}?${parameters.toString()}`;
+}
+
+function deletionPath(requestId: string): string {
+  return `/caseworker/application-deletions/${encodeURIComponent(requestId)}`;
 }
 
 function notePath(caseId: string, noteId: string): string {
@@ -1378,6 +1433,28 @@ async function gazetteRequest<S extends z.ZodType>(
   return { ok: false, error: classifyFailure(response, payload) };
 }
 
+/**
+ * A deletion operation: classified as every other call is, except that a 409 carrying api's `DeletionError` keeps its
+ * `code`. A 409 without a published code stays a plain conflict, which a page answers with its generic refusal.
+ */
+async function deletionRequest<S extends z.ZodType>(
+  config: ApiConfig,
+  method: string,
+  path: string,
+  schema: S,
+  body?: unknown,
+  headers?: Record<string, string>
+): Promise<ApiResult<z.infer<S>>> {
+  const result = await exchange(config, method, path, body, "application/json", { headers });
+  if (!result.ok) return result;
+  const response = result.response;
+  if (response.ok) return parseResponse(response, schema, method, path);
+  const payload = await readJsonOrNull(response);
+  const error = classifyFailure(response, payload);
+  const refusal = WIRE_SCHEMAS.DeletionError.safeParse(payload);
+  return { ok: false, error: response.status === 409 && refusal.success ? { ...error, code: refusal.data.code } : error };
+}
+
 async function exchange<E = ApiError>(
   config: ApiConfig,
   method: string,
@@ -1591,6 +1668,8 @@ export interface ApiError {
   fieldErrors?: readonly ApiFieldError[];
   /** Set for `rate-limited` only. */
   retryAfterSeconds?: number | null;
+  /** Set only on a deletion operation's 409: api's `DeletionRefusal` member, the one thing a page may branch on. */
+  code?: DeletionRefusalCode;
 }
 
 export type ApiErrorKind =
@@ -1620,6 +1699,15 @@ export interface ApiFieldError {
  * the freedom to parse a response somewhere other than here.
  */
 export type SavedCase = WireSavedCase;
+export type DeletionCreate = WireDeletionCreate;
+export type DeletionAdmission = WireDeletionAdmission;
+/** Named for what it is, a request's status, because `DeletionRequest` would read as the write. */
+export type DeletionStatusResponse = WireDeletionRequest;
+export type DeletionRestore = WireDeletionRestore;
+export type DeletionReason = WireDeletionCreate["reason"];
+export type DeletionStatus = WireDeletionRequest["status"];
+export type DeletionFailure = NonNullable<WireDeletionRequest["failure"]>;
+export type DeletionRefusalCode = (typeof DELETION_REFUSAL_CODE)[number];
 export type CaseDetail = WireCaseDetail;
 export type CaseSummary = WireCaseList["cases"][number];
 export type CaseList = WireCaseList;

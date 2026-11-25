@@ -44,6 +44,104 @@
         "tags": ["root-controller"]
       }
     },
+    "/caseworker/application-deletions/{requestId}": {
+      "get": {
+        "description": "Requires caseworker-deedpoll-delivery-manager (DELETE_APPLICATION), checked before the id is read; any Delivery Manager may read any request. Answers whether or not the application still exists. Only Completed means the application is deleted. While the request is Pending and restorableUntil has not passed, nothing has been removed and the application can be restored. Pending, InProgress, AwaitingDisposal and NeedsAttention are a request still being carried out or one that needs somebody, with failure set only for NeedsAttention. Reading never starts or retries work. An id that is not a UUID is a 404.",
+        "operationId": "getApplicationDeletion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionRequestResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "There is no such deletion request."
+          }
+        },
+        "summary": "Read a deletion request's status",
+        "tags": ["caseworker-application-deletion-controller"]
+      }
+    },
+    "/caseworker/application-deletions/{requestId}/restore": {
+      "post": {
+        "description": "Requires caseworker-deedpoll-delivery-manager (DELETE_APPLICATION), checked before the id is read; any Delivery Manager may restore any request. Allowed only while the request is Pending, cleanup has not started and restorableUntil has not passed. Restoring deletes the deletion request, so the application is visible and can be changed again at once, and the request's status resource is a 404 from then on. Nothing outside the service is removed before restorableUntil, so nothing remote is undone. Deleting the application again needs a new review and a new request. Takes no body. An id that is not a UUID, or a request already restored, is a 404.",
+        "operationId": "restoreApplicationDeletion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionRestoreResponse"
+                }
+              }
+            },
+            "description": "Restored."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "There is no such deletion request, or it was already restored."
+          },
+          "409": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionError"
+                }
+              }
+            },
+            "description": "Refused, with a code and fixed words, and nothing written: RESTORE_WINDOW_CLOSED (restorableUntil has passed) or CLEANUP_STARTED (the deletion is under way or done)."
+          }
+        },
+        "summary": "Restore an application during its grace period",
+        "tags": ["caseworker-application-deletion-controller"]
+      }
+    },
     "/caseworker/cases": {
       "get": {
         "description": "The named readyForPublication worklist and count require caseworker-deedpoll-delivery-manager, including saved-query links. Other authenticated roles receive 403 before reads or side effects. Ordinary filters and field conditions are unchanged.",
@@ -297,6 +395,118 @@
           }
         },
         "tags": ["caseworker-case-controller"]
+      }
+    },
+    "/caseworker/cases/{id}/deletion-requests": {
+      "post": {
+        "description": "Requires caseworker-deedpoll-delivery-manager (DELETE_APPLICATION), checked before the case, the header or the body is read. Permanently deletes an application created in error or duplicated; this is not a void, archive or withdrawal. 202 means the request is admitted and the application is fenced, not that it is deleted: read the Location until its status is Completed. Nothing is removed before restorableUntil, the end of the grace period set by the Delivery Manager's process setting when the request is admitted. A linked case waits for CCD Retain and Dispose (AwaitingDisposal). Send one UUID Idempotency-Key per confirmation journey and reuse it, with the same body, on every retry: the same key and body answers the same request with 202, even after the application is gone; the same key with a different body is 409 KEY_REUSED. A second key for the same reason answers the existing request; for the other reason it is 409 CONFLICTING_REASON. Never retry with a new key to get past a refusal.",
+        "operationId": "requestApplicationDeletion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "One UUID per confirmation journey, reused with the same body on every retry of it. Missing or not a UUID is a 400 naming the header. The same key with a different body is 409.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDeletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionAdmissionResponse"
+                }
+              }
+            },
+            "description": "Admitted, or the same request replayed. Not deleted yet. After a restore, repeating the original request is 409 STALE_CONFIRMATION, not a replay.",
+            "headers": {
+              "Location": {
+                "description": "The request's status resource.",
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "The Idempotency-Key is missing or not a UUID, the body has a key other than reason, note and expectedLastChangedOn, or a field is refused, each field's error named. Nothing is written."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "There is no such application and no request for it."
+          },
+          "409": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionError"
+                }
+              }
+            },
+            "description": "Refused, with a code and fixed words, and nothing written: STALE_CONFIRMATION (review the application again), RETAINED_PERMANENTLY, GAZETTE_EVIDENCE, RETAINED_DEED_PAYLOAD, RETAINED_STAGED_UPLOADS, DOCUMENT_STORAGE_UNRESOLVED, CCD_CREATION_UNRESOLVED, EMAIL_SEND_UNRESOLVED (try again once it settles), KEY_REUSED or CONFLICTING_REASON."
+          },
+          "413": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionAdmissionResponse"
+                }
+              }
+            },
+            "description": "The body is over 16 KB. Nothing is written."
+          },
+          "415": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionAdmissionResponse"
+                }
+              }
+            },
+            "description": "The body is not application/json. Nothing is written."
+          }
+        },
+        "summary": "Request permanent deletion of an application",
+        "tags": ["caseworker-application-deletion-controller"]
       }
     },
     "/caseworker/cases/{id}/documents": {
@@ -2311,7 +2521,7 @@
     },
     "/caseworker/process-settings": {
       "get": {
-        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). Seeded with a processing window of 10080 minutes (7 days), a 48-hour reminder interval, a cap of 10 referrals sent per window across all Masters, and referral windows of 07:00-10:30 and 14:00-14:30 Europe/London, at revision 0 with null attribution.",
+        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). Seeded with a processing window of 10080 minutes (7 days), a 48-hour reminder interval, a cap of 10 referrals sent per window across all Masters, and referral windows of 07:00-10:30 and 14:00-14:30 Europe/London, and a 14-day application deletion grace period, at revision 0 with null attribution.",
         "operationId": "getProcessSettings",
         "responses": {
           "200": {
@@ -2332,7 +2542,7 @@
         "tags": ["caseworker-process-settings-controller"]
       },
       "put": {
-        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). Supply the revision read with the form; a stale revision returns 409 with no change, even when the value already matches. A change increments revision, records attribution and is audited. Saving the current values at the current revision is a no-op. referralClaimExpiryMinutes (the processing window: how long a Master has to give a direction before the referral is unassigned) and revision are required. The other settings are optional for one release: an absent one keeps its stored value, and each changed setting writes its own history row. Window times are HH:mm on the quarter hour, each window starting before it ends and the morning window ending before the afternoon one starts. A new processing window applies from the next sweep; saving it releases nothing itself, and raising it never restores a referral already released.",
+        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). Supply the revision read with the form; a stale revision returns 409 with no change, even when the value already matches. A change increments revision, records attribution and is audited. Saving the current values at the current revision is a no-op. referralClaimExpiryMinutes (the processing window: how long a Master has to give a direction before the referral is unassigned) and revision are required. The other settings are optional for one release: an absent one keeps its stored value, and each changed setting writes its own history row. Window times are HH:mm on the quarter hour, each window starting before it ends and the morning window ending before the afternoon one starts. A new processing window applies from the next sweep; saving it releases nothing itself, and raising it never restores a referral already released. A new deletionGraceDays applies only to application deletions confirmed after it; a request already confirmed keeps the date it was given.",
         "operationId": "updateProcessSettings",
         "requestBody": {
           "content": {
@@ -3310,7 +3520,8 @@
                 "ACCESS_GAZETTE",
                 "MANAGE_PROCESS_CONFIG",
                 "ALLOCATE_REFERRALS",
-                "VIEW_MANAGEMENT_INFORMATION"
+                "VIEW_MANAGEMENT_INFORMATION",
+                "DELETE_APPLICATION"
               ]
             }
           },
@@ -3462,6 +3673,10 @@
           },
           "inPerson": {
             "type": "boolean"
+          },
+          "lastChangedOn": {
+            "type": "string",
+            "format": "date-time"
           },
           "maritalStatus": {
             "type": "string",
@@ -4112,6 +4327,29 @@
           }
         }
       },
+      "CreateDeletionRequest": {
+        "additionalProperties": false,
+        "description": "A permanent deletion of the application in the path. No other key is accepted.",
+        "properties": {
+          "expectedLastChangedOn": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The application's lastChangedOn exactly as the case detail published it when the Delivery Manager reviewed it: the later of the case's modifiedOn and its newest audited write to a note, witness, document, referral or email (ISO-8601 local date-time, compared to the millisecond). A different value is 409 STALE_CONFIRMATION on a first request; a replay is never compared with the case."
+          },
+          "note": {
+            "type": "string",
+            "description": "Why, in the Delivery Manager's own words. Trimmed first, then 10 to 500 characters, with no control characters but ordinary spaces. Kept in the audit trail for its seven-year retention after the application is gone, so it must say why and must not include the applicant's personal details.",
+            "maxLength": 500,
+            "minLength": 10
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why the application is being deleted. Matched exactly.",
+            "enum": ["CREATED_IN_ERROR", "DUPLICATE"]
+          }
+        },
+        "required": ["expectedLastChangedOn", "note", "reason"]
+      },
       "CreateMasterRequest": {
         "additionalProperties": false,
         "properties": {
@@ -4268,6 +4506,111 @@
           }
         },
         "required": ["declarant", "witnessAddress", "witnessName", "witnessOccupation"]
+      },
+      "DeletionAdmissionResponse": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "restorableUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "UTC. The end of the grace period, fixed when the request was admitted: a later change to the deletion grace period setting does not move it. Nothing is removed before it, and while the request is Pending before it a Delivery Manager can restore the application."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["Pending", "InProgress", "AwaitingDisposal", "NeedsAttention", "Completed"]
+          }
+        }
+      },
+      "DeletionError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "STALE_CONFIRMATION",
+              "RETAINED_PERMANENTLY",
+              "GAZETTE_EVIDENCE",
+              "RETAINED_DEED_PAYLOAD",
+              "RETAINED_STAGED_UPLOADS",
+              "DOCUMENT_STORAGE_UNRESOLVED",
+              "CCD_CREATION_UNRESOLVED",
+              "EMAIL_SEND_UNRESOLVED",
+              "KEY_REUSED",
+              "CONFLICTING_REASON",
+              "RESTORE_WINDOW_CLOSED",
+              "CLEANUP_STARTED"
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "DeletionRequestResponse": {
+        "type": "object",
+        "properties": {
+          "caseId": {
+            "type": "string"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "failure": {
+            "type": "string",
+            "enum": [
+              "LOCAL_STORE_UNAVAILABLE",
+              "LOCAL_DOCUMENT_INVALID_KEY",
+              "LOCAL_DOCUMENT_UNREMOVED",
+              "CCD_CASE_MISSING",
+              "CDAM_WITHOUT_CCD_CASE",
+              "CDAM_REMOVED_DOCUMENT_UNPURGED",
+              "CLEANUP_STEP_FAILED",
+              "CCD_COPY_PRESENT",
+              "RETAINED_PAYLOAD",
+              "UNLISTED_OWNED_STAGE",
+              "LOCAL_FINALISATION_REFUSED"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": ["CREATED_IN_ERROR", "DUPLICATE"]
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "restorableUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "UTC. The end of the grace period, fixed when the request was admitted: a later change to the deletion grace period setting does not move it. Nothing is removed before it, and while the request is Pending before it a Delivery Manager can restore the application."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["Pending", "InProgress", "AwaitingDisposal", "NeedsAttention", "Completed"]
+          }
+        }
+      },
+      "DeletionRestoreResponse": {
+        "type": "object",
+        "properties": {
+          "caseId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["Restored"]
+          }
+        },
+        "required": ["status"]
       },
       "DocumentPreviewError": {
         "type": "object",
@@ -5646,6 +5989,13 @@
             "description": "The afternoon referral window's start, Europe/London, HH:mm.",
             "pattern": "^([01][0-9]|2[0-3]):(00|15|30|45)$"
           },
+          "deletionGraceDays": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How long a confirmed application deletion can still be restored by a Delivery Manager before it is made permanent, in days. A change applies only to deletions confirmed after it.",
+            "maximum": 90,
+            "minimum": 1
+          },
           "morningWindowEnd": {
             "type": "string",
             "description": "The morning referral window's end, Europe/London, HH:mm.",
@@ -6764,6 +7114,13 @@
             "type": "string",
             "description": "A referral window time, Europe/London, HH:mm on the quarter hour. Each window starts before it ends, and the morning window ends before the afternoon one starts. Optional for one release; absent leaves it unchanged, null is refused.",
             "pattern": "^([01][0-9]|2[0-3]):(00|15|30|45)$"
+          },
+          "deletionGraceDays": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How long a confirmed application deletion can still be restored by a Delivery Manager, in whole days, from 1 to 90. A change applies only to deletions confirmed after it. Optional; absent leaves it unchanged, null is refused.",
+            "maximum": 90,
+            "minimum": 1
           },
           "morningWindowEnd": {
             "type": "string",

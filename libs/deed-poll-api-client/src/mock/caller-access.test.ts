@@ -11,6 +11,8 @@ const CASEWORK = ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_S
 const ALLOCATE = "ALLOCATE_REFERRALS";
 // Declared after it, and the Team leader's, so the legacy admin never holds it.
 const MI = "VIEW_MANAGEMENT_INFORMATION";
+// api#175, declared last: the Delivery Manager's alone.
+const DELETE = "DELETE_APPLICATION";
 const NO_ACCESS = { staff: false, judicial: false, capabilities: [] };
 
 let mock: RunningMockApi;
@@ -54,14 +56,14 @@ describe("GET /me on the mock", () => {
     {
       persona: "Delivery Manager",
       roles: ["caseworker-deedpoll-delivery-manager"],
-      expected: { staff: true, judicial: false, capabilities: [...CASEWORK, "ACCESS_GAZETTE", "MANAGE_PROCESS_CONFIG", ALLOCATE, MI] }
+      expected: { staff: true, judicial: false, capabilities: [...CASEWORK, "ACCESS_GAZETTE", "MANAGE_PROCESS_CONFIG", ALLOCATE, MI, DELETE] }
     },
     { persona: "legacy admin", roles: ["caseworker-deedpoll-admin"], expected: { staff: true, judicial: false, capabilities: [...CASEWORK, ALLOCATE] } },
     { persona: "judge", roles: ["caseworker-deedpoll-judicial"], expected: { staff: false, judicial: true, capabilities: [] } },
     {
       persona: "Delivery Manager who is also a judge",
       roles: ["caseworker-deedpoll-judicial", "caseworker-deedpoll-delivery-manager", "caseworker-deedpoll-admin"],
-      expected: { staff: true, judicial: true, capabilities: [...CASEWORK, "ACCESS_GAZETTE", "MANAGE_PROCESS_CONFIG", ALLOCATE, MI] }
+      expected: { staff: true, judicial: true, capabilities: [...CASEWORK, "ACCESS_GAZETTE", "MANAGE_PROCESS_CONFIG", ALLOCATE, MI, DELETE] }
     },
     { persona: "no deed-poll role", roles: ["citizen"], expected: NO_ACCESS },
     { persona: "malformed roles", roles: "caseworker-deedpoll-delivery-manager", expected: NO_ACCESS }

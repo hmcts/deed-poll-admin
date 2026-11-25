@@ -184,14 +184,14 @@ merely to obtain a green check.
 **Files:** `libs/deed-poll-api-client/{openapi.json,SPEC-PROVENANCE.md}`, its API client/wire/contract tests,
 mock routes/store and capability fixtures; `libs/deed-poll/src/auth/capabilities.ts` and export indexes.
 
-- [ ] Record execution baselines and the API merge/spec SHA/hash. Compare the complete generated contract delta;
+- [x] Record execution baselines and the API merge/spec SHA/hash. Compare the complete generated contract delta;
   account for every changed operation/schema, including unrelated intervening changes, before refreshing it.
-- [ ] Add admission, status and restore operations, reason/status validation and typed errors through the existing
+- [x] Add admission, status and restore operations, reason/status validation and typed errors through the existing
   adapter, carrying a deletion 409's `code` on the domain error.
   Add `DELETE_APPLICATION` to capability parsing and the mock's Delivery Manager grants only.
-- [ ] Implement mock admission/replay/status/guards and explicit deterministic test controls for completion and
+- [x] Implement mock admission/replay/status/guards and explicit deterministic test controls for completion and
   unknown outcomes, with no production-accessible test controls. No real remote deletion in the mock.
-- [ ] Test spec equality, encoded IDs, closed body/key validation, role denials, same-key replay after removal,
+- [x] Test spec equality, encoded IDs, closed body/key validation, role denials, same-key replay after removal,
   conflicting reason, status after disappearance and no applicant data in status. Run focused library tests.
 
 ### Task 1b: Grace period on the settings page
@@ -269,8 +269,28 @@ Admin data access layer.
 
 ## Execution notes
 
-Not started. No tests, API contract refresh, browser journey, implementation or deployment has run for this plan.
 Record baselines, per-task validation, merged API artifact and review findings here.
+
+**Task 1 (2026-11-25).** Baselines: Admin `origin/master` still `a447d8f` (admin#421 not yet merged, so no rebase was
+needed; re-check before Task 4's persona work), API `origin/master` `e6a84c3` (api#178, test-only: `git diff 576d559
+e6a84c3` touches seven `src/test/` files). Spec generated in a clean detached api worktree at `e6a84c3`, raw SHA-256
+`78570861d4e64dec501c93e80590fb5c95332fa0eb77e265ae849076af0fa49a`, parsed equal to the committed copy. Whole-document
+parsed delta against `e7ee862`: three operations and five schemas added; `GET`/`PUT /caseworker/process-settings`,
+`CallerAccessResponse`, `CaseDetailResponse` (`lastChangedOn`), `ProcessSettingsResponse` and
+`UpdateProcessSettingsRequest` (`deletionGraceDays`) changed; nothing removed and nothing unrelated
+(`SPEC-PROVENANCE.md`). Decisions: `lastChangedOn` stays api's **text** on the wire schema, because api parses
+`expectedLastChangedOn` with `LocalDateTime.parse` and a re-serialised `Date` (`…Z`) would be refused. The adapter's
+`deletionRequest` keeps a 409's `DeletionError.code` on `ApiError.code`, and `callApi` puts it on `ConflictError.code`
+(null otherwise). The wire and mock already carry `deletionGraceDays` (seed 14, optional on the PUT) because the
+refreshed contract requires it; `updateProcessSettings` still sends only its seven fields, and the admin read model,
+form and its own write are Task 1b's. The mock fences an admitted case (gone from every read until restored), never
+removes anything remotely, and moves a request only through `/__mock/application-deletions` (status, failure, closed
+restore window) and `/__mock/application-deletion-outcome` (lost admission response, one refused admission by code,
+status reads down); `Completed` drops the fenced case from memory. Validation: `yarn build` and `yarn lint` clean,
+`git diff --check` clean; `libs/deed-poll-api-client` 25 files / 1616 tests passed (28 new deletion adapter tests, 5
+mock-control tests, deletion contract pins, path-segment cases); `libs/deed-poll` 77 files / 1781 passed; app
+`vitest run` 174 files / 3467 tests passed, 4 files / 93 tests **skipped** (the Redis session suites: no Redis was
+running in this environment, so those were not run).
 
 ## Post-Completion
 

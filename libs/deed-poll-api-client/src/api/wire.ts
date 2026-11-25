@@ -135,7 +135,8 @@ export const CAPABILITY = [
   "ACCESS_GAZETTE",
   "MANAGE_PROCESS_CONFIG",
   "ALLOCATE_REFERRALS",
-  "VIEW_MANAGEMENT_INFORMATION"
+  "VIEW_MANAGEMENT_INFORMATION",
+  "DELETE_APPLICATION"
 ] as const;
 
 /** The two `sortDirection` tokens api matches exactly. A bare field with no direction means ascending. */
@@ -396,6 +397,12 @@ const referralSchema = z.object({
  * Built by extending the saved-case shape rather than restating 76 fields, so the two cannot drift.
  */
 const caseDetailSchema = savedCaseSchema.extend({
+  /**
+   * The later of `modifiedOn` and the case's newest audited child write (api#175), on the detail only. Kept as api's
+   * text and never made a `Date`: a deletion request sends it back unchanged as `expectedLastChangedOn`, which api
+   * parses as an ISO-8601 local date-time, so a re-serialised `Date` (`…Z`) would be refused and a rounded one stale.
+   */
+  lastChangedOn: z.string().nullish(),
   notes: z.array(noteSchema),
   witnesses: z.array(witnessSchema),
   documents: z.array(documentSchema)
@@ -1057,7 +1064,9 @@ export const PROCESS_SETTINGS_LIMITS = {
   minReminderHours: 1,
   maxReminderHours: 168,
   minWindowCap: 1,
-  maxWindowCap: 100
+  maxWindowCap: 100,
+  minDeletionGraceDays: 1,
+  maxDeletionGraceDays: 90
 } as const;
 
 /** A referral window time, Europe/London, `HH:mm` on the quarter hour. Pinned to the spec's pattern. */
@@ -1076,6 +1085,7 @@ const processSettingsSchema = z.object({
   morningWindowEnd: z.string().nullish(),
   afternoonWindowStart: z.string().nullish(),
   afternoonWindowEnd: z.string().nullish(),
+  deletionGraceDays: z.number().int(),
   revision: z.number().int().nonnegative(),
   updatedAt: wireDateTime.nullish(),
   updatedBy: z.string().nullish()
@@ -1100,6 +1110,7 @@ const updateProcessSettingsSchema = z
     morningWindowEnd: windowTime.optional(),
     afternoonWindowStart: windowTime.optional(),
     afternoonWindowEnd: windowTime.optional(),
+    deletionGraceDays: z.number().int().min(PROCESS_SETTINGS_LIMITS.minDeletionGraceDays).max(PROCESS_SETTINGS_LIMITS.maxDeletionGraceDays).optional(),
     revision: z.number().int().nonnegative()
   })
   .strict();
@@ -1503,6 +1514,74 @@ const gazetteErrorSchema = z.object({ code: z.enum(GAZETTE_REFUSAL_CODE), error:
 const documentPreviewErrorSchema = z.object({ code: z.enum(DOCUMENT_PREVIEW_ERROR_CODE), error: z.string() });
 
 /**
+ * Application deletion (api#175, `docs/APPLICATION-DELETION.md`): the two reasons, the request's five statuses, the
+ * twelve 409 codes and the `NeedsAttention` failures, each in api's declaration order. Only `Completed` means deleted.
+ */
+export const DELETION_REASON = ["CREATED_IN_ERROR", "DUPLICATE"] as const;
+export const DELETION_STATUS = ["Pending", "InProgress", "AwaitingDisposal", "NeedsAttention", "Completed"] as const;
+export const DELETION_REFUSAL_CODE = [
+  "STALE_CONFIRMATION",
+  "RETAINED_PERMANENTLY",
+  "GAZETTE_EVIDENCE",
+  "RETAINED_DEED_PAYLOAD",
+  "RETAINED_STAGED_UPLOADS",
+  "DOCUMENT_STORAGE_UNRESOLVED",
+  "CCD_CREATION_UNRESOLVED",
+  "EMAIL_SEND_UNRESOLVED",
+  "KEY_REUSED",
+  "CONFLICTING_REASON",
+  "RESTORE_WINDOW_CLOSED",
+  "CLEANUP_STARTED"
+] as const;
+export const DELETION_FAILURE = [
+  "LOCAL_STORE_UNAVAILABLE",
+  "LOCAL_DOCUMENT_INVALID_KEY",
+  "LOCAL_DOCUMENT_UNREMOVED",
+  "CCD_CASE_MISSING",
+  "CDAM_WITHOUT_CCD_CASE",
+  "CDAM_REMOVED_DOCUMENT_UNPURGED",
+  "CLEANUP_STEP_FAILED",
+  "CCD_COPY_PRESENT",
+  "RETAINED_PAYLOAD",
+  "UNLISTED_OWNED_STAGE",
+  "LOCAL_FINALISATION_REFUSED"
+] as const;
+
+/** The note's bounds after trimming ordinary spaces, pinned to `CreateDeletionRequest.note` by `contract.test.ts`. */
+export const DELETION_NOTE_LIMITS = { minLength: 10, maxLength: 500 } as const;
+
+/**
+ * The closed admission body. `expectedLastChangedOn` is the case detail's `lastChangedOn` text, unchanged. The note's
+ * trimming and its control-character rule are api's (and the form's); this guards only shape and length.
+ */
+const createDeletionRequestSchema = z
+  .object({
+    reason: z.enum(DELETION_REASON),
+    note: z.string().min(DELETION_NOTE_LIMITS.minLength).max(DELETION_NOTE_LIMITS.maxLength),
+    expectedLastChangedOn: z.string().min(1)
+  })
+  .strict();
+const deletionAdmissionSchema = z.object({
+  requestId: z.uuid(),
+  status: z.enum(DELETION_STATUS),
+  restorableUntil: wireDateTime
+});
+/** No note, requester, key or CCD reference, on purpose: the status of a request whose case may already be gone. */
+const deletionRequestSchema = z.object({
+  requestId: z.uuid(),
+  caseId: z.string(),
+  reason: z.enum(DELETION_REASON),
+  status: z.enum(DELETION_STATUS),
+  requestedAt: wireDateTime,
+  restorableUntil: wireDateTime,
+  completedAt: wireDateTime.nullish(),
+  failure: z.enum(DELETION_FAILURE).nullish()
+});
+const deletionRestoreSchema = z.object({ caseId: z.string(), status: z.enum(["Restored"]) });
+/** A deletion 409: the code a page chooses its sentence by, and api's fixed words, which no page shows. */
+const deletionErrorSchema = z.object({ code: z.enum(DELETION_REFUSAL_CODE), error: z.string() });
+
+/**
  * `GET /me`: which staff areas admit the caller and what their roles grant. Both flags are Java primitives and
  * the list is a `List.copyOf`, so all three are strict. No identity, on purpose: admin has IDAM's.
  *
@@ -1552,6 +1631,11 @@ export const WIRE_SCHEMAS = {
   Conflict: gazetteConflictSchema,
   GazetteError: gazetteErrorSchema,
   DocumentPreviewError: documentPreviewErrorSchema,
+  CreateDeletionRequest: createDeletionRequestSchema,
+  DeletionAdmissionResponse: deletionAdmissionSchema,
+  DeletionRequestResponse: deletionRequestSchema,
+  DeletionRestoreResponse: deletionRestoreSchema,
+  DeletionError: deletionErrorSchema,
   GazetteSettingsResponse: gazetteSettingsSchema,
   UpdateGazetteSettingsRequest: updateGazetteSettingsSchema,
   ProcessSettingsResponse: processSettingsSchema,
@@ -1668,8 +1752,17 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   GazetteError: ["code", "error", "conflicts"],
   // Both are required in api's record and the code is an enum, so neither can arrive null.
   DocumentPreviewError: ["code", "error"],
+  // Application deletion (api#175). Every field but `completedAt` and `failure` is a NOT NULL column of the request,
+  // and the status record builds each from the stored row, so a response missing one is not a request a page can
+  // describe. `completedAt` is null until `Completed` and `failure` is set only on `NeedsAttention`. The restore's
+  // `caseId` is where the page sends the Delivery Manager, so it is strict for an id's reason.
+  DeletionAdmissionResponse: ["requestId", "status", "restorableUntil"],
+  DeletionRequestResponse: ["requestId", "caseId", "reason", "status", "requestedAt", "restorableUntil"],
+  DeletionRestoreResponse: ["caseId", "status"],
+  DeletionError: ["code", "error"],
   GazetteSettingsResponse: ["revision"],
-  ProcessSettingsResponse: ["referralClaimExpiryMinutes", "reminderIntervalHours", "windowCap", "revision"],
+  // `deletionGraceDays` is an `int` on api's record, as the other three numbers are.
+  ProcessSettingsResponse: ["referralClaimExpiryMinutes", "reminderIntervalHours", "windowCap", "deletionGraceDays", "revision"],
   MasterResponse: ["id", "available", "linked", "revision"],
   // The same record as `MasterResponse` since api F1 dropped `assignedInWindow`.
   MasterListEntryResponse: ["id", "available", "linked", "revision"],
@@ -1859,3 +1952,8 @@ export type WirePreviewGazette = z.input<typeof previewGazetteSchema>;
 export type WireSubmitGazette = z.input<typeof submitGazetteSchema>;
 export type WireGazetteError = z.infer<typeof gazetteErrorSchema>;
 export type WireDocumentPreviewError = z.infer<typeof documentPreviewErrorSchema>;
+/** `z.input` for the write, as `WireCaseWrite` is. */
+export type WireDeletionCreate = z.input<typeof createDeletionRequestSchema>;
+export type WireDeletionAdmission = z.infer<typeof deletionAdmissionSchema>;
+export type WireDeletionRequest = z.infer<typeof deletionRequestSchema>;
+export type WireDeletionRestore = z.infer<typeof deletionRestoreSchema>;
