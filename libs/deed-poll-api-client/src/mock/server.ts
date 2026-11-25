@@ -529,7 +529,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (pathname === "/caseworker/gazette-settings") {
       const claims = await callerClaims(req, options.userInfoUrl);
       if (!claims) return send(res, 401, { error: "Authentication required" });
-      if (!hasGazetteAccess(claims)) {
+      // As api: the recipient needs the Gazette and process settings both, so a Team leader is refused it.
+      if (!hasGazetteAccess(claims) || !hasProcessConfigAccess(claims)) {
         return send(res, 403, { error: "Delivery Manager role required" });
       }
       if (method === "GET") return send(res, 200, gazetteSettings);

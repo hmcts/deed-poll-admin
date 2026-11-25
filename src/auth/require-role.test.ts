@@ -216,30 +216,34 @@ describe("Gazette area access", () => {
     "/deed-polls/gazette/requests",
     "/deed-polls/gazette/requests/a-batch"
   ];
-  it.each(["teamLeader", "legacyAdmin", "caseworker", "judge", "none"] as const)(
-    "should refuse every Gazette page and form to %s before any API call",
-    (persona) => {
-      for (const path of paths) {
-        for (const method of ["GET", "POST"]) {
-          const req = pageRequest({ persona, originalUrl: path });
-          Object.assign(req, { method, path });
-          const res = pageResponse();
-          const apiCall = vi.fn();
-          const next = vi.fn((error?: unknown) => {
-            if (!error) apiCall();
-          });
-          requireCapability(ACCESS_GAZETTE)(req, res, next);
-          expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
-          expect(apiCall).not.toHaveBeenCalled();
-          expect(res.render).not.toHaveBeenCalled();
-        }
+  it.each(["legacyAdmin", "caseworker", "judge", "none"] as const)("should refuse every Gazette page and form to %s before any API call", (persona) => {
+    for (const path of paths) {
+      for (const method of ["GET", "POST"]) {
+        const req = pageRequest({ persona, originalUrl: path });
+        Object.assign(req, { method, path });
+        const res = pageResponse();
+        const apiCall = vi.fn();
+        const next = vi.fn((error?: unknown) => {
+          if (!error) apiCall();
+        });
+        requireCapability(ACCESS_GAZETTE)(req, res, next);
+        expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
+        expect(apiCall).not.toHaveBeenCalled();
+        expect(res.render).not.toHaveBeenCalled();
       }
     }
-  );
-  it.each([false, true])("should admit Delivery Manager independently, with judicial %s", (judicial) => {
-    const next = vi.fn();
-    requireCapability(ACCESS_GAZETTE)(pageRequest({ deliveryManager: true, judicial }), pageResponse(), next);
-    expect(next).toHaveBeenCalledExactlyOnceWith();
+  });
+  it.each([
+    { persona: "teamLeader", judicial: false },
+    { persona: "teamLeader", judicial: true },
+    { persona: "deliveryManager", judicial: false },
+    { persona: "deliveryManager", judicial: true }
+  ] as const)("should admit $persona to every Gazette page, with judicial $judicial", ({ persona, judicial }) => {
+    for (const path of paths) {
+      const next = vi.fn();
+      requireCapability(ACCESS_GAZETTE)(pageRequest({ [persona]: true, judicial, originalUrl: path }), pageResponse(), next);
+      expect(next).toHaveBeenCalledExactlyOnceWith();
+    }
   });
   it("should name the method, the whole path and the capability, and leave the query out", () => {
     const next = vi.fn();
