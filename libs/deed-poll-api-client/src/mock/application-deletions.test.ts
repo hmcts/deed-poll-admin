@@ -69,6 +69,32 @@ describe("the mock's application deletion controls", () => {
     expect(read.status).toBe(404);
   });
 
+  it("should answer STALE_CONFIRMATION when a note added and deleted since review leaves no row behind", async () => {
+    // Arrange
+    const record = mock.seed({ newForename: "Alex" });
+    const reviewed = (await (await fetch(`${mock.url}/caseworker/cases/${record.id}`)).json()) as { lastChangedOn: string };
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const added = await fetch(`${mock.url}/caseworker/cases/${record.id}/notes`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${DM}`, "content-type": "application/json" },
+      body: JSON.stringify({ note: "Added after review" })
+    });
+    const { id: noteId } = (await added.json()) as { id: string };
+    await fetch(`${mock.url}/caseworker/cases/${record.id}/notes/${noteId}`, { method: "DELETE", headers: { authorization: `Bearer ${DM}` } });
+
+    // Act
+    const response = await fetch(`${mock.url}/caseworker/cases/${record.id}/deletion-requests`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${DM}`, "content-type": "application/json", "idempotency-key": KEY },
+      body: JSON.stringify({ reason: "CREATED_IN_ERROR", note: "Created in error at the counter", expectedLastChangedOn: reviewed.lastChangedOn })
+    });
+
+    // Assert
+    expect(added.status).toBe(201);
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as { code: string }).code).toBe("STALE_CONFIRMATION");
+  });
+
   it("should answer 405 for a method a deletion route does not take, after the capability check", async () => {
     // Act
     const getAdmission = await fetch(`${mock.url}/caseworker/cases/case-1/deletion-requests`, { headers: { authorization: `Bearer ${DM}` } });

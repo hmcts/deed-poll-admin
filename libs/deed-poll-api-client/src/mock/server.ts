@@ -401,7 +401,9 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   const masters = createMasters({ linked: attachToLinkedMaster, unlinked: detachFromUnlinkedMaster });
   const bankHolidays = createBankHolidays();
   const gazetteBatches = new Map<string, z.infer<typeof SEEDABLE_GAZETTE_BATCH>>();
-  // The case's newest audited write that leaves no child row behind: today only a deletion's restore.
+  // The case's newest audited write that leaves no child row behind: a deletion's restore, or a note or witness
+  // deleted. Without it a delete would take its row's stamps with it and could put `lastChangedOn` back to a value
+  // a deletion confirmation already reviewed, admitting it instead of answering STALE_CONFIRMATION.
   const audits = new WeakMap<MockCase, Date>();
   const deletions = createApplicationDeletions<MockCase>({
     cases,
@@ -1044,6 +1046,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
     if (method === "DELETE") {
       record.notes.splice(index, 1);
+      audits.set(record, new Date());
       return sendNoContent(res);
     }
 
@@ -1098,6 +1101,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
     if (method === "DELETE") {
       record.witnesses.splice(index, 1);
+      audits.set(record, new Date());
       return sendNoContent(res);
     }
 
@@ -2885,7 +2889,7 @@ function toDetail(record: MockCase): unknown {
 /**
  * api#175's `lastChangedOn`: the later of the case's `modifiedOn` and its newest audited write to a note, witness,
  * document, referral or email, published on the detail only. The mock has no audit table, so the children's own
- * stamps stand in for it, with `audited` for a write that leaves none (a restore).
+ * stamps stand in for it, with `audited` for a write that leaves none (a restore, or a deleted note or witness).
  */
 function lastChangedOn(record: MockCase, audited: Date | undefined): Date {
   const stamps = [
