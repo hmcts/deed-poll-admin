@@ -9,7 +9,7 @@
  */
 import {
   type DeletionAdmission,
-  type DeletionReason,
+  type DeletionCreate,
   type DeletionRestore,
   type DeletionStatusResponse,
   getApplicationDeletion,
@@ -19,9 +19,9 @@ import {
 import { type Caller, callApi, callDeletionAdmissionApi } from "../api/deed-poll-api.js";
 
 export function requestDeletion(caseId: string, body: DeletionRequestBody, idempotencyKey: string, caller: Caller): Promise<DeletionAdmission> {
-  return callDeletionAdmissionApi(caller, (config) =>
-    requestApplicationDeletion(caseId, { reason: body.reason, note: body.note, expectedLastChangedOn: body.expectedLastChangedOn }, idempotencyKey, config)
-  );
+  // Copied field by field so nothing beside api's three fields (an asserted author, say) can travel.
+  const { reason, note, expectedLastChangedOn } = body;
+  return callDeletionAdmissionApi(caller, (config) => requestApplicationDeletion(caseId, { reason, note, expectedLastChangedOn }, idempotencyKey, config));
 }
 
 /** Reads only the request, so it answers after the application is gone. */
@@ -33,9 +33,5 @@ export function restoreDeletion(requestId: string, caller: Caller): Promise<Dele
   return callApi(caller, (config) => restoreApplicationDeletion(requestId, config));
 }
 
-export interface DeletionRequestBody {
-  reason: DeletionReason;
-  note: string;
-  /** The case detail's `lastChangedOn`, exactly as api published it when the application was reviewed. */
-  expectedLastChangedOn: string;
-}
+/** api's admission body; `expectedLastChangedOn` is the case detail's `lastChangedOn` exactly as api published it. */
+export type DeletionRequestBody = DeletionCreate;

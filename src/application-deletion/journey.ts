@@ -67,14 +67,13 @@ export async function openDeletionJourney(req: Request, caseId: string, now = Da
  * The journey with the Delivery Manager's answers sealed into it. A journey already confirmed keeps its answers,
  * because its key may already have been admitted with them: the recovery action cannot edit what it replays.
  */
-export function confirmDeletionJourney(journey: DeletionJourney, input: DeletionFormInput): DeletionJourney {
-  if (journey.confirmed) return journey;
-  return { ...journey, confirmed: { reason: input.reason, note: input.note } };
+export function confirmDeletionJourney(journey: DeletionJourney, input: DeletionFormInput): ConfirmedDeletionJourney {
+  const confirmed = journey.confirmed ?? { reason: input.reason, note: input.note };
+  return { ...journey, confirmed };
 }
 
-/** The exact admission body, or `null` for a journey nobody has confirmed. */
-export function deletionRequestBody(journey: DeletionJourney): DeletionRequestBody | null {
-  if (!journey.confirmed) return null;
+/** The exact admission body a confirmed journey replays. */
+export function deletionRequestBody(journey: ConfirmedDeletionJourney): DeletionRequestBody {
   return { reason: journey.confirmed.reason, note: journey.confirmed.note, expectedLastChangedOn: journey.lastChangedOn };
 }
 
@@ -95,4 +94,5 @@ async function signature(req: Request, payload: string): Promise<string> {
 }
 
 export type DeletionJourney = z.infer<typeof journeySchema>;
+export type ConfirmedDeletionJourney = DeletionJourney & { confirmed: NonNullable<DeletionJourney["confirmed"]> };
 export type OpenedJourney = { state: "open"; journey: DeletionJourney } | { state: "expired" } | { state: "invalid" };

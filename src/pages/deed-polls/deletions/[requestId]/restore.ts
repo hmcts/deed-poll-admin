@@ -29,7 +29,7 @@ const en = {
 // English content in the cy shape: awaiting translation, so `yarn welsh:check` and the translation request list it.
 const cy = { ...en };
 
-const RESTORE_NOTICES: ReadonlySet<string> = new Set(["RESTORE_WINDOW_CLOSED", "CLEANUP_STARTED"]);
+const RESTORE_CODES = ["RESTORE_WINDOW_CLOSED", "CLEANUP_STARTED"] as const satisfies readonly RestoreNotice[];
 
 export const GET = (req: Request, res: Response) => {
   const paths = restorePaths(req);
@@ -46,7 +46,7 @@ export const POST = async (req: Request, res: Response) => {
     return res.redirect(303, `${casePath(restored.caseId)}?deletion=restored`);
   } catch (error) {
     if (error instanceof ConflictError) {
-      const notice = (error.code !== null && RESTORE_NOTICES.has(error.code) ? error.code : "restoreRefused") as RestoreNotice;
+      const notice: RestoreNotice = RESTORE_CODES.find((each) => each === error.code) ?? "restoreRefused";
       return renderDeletionStatus(req, res, req.params.requestId, notice);
     }
     if (error instanceof NotFoundError) {

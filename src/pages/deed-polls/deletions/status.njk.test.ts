@@ -6,19 +6,20 @@
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { findDeletion } from "@hmcts/deed-poll";
+import { ConflictError, findDeletion, NotFoundError, restoreDeletion } from "@hmcts/deed-poll";
 import axe from "axe-core";
 import { JSDOM } from "jsdom";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse, withoutSignOutForm } from "../../../express-doubles.js";
 import { addPathFilters } from "../../../path-filters.js";
-import { GET as restoreGet } from "./[requestId]/restore.js";
+import { GET as restoreGet, POST as restorePost } from "./[requestId]/restore.js";
 import { GET as statusGet } from "./[requestId].js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
-  findDeletion: vi.fn()
+  findDeletion: vi.fn(),
+  restoreDeletion: vi.fn()
 }));
 
 const STARTER_VIEWS = path.join(fileURLToPath(import.meta.url), "../../../../../libs/express-govuk-starter/src");
@@ -97,6 +98,29 @@ describe("deletions/status.njk", () => {
     expect(page).toContain("Refresh");
   });
 
+  it("should draw a refused restore's sentence as a banner above the fresh status", async () => {
+    vi.mocked(restoreDeletion).mockRejectedValue(new ConflictError("api's words", [], "CLEANUP_STARTED"));
+    vi.mocked(findDeletion).mockResolvedValue({
+      requestId: REQUEST_ID,
+      caseId: "case-1",
+      reason: "DUPLICATE",
+      status: "InProgress",
+      requestedAt: new Date("2026-11-20T10:00:00Z"),
+      restorableUntil: new Date(Date.now() - 1000),
+      completedAt: null,
+      failure: null
+    } as never);
+    const res = pageResponse();
+
+    await restorePost(Object.assign(request(), { body: { action: "restore" } }), res);
+
+    const [view, model] = res.render.mock.calls[0];
+    const page = environment.render(`${view}.njk`, { ...model.en, ...model });
+    expect(page).toContain("govuk-notification-banner");
+    expect(page).toContain("its permanent removal has started");
+    expect(page).not.toContain("api's words");
+  });
+
   it("should render the Welsh content when the locale is cy", async () => {
     expect(await statusPage({}, "cy")).toContain("Application deleted from view");
   });
@@ -120,6 +144,22 @@ describe("deletions/restore.njk", () => {
     expect(page).toContain("with nothing lost");
     expect(await axeViolations(page)).toEqual([]);
   }, 30_000);
+});
+
+describe("deletions/restore.njk, once the request has gone", () => {
+  it("should say so and link back to the application, offering no restore", async () => {
+    vi.mocked(restoreDeletion).mockRejectedValue(new NotFoundError("Deletion request not found"));
+    const res = pageResponse();
+
+    await restorePost(Object.assign(request(), { body: { action: "restore" } }), res);
+
+    const model = res.render.mock.calls[0][1];
+    const page = withoutSignOutForm(environment.render("deed-polls/deletions/restore.njk", { ...model.en, ...model }));
+    expect(page).toContain("This deletion request no longer exists");
+    expect(page).toContain('href="/deed-polls/case-1"');
+    expect(page).toContain("View the application");
+    expect(page).not.toContain("<button");
+  });
 });
 
 async function axeViolations(markup: string): Promise<{ id: string; nodes: string[] }[]> {

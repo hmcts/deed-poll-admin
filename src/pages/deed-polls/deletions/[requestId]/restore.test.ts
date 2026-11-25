@@ -93,6 +93,21 @@ describe("restore a deleted application", () => {
       expect(model.restoreHref).toBeNull();
     });
 
+    it("should still say the restore was refused when the fresh read of the request fails", async () => {
+      vi.mocked(restoreDeletion).mockRejectedValue(new ConflictError("api's words", [], "RESTORE_WINDOW_CLOSED"));
+      vi.mocked(findDeletion).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const res = pageResponse();
+
+      await POST(request({ action: "restore" }), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(model.progress).toBe("unavailable");
+      expect(model.restoreHref).toBeUndefined();
+      expect(model.notice).toContain("the time to restore it has ended");
+    });
+
     it("should say the request no longer exists and link to the application when api answers 404", async () => {
       vi.mocked(restoreDeletion).mockRejectedValue(new NotFoundError("Deletion request not found"));
       const res = pageResponse();

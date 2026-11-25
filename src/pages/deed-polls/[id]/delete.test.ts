@@ -1,5 +1,6 @@
 import {
   ConflictError,
+  DELETION_REFUSAL_CODE,
   DeletionOutcomeUnknownError,
   ForbiddenError,
   findDeedPoll,
@@ -97,6 +98,15 @@ describe("application deletion confirmation page", () => {
       expect(res.render.mock.calls[0][1].restoreSentence).toBe("A Delivery Manager can restore it for 14 days after you delete it.");
     });
 
+    it("should say 1 day, not 1 days, for a one-day grace period", async () => {
+      vi.mocked(findProcessSettings).mockResolvedValue({ deletionGraceDays: 1 } as never);
+      const res = pageResponse();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].restoreSentence).toBe("A Delivery Manager can restore it for 1 day after you delete it.");
+    });
+
     it("should still offer the form, naming no number, when the process settings cannot be read", async () => {
       vi.mocked(findProcessSettings).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
       vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -159,14 +169,17 @@ describe("application deletion confirmation page", () => {
       expect(vi.mocked(requestDeletion).mock.calls.map((call) => call[2])).toEqual([journey.key, journey.key]);
     });
 
-    it.each([{}, { action: "cancel" }, { action: ["delete", "delete"] }])("should write nothing and go back to the application for %j", async (fields) => {
-      const res = pageResponse();
+    it.each([{}, { action: "cancel" }, { action: ["delete", "delete"] }, { action: "check" }])(
+      "should write nothing and go back to the application for %j",
+      async (fields) => {
+        const res = pageResponse();
 
-      await POST(await posted({ reason: "DUPLICATE", note: NOTE, ...fields }), res);
+        await POST(await posted({ reason: "DUPLICATE", note: NOTE, ...fields }), res);
 
-      expect(requestDeletion).not.toHaveBeenCalled();
-      expect(res.redirect).toHaveBeenCalledWith(303, "/deed-polls/case-1");
-    });
+        expect(requestDeletion).not.toHaveBeenCalled();
+        expect(res.redirect).toHaveBeenCalledWith(303, "/deed-polls/case-1");
+      }
+    );
 
     it.each([
       ["a missing journey", () => Promise.resolve(request({ action: "delete", reason: "DUPLICATE", note: NOTE }))],
@@ -300,6 +313,45 @@ describe("application deletion confirmation page", () => {
         expect(res.redirect).toHaveBeenCalledWith(303, "/deed-polls/case-1");
       });
 
+      async function recoveryToken(issuedAt = Date.now()): Promise<string> {
+        const first = pageResponse();
+        await POST(await posted({ action: "delete", reason: "DUPLICATE", note: NOTE }, newDeletionJourney("case-1", LAST_CHANGED_ON, issuedAt)), first);
+        return first.render.mock.calls[0][1].journey;
+      }
+
+      it("should not claim nothing was sent when the recovery token has expired, and write nothing", async () => {
+        // Arrange
+        const token = await recoveryToken(Date.now() - 7 * 60 * 60 * 1000);
+        vi.useFakeTimers({ now: Date.now() + 2 * 60 * 60 * 1000, toFake: ["Date"] });
+        const res = pageResponse();
+
+        // Act
+        try {
+          await POST(request({ journey: token, action: "check" }), res);
+        } finally {
+          vi.useRealTimers();
+        }
+
+        // Assert
+        const model = res.render.mock.calls[0][1];
+        expect(requestDeletion).toHaveBeenCalledTimes(1);
+        expect(model).toMatchObject({ state: "stopped", heading: "This confirmation has expired" });
+        expect(model.sentence).toContain("we still do not know whether the application has been deleted");
+      });
+
+      it("should not claim nothing was sent when the recovery token belongs to another session, and write nothing", async () => {
+        const token = await recoveryToken();
+        const res = pageResponse();
+
+        await POST(request({ journey: token, action: "check" }, { id: "case-1" }, "session-b"), res);
+
+        const model = res.render.mock.calls[0][1];
+        expect(requestDeletion).toHaveBeenCalledTimes(1);
+        expect(model).toMatchObject({ state: "stopped", heading: "This confirmation can no longer be used" });
+        expect(model.sentence).toContain("we still do not know whether the application has been deleted");
+        expect(model.sentence).not.toContain("Nothing has been sent");
+      });
+
       it("should keep the recovery page, with the same sealed request, when checking fails again", async () => {
         const first = pageResponse();
         await POST(await posted({ action: "delete", reason: "DUPLICATE", note: NOTE }), first);
@@ -316,6 +368,11 @@ describe("application deletion confirmation page", () => {
       ["STALE_CONFIRMATION", "The application has changed", "The application has changed since you reviewed it."],
       ["RETAINED_PERMANENTLY", "The application cannot be deleted", "marked to be kept permanently"],
       ["GAZETTE_EVIDENCE", "The application cannot be deleted", "London Gazette"],
+      ["RETAINED_DEED_PAYLOAD", "The application cannot be deleted", "deed records that must be kept"],
+      ["RETAINED_STAGED_UPLOADS", "The application cannot be deleted", "documents that must be kept"],
+      ["DOCUMENT_STORAGE_UNRESOLVED", "The application cannot be deleted", "has not finished uploading"],
+      ["CCD_CREATION_UNRESOLVED", "The application cannot be deleted", "case platform"],
+      ["EMAIL_SEND_UNRESOLVED", "The application cannot be deleted", "has not finished sending"],
       ["KEY_REUSED", "The application cannot be deleted", "already been requested with different answers"],
       ["CONFLICTING_REASON", "The application cannot be deleted", "with the other reason"],
       ["RESTORE_WINDOW_CLOSED", "The application cannot be deleted", "Return to the application to check its details."],
@@ -333,6 +390,58 @@ describe("application deletion confirmation page", () => {
       expect(model.sentence).not.toContain("api's own words");
       expect(model.journey).toBeUndefined();
       expect(requestDeletion).toHaveBeenCalledTimes(1);
+    });
+
+    it("should have its own sentence for every admission refusal api publishes, the restore-only codes aside", async () => {
+      const RESTORE_ONLY = new Set(["RESTORE_WINDOW_CLOSED", "CLEANUP_STARTED"]);
+      const generic: string[] = [];
+
+      for (const code of DELETION_REFUSAL_CODE.filter((each) => !RESTORE_ONLY.has(each))) {
+        vi.mocked(requestDeletion).mockRejectedValueOnce(new ConflictError("refused", [], code));
+        const res = pageResponse();
+        await POST(await posted({ action: "delete", reason: "DUPLICATE", note: NOTE }), res);
+        if (res.render.mock.calls[0][1].sentence.startsWith("The application cannot be deleted.")) generic.push(code);
+      }
+
+      expect(generic).toEqual([]);
+    });
+
+    it("should keep the answers and the key on api's 400 even when the application cannot be read again for its summary", async () => {
+      // Arrange
+      vi.mocked(requestDeletion).mockRejectedValueOnce(new InvalidInputError("bad", [{ field: "note", message: "api prose" }]));
+      vi.mocked(findDeedPoll).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const journey = newDeletionJourney("case-1", LAST_CHANGED_ON);
+      const res = pageResponse();
+
+      // Act
+      await POST(await posted({ action: "delete", reason: "DUPLICATE", note: NOTE }, journey), res);
+
+      // Assert
+      const model = res.render.mock.calls[0][1];
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(model).toMatchObject({ state: "form", summaryRows: [], values: { reason: "DUPLICATE", note: NOTE } });
+      expect(model.journey).toBe(await sealDeletionJourney(request(), journey));
+    });
+
+    it("should unseal a replayed recovery request that api answers 400, so the answers can be corrected under the same key", async () => {
+      // Arrange
+      vi.mocked(requestDeletion).mockRejectedValueOnce(new DeletionOutcomeUnknownError());
+      vi.mocked(requestDeletion).mockRejectedValueOnce(new InvalidInputError("bad", [{ field: "reason", message: "api prose" }]));
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const journey = newDeletionJourney("case-1", LAST_CHANGED_ON);
+      const first = pageResponse();
+      await POST(await posted({ action: "delete", reason: "DUPLICATE", note: NOTE }, journey), first);
+      const res = pageResponse();
+
+      // Act
+      await POST(request({ journey: first.render.mock.calls[0][1].journey, action: "check" }), res);
+
+      // Assert
+      const model = res.render.mock.calls[0][1];
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(model).toMatchObject({ state: "form", values: { reason: "DUPLICATE", note: NOTE } });
+      expect(model.journey).toBe(await sealDeletionJourney(request(), journey));
     });
 
     it("should redraw api's 400 on its fields in this page's words, with the same key unsealed so the answers can change", async () => {

@@ -1,8 +1,8 @@
-import { DELETION_NOTE_LIMITS, DELETION_REASON, type DeletionReason } from "@hmcts/deed-poll-api-client";
+import { DELETION_NOTE_LIMITS, DELETION_REASON, DELETION_REFUSAL_CODE, type DeletionReason } from "@hmcts/deed-poll-api-client";
 import { z } from "zod";
 
 // The page draws a radio per reason and bounds its textarea by api's limits, and reaches api's vocabulary only here.
-export { DELETION_NOTE_LIMITS, DELETION_REASON };
+export { DELETION_NOTE_LIMITS, DELETION_REASON, DELETION_REFUSAL_CODE };
 
 // api trims ordinary spaces only (`CreateDeletionRequest.note`), so a tab or a line break is not trimmed away.
 const EDGE_SPACES = /^ +| +$/g;

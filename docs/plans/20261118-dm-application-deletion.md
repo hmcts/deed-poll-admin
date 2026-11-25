@@ -2,7 +2,8 @@
 
 ## Overview
 
-Status: planned, 2026-11-18. Steve confirmed permanent deletion of applications created in error or duplicated,
+Status: implemented 2026-11-25 (Tasks 1–5 complete), in review; move to `docs/plans/completed/` after review, with
+the paths that cite it. Planned 2026-11-18. Steve confirmed permanent deletion of applications created in error or duplicated,
 with the reason retained in the audit trail. Do not implement voiding, archiving or a retained read-only application.
 
 **Steve's answers, 2026-11-18 (review by Aspen):** for applications created in error, now that prod creates cases again
@@ -433,3 +434,11 @@ its grace period, is neither restorable nor removed: its request stays `Pending`
 then works through every request past its date. The release note says so, and that the clean-up is a later, separate
 activation (api `docs/APPLICATION-DELETION.md`, "Rollout order"). Any environment rehearsal uses
 disposable fixtures under its own execution authority; keep local test evidence distinct from external deletion proof.
+
+**Review 1 (2026-11-25).** Fixed: a recovery token that had expired or belonged to another session stopped with
+"Nothing has been sent from this page", untrue once the sealed request may have been admitted; it now says the outcome
+is still unknown. A refused form whose case re-read fails redraws without the summary instead of the 500 page. The
+refusal codes are one `as const` list pinned to `DELETION_REFUSAL_CODE`; `DeletionRequestBody` is api's
+`DeletionCreate`; a confirmed journey is its own type, so the request body is never null. **Deviation kept:** step 5
+says every state offers Refresh, but Completed omits it deliberately (terminal, nothing left to check), as the
+template, its test and the browser journey pin.

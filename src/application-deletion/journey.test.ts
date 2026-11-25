@@ -87,7 +87,6 @@ describe("application deletion journey", () => {
   it("should build the exact admission body from the confirmed journey, with the reviewed lastChangedOn unchanged", () => {
     const journey = newDeletionJourney("case-1", LAST_CHANGED_ON, NOW);
 
-    expect(deletionRequestBody(journey)).toBeNull();
     expect(deletionRequestBody(confirmDeletionJourney(journey, ANSWERS))).toEqual({ ...ANSWERS, expectedLastChangedOn: LAST_CHANGED_ON });
   });
 

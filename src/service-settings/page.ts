@@ -317,7 +317,7 @@ async function render(
   const holdsGazette = can(userFromRequest(req), ACCESS_GAZETTE);
   // The referral process and the grace period are one api row, so one read serves whichever section was not given.
   const [settings, gazette, masters, bankHolidays] = await Promise.all([
-    given.process && given.deletion ? null : degraded("process settings", () => findProcessSettings(caller)),
+    degraded("process settings", () => findProcessSettings(caller)),
     holdsGazette ? (given.gazette ?? storedGazette(caller, locale)) : undefined,
     storedMasters(caller),
     storedBankHolidays(caller)

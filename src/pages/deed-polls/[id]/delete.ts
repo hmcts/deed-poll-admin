@@ -30,6 +30,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import {
+  type ConfirmedDeletionJourney,
   confirmDeletionJourney,
   type DeletionJourney,
   deletionRequestBody,
@@ -84,6 +85,8 @@ const en = {
   expiredHeading: "This confirmation has expired",
   stopped:
     "Nothing has been sent from this page. If you have already asked for this application to be deleted, check whether it is still on the service before starting again. If you cannot tell, contact the service support team.",
+  recoveryStopped:
+    "This deletion request can no longer be checked from this page, so we still do not know whether the application has been deleted. Do not start another deletion of this application. Contact the service support team.",
   unknownHeading: "We do not know whether the application has been deleted",
   unknown:
     "The service did not answer in time. Do not start another deletion of this application. Check this request using its original details. If checking keeps failing, contact the service support team.",
@@ -108,7 +111,8 @@ const en = {
 // English content in the cy shape: awaiting translation, so `yarn welsh:check` and the translation request list it.
 const cy = { ...en };
 
-const REFUSAL_SENTENCES: ReadonlySet<string> = new Set([
+// The admission's refusal codes this page has a sentence for; `delete.test.ts` pins them to api's vocabulary.
+const REFUSAL_CODES = [
   "STALE_CONFIRMATION",
   "RETAINED_PERMANENTLY",
   "GAZETTE_EVIDENCE",
@@ -119,7 +123,7 @@ const REFUSAL_SENTENCES: ReadonlySet<string> = new Set([
   "EMAIL_SEND_UNRESOLVED",
   "KEY_REUSED",
   "CONFLICTING_REASON"
-]);
+] as const;
 
 export const GET = async (req: Request, res: Response) => {
   // Built before any read, so an unusable id is the 404 it would be anyway.
@@ -138,13 +142,16 @@ export const GET = async (req: Request, res: Response) => {
 
 export const POST = async (req: Request, res: Response) => {
   const applicationPath = casePath(req.params.id);
+  const action: unknown = req.body?.action;
   const opened = await openDeletionJourney(req, req.params.id);
-  if (opened.state !== "open") return renderStop(req, res, 400, opened.state === "expired" ? "expiredHeading" : "invalidHeading", "stopped");
+  // Only the recovery form posts `check`, and its request may already have been admitted, so "nothing was sent" is false.
+  if (opened.state !== "open") {
+    return renderStop(req, res, 400, opened.state === "expired" ? "expiredHeading" : "invalidHeading", action === "check" ? "recoveryStopped" : "stopped");
+  }
 
   const { journey } = opened;
-  const action: unknown = req.body?.action;
   // A sealed journey is a recovery: it replays exactly what it holds, and nothing posted beside it can edit that.
-  if (journey.confirmed) return action === "check" ? submit(req, res, journey) : res.redirect(303, applicationPath);
+  if (isConfirmed(journey)) return action === "check" ? submit(req, res, journey) : res.redirect(303, applicationPath);
   if (action !== "delete") return res.redirect(303, applicationPath);
 
   const content = res.locals.locale === "cy" ? cy : en;
@@ -156,9 +163,12 @@ export const POST = async (req: Request, res: Response) => {
   return submit(req, res, confirmDeletionJourney(journey, parsed.data));
 };
 
-async function submit(req: Request, res: Response, journey: DeletionJourney) {
+function isConfirmed(journey: DeletionJourney): journey is ConfirmedDeletionJourney {
+  return journey.confirmed !== undefined;
+}
+
+async function submit(req: Request, res: Response, journey: ConfirmedDeletionJourney) {
   const body = deletionRequestBody(journey);
-  if (!body) return renderStop(req, res, 400, "invalidHeading", "stopped");
   try {
     const admitted = await requestDeletion(journey.caseId, body, journey.key, callerFromRequest(req));
     return res.redirect(303, deletionStatusPath(admitted.requestId));
@@ -173,7 +183,7 @@ async function submit(req: Request, res: Response, journey: DeletionJourney) {
       return redrawForm(req, res, unsealed, { reason: body.reason, note: body.note }, apiFieldErrors(res, error));
     }
     if (error instanceof ConflictError) {
-      const code = error.code !== null && REFUSAL_SENTENCES.has(error.code) ? (error.code as RefusalKey) : "refused";
+      const code: RefusalKey = REFUSAL_CODES.find((each) => each === error.code) ?? "refused";
       return renderStop(req, res, 409, code === "STALE_CONFIRMATION" ? "staleHeading" : "refusedHeading", code);
     }
     throw error;
@@ -190,32 +200,46 @@ async function graceDays(caller: Caller): Promise<number | null> {
   }
 }
 
-/** A redraw after a refused answer reads the case again for its summary only; the journey keeps what was reviewed. */
+/**
+ * A redraw after a refused answer reads the case again for its summary only; the journey keeps what was reviewed. A
+ * failed read drops the summary rather than the Delivery Manager's answers, because nothing else on the form needs it.
+ */
 async function redrawForm(req: Request, res: Response, journey: DeletionJourney, values: FormValues, errors: Record<string, string>) {
   const caller = callerFromRequest(req);
   const graceRead = graceDays(caller);
-  const found = await findDeedPoll(req.params.id, caller);
+  const found = await summaryOf(req.params.id, caller);
   return renderForm(req, res, 400, { journey, found, days: await graceRead, values, errors });
+}
+
+async function summaryOf(caseId: string, caller: Caller): Promise<FoundCase | null> {
+  try {
+    return await findDeedPoll(caseId, caller);
+  } catch (error) {
+    console.error(`application deletion summary unavailable: ${forLog(error instanceof Error ? error.message : String(error))}`);
+    return null;
+  }
 }
 
 async function renderForm(req: Request, res: Response, status: number, form: FormModel) {
   const content = res.locals.locale === "cy" ? cy : en;
-  const [row] = buildCaseList([form.found]);
+  const row = form.found ? buildCaseList([form.found])[0] : null;
   const values = form.values ?? { reason: "", note: "" };
   const errors = form.errors ?? {};
   res.status(status).render("deed-polls/application-delete", {
     en,
     cy,
     state: "form",
-    reference: row.reference,
-    summaryRows: [
-      { key: content.referenceLabel, value: row.reference },
-      { key: content.newForenameLabel, value: row.newForename },
-      { key: content.newSurnameLabel, value: row.newSurname },
-      { key: content.typeLabel, value: row.type },
-      { key: content.stateLabel, value: row.state },
-      { key: content.dateReceivedLabel, value: row.dateReceived }
-    ],
+    reference: row?.reference ?? "",
+    summaryRows: row
+      ? [
+          { key: content.referenceLabel, value: row.reference },
+          { key: content.newForenameLabel, value: row.newForename },
+          { key: content.newSurnameLabel, value: row.newSurname },
+          { key: content.typeLabel, value: row.type },
+          { key: content.stateLabel, value: row.state },
+          { key: content.dateReceivedLabel, value: row.dateReceived }
+        ]
+      : [],
     restoreSentence: form.days === null ? content.restoreForAWhile : content.restoreFor(form.days),
     noteHint: content.noteHint(DELETION_NOTE_LIMITS.minLength, DELETION_NOTE_LIMITS.maxLength),
     noteMax: DELETION_NOTE_LIMITS.maxLength,
@@ -243,7 +267,7 @@ async function renderRecovery(req: Request, res: Response, journey: DeletionJour
   });
 }
 
-function renderStop(req: Request, res: Response, status: number, headingKey: HeadingKey, sentenceKey: RefusalKey | "notReady" | "stopped") {
+function renderStop(req: Request, res: Response, status: number, headingKey: HeadingKey, sentenceKey: RefusalKey | "notReady" | "stopped" | "recoveryStopped") {
   const content = res.locals.locale === "cy" ? cy : en;
   res.status(status).render("deed-polls/application-delete", {
     en,
@@ -288,18 +312,8 @@ function apiFieldErrors(res: Response, error: InvalidInputError): Record<string,
 }
 
 type HeadingKey = "notReadyHeading" | "invalidHeading" | "expiredHeading" | "staleHeading" | "refusedHeading";
-type RefusalKey =
-  | "STALE_CONFIRMATION"
-  | "RETAINED_PERMANENTLY"
-  | "GAZETTE_EVIDENCE"
-  | "RETAINED_DEED_PAYLOAD"
-  | "RETAINED_STAGED_UPLOADS"
-  | "DOCUMENT_STORAGE_UNRESOLVED"
-  | "CCD_CREATION_UNRESOLVED"
-  | "EMAIL_SEND_UNRESOLVED"
-  | "KEY_REUSED"
-  | "CONFLICTING_REASON"
-  | "refused";
+type RefusalKey = (typeof REFUSAL_CODES)[number] | "refused";
+type FoundCase = Awaited<ReturnType<typeof findDeedPoll>>;
 
 interface FormValues {
   reason: string;
@@ -308,7 +322,7 @@ interface FormValues {
 
 interface FormModel {
   journey: DeletionJourney;
-  found: Awaited<ReturnType<typeof findDeedPoll>>;
+  found: FoundCase | null;
   days: number | null;
   values?: FormValues;
   errors?: Record<string, string>;

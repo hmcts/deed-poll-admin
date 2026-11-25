@@ -204,7 +204,8 @@ referral process (the processing window in days, the reminder interval, the numb
 referral windows' times, effective immediately for every referral), holds the London Gazette
 recipient for Delivery Managers who also have Gazette access, lists the Masters (adding one, and changing a Master's
 name, email or availability; a signed-in Master whose email changes signs in again before they see their referrals),
-lists the bank holidays (adding one, and removing one after a confirmation page), and links to Manage Case staff
+lists the bank holidays (adding one, and removing one after a confirmation page), sets the application deletion grace
+period (whole days, 1–90, default 14, applying only to deletions requested afterwards), and links to Manage Case staff
 administration for adding staff and changing their access. Each section saves on its own. The page needs `MANAGE_PROCESS_CONFIG` from
 the API's `GET /me`, so an existing session sees the link within one token lifetime or after signing in again.
 Deploy the API's D1 settings contract (Masters, bank holidays and the extended process settings) to every replica
@@ -246,7 +247,7 @@ the local IDAM simulator (`yarn idam:build` if its image is missing, then `docke
 and seed it with `yarn idam:users`. Then provide a separate Redis instance on port 6316 (for example,
 `docker run --rm -p 6316:6379 redis:8-alpine`). Run `yarn test:gazette` from this repository root.
 The suite starts/stops its own app on 3316 and fresh mock on 3216, uses Redis database 1, and refuses
-to reuse occupied app/mock ports. All ten journeys, the two service settings journeys included (the referral-process save, and the Masters and bank holidays), sign in through IDAM and include axe checks; the Delivery Manager
+to reuse occupied app/mock ports. All eleven journeys, the three service settings journeys included (the referral-process save, the Masters and bank holidays, and the application deletion grace period), sign in through IDAM and include axe checks; the Delivery Manager
 read and recipient-settings journeys also check Welsh. The dedicated config keeps the empty-state fixture, and the settings journey's
 referral-process save, out of the shared `yarn test:e2e` suite. It never resets an existing mock. These checks cover ready/history reads, recipient settings (including invalid and stale edits),
 all request outcomes and complete legacy membership, with Welsh and axe checks;

@@ -93,7 +93,7 @@ pre-send phase that alone outlasts 30 s still ends on the gateway's page, having
 a 5 s floor nothing is sent: the confirm step or the recovery page re-renders with the same journey and key, saying
 nothing was sent or checked (`docs/plans/completed/20261021-r03b-gazette-send-deadline.md`).
 
-`yarn test:gazette` runs ten browser journeys, the settings page's two included, against a fresh mock on 3216 and this app on 3316,
+`yarn test:gazette` runs eleven browser journeys, the settings page's three included, against a fresh mock on 3216 and this app on 3316,
 using Redis on 6316/database 1 and local IDAM on 5556. It is separate from `yarn test:e2e` because its
 empty-state check must never reset a shared developer mock. See README for prerequisites.
 The standalone mock resolves missing token roles from local IDAM userinfo (override with
@@ -847,7 +847,10 @@ files:
   lifetime, or at once on signing in again: a missing link straight after a deploy is that, not a failed deployment.
 - **One form, one Save and (where api keeps one) one revision per section.** The process section posts to
   `/deed-polls/settings` and the Gazette section to `/deed-polls/settings/gazette-recipient`, each with only its own
-  revision, so a conflict in one never touches the other's stored value. The Masters and Bank holidays add forms post
+  revision, so a conflict in one never touches the other's stored value. The Application deletion section is the
+  exception: it posts to `/deed-polls/settings/deletion` at the **process** section's revision, because the grace
+  period is a field of the same api row, so saving either of those two makes the other stale (a 409 and a reload
+  sentence). `/deed-polls/settings/deletion` also answers a `GET` with a 302 to `#deletion`. The Masters and Bank holidays add forms post
   to `/deed-polls/settings/masters` and `/deed-polls/settings/bank-holidays` with no revision, since a new row has none. A browser submits only the form whose button was pressed, so unsaved edits in the other
   section are lost, and the intro says "Save each section before you change another". A refused Gazette save renders
   at `/deed-polls/settings/gazette-recipient`, so that address also answers a `GET` with a 302 back to the page's
@@ -924,6 +927,9 @@ several files:
   the `Idempotency-Key` minted at render, the case id and the case detail's **`lastChangedOn`** as api published it
   (text, never a re-serialised `Date`, never `modifiedOn`), sent as `expectedLastChangedOn`. A double submit, a
   back-navigated resubmit and a retry all carry the same key. Only the literal `delete` action writes; Cancel is a link.
+  The token is bound to the session and expires `DELETION_JOURNEY_TTL_MS` (8 h) after the form first rendered; an
+  expired, other-session or other-application token writes nothing. On the recovery page that stop says the outcome is
+  still unknown, never that nothing was sent, because the sealed request may already have been admitted.
 - **A 202 is a request, not a deletion.** It is a 303 to `/deed-polls/deletions/{requestId}`, whose page reads only the
   request (`findDeletion`), so it still answers after the application is gone, and never reloads the case. Only
   `Completed` says "Application deleted" (`src/application-deletion/progress.ts`). `Pending` before `restorableUntil`
@@ -949,8 +955,8 @@ several files:
   afterwards. api's PUT requires `referralClaimExpiryMinutes`, so the form carries the stored processing window back as
   a hidden control at the same revision; the referral-process form never sends `deletionGraceDays`.
 - **The audit is api's.** api records who deleted the application, the reason and the note in the admission's own
-  transaction, so a failed audit admits nothing. This app logs no note and stores nothing in the session beyond the
-  signed form state.
+  transaction, so a failed audit admits nothing. This app logs no note and stores nothing in the session: the
+  confirmation's state is the signed hidden `journey` control.
 - **`yarn test:application-deletion` runs the browser journeys** on a mock of their own (3220, app 3320, Redis database
   6), out of `yarn test:e2e`, because they switch the mock's deletion outcomes (`/__mock/application-deletions`,
   `/__mock/application-deletion-outcome`). The mock hides an admitted case from every read, removes nothing remotely,
