@@ -49,7 +49,7 @@ describe("GET /me on the mock", () => {
     {
       persona: "Team leader",
       roles: ["caseworker-deedpoll-team-leader"],
-      expected: { staff: true, judicial: false, capabilities: [...CASEWORK, ALLOCATE, MI] }
+      expected: { staff: true, judicial: false, capabilities: [...CASEWORK, "ACCESS_GAZETTE", ALLOCATE, MI] }
     },
     {
       persona: "Delivery Manager",
@@ -100,18 +100,24 @@ describe("GET /me on the mock", () => {
     expect(result).toMatchObject({ ok: false, error: { kind: "unavailable" } });
   });
 
-  it("should gate the Gazette on the same answer it publishes", async () => {
+  it("should gate the Gazette on the same answer it publishes, and its recipient on process settings too", async () => {
     // Arrange
+    const caseworker = token({ roles: ["caseworker-deedpoll"] });
     const teamLeader = token({ roles: ["caseworker-deedpoll-team-leader"] });
     const deliveryManager = token({ roles: ["caseworker-deedpoll-delivery-manager"] });
+    const read = (path: string, bearer: string) => fetch(`${mock.url}/caseworker/${path}`, { headers: { authorization: `Bearer ${bearer}` } });
 
     // Act
-    const refused = await fetch(`${mock.url}/caseworker/gazette-settings`, { headers: { authorization: `Bearer ${teamLeader}` } });
-    const admitted = await fetch(`${mock.url}/caseworker/gazette-settings`, { headers: { authorization: `Bearer ${deliveryManager}` } });
+    const caseworkerRequests = await read("gazette-notice-requests", caseworker);
+    const leaderRequests = await read("gazette-notice-requests", teamLeader);
+    const leaderRecipient = await read("gazette-settings", teamLeader);
+    const managerRecipient = await read("gazette-settings", deliveryManager);
 
     // Assert
-    expect(refused.status).toBe(403);
-    expect(admitted.status).toBe(200);
+    expect(caseworkerRequests.status).toBe(403);
+    expect(leaderRequests.status).toBe(200);
+    expect(leaderRecipient.status).toBe(403);
+    expect(managerRecipient.status).toBe(200);
   });
 
   it("should drop a capability it does not list rather than refuse the whole answer", async () => {

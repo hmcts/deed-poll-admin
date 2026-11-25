@@ -85,7 +85,7 @@ describe("deed-polls list page", () => {
     vi.mocked(countGazetteReadyCases).mockResolvedValue(0);
   });
 
-  it.each(["legacyAdmin", "teamLeader", "caseworker", "judge", "none"] as const)("should make no Gazette count request for %s", async (persona) => {
+  it.each(["legacyAdmin", "caseworker", "judge", "none"] as const)("should make no Gazette count request for %s", async (persona) => {
     const res = pageResponse();
     await GET(pageRequest({ persona }), res);
     expect(countGazetteReadyCases).not.toHaveBeenCalled();
@@ -108,11 +108,15 @@ describe("deed-polls list page", () => {
     expect(res.render.mock.calls[0][1]).toMatchObject({ showGazette: false, gazetteFailed: false, gazetteCount: "" });
   });
 
-  it.each([0, 42])("should read and show the deliveryManager's global Gazette count of %s", async (count) => {
+  it.each([
+    { persona: "deliveryManager", count: 0 },
+    { persona: "deliveryManager", count: 42 },
+    { persona: "teamLeader", count: 42 }
+  ] as const)("should read and show the $persona's global Gazette count of $count", async ({ persona, count }) => {
     vi.mocked(countGazetteReadyCases).mockResolvedValue(count);
     const res = pageResponse();
-    await GET(pageRequest({ deliveryManager: true, accessToken: "deliveryManager-token", query: { filter: "enroled", q: "Smith" } }), res);
-    expect(countGazetteReadyCases).toHaveBeenCalledExactlyOnceWith({ accessToken: "deliveryManager-token" });
+    await GET(pageRequest({ [persona]: true, accessToken: `${persona}-token`, query: { filter: "enroled", q: "Smith" } }), res);
+    expect(countGazetteReadyCases).toHaveBeenCalledExactlyOnceWith({ accessToken: `${persona}-token` });
     expect(res.render.mock.calls[0][1]).toMatchObject({
       showGazette: true,
       gazetteFailed: false,

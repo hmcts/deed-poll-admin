@@ -78,8 +78,14 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
-async function render(body?: Record<string, unknown>, locale = "en", sessionID = "admin-session", spentMs = 0) {
-  const req = Object.assign(pageRequest({ body, teamLeader: true, accessToken: "token" }), { sessionID });
+async function render(
+  body?: Record<string, unknown>,
+  locale = "en",
+  sessionID = "admin-session",
+  spentMs = 0,
+  persona: "teamLeader" | "deliveryManager" = "teamLeader"
+) {
+  const req = Object.assign(pageRequest({ body, [persona]: true, accessToken: "token" }), { sessionID });
   const res = pageResponse();
   res.locals.locale = locale;
   res.locals.receivedAt = performance.now() - spentMs;
@@ -121,7 +127,12 @@ it("should present the actual recipient and group counts, require explicit confi
   expect(check.markup).toContain("gazette@example.com");
   expect(check.markup).toContain("FROZEN-001");
   expect(check.markup).toContain("One email will contain download links");
-  expect(check.markup).toContain('href="/deed-polls/settings#gazette-recipient" target="_blank" rel="noopener"');
+  // A Team leader sends to the recipient but cannot change it: that setting is the Delivery Manager's.
+  expect(check.markup).not.toContain("#gazette-recipient");
+  // An unconfirmed send re-renders the same confirmation, so it shows what a Delivery Manager is given there.
+  const managerCheck = await render({ journey: check.journey, action: "send" }, "en", "admin-session", 0, "deliveryManager");
+  expect(managerCheck.markup).toContain("Confirm the recipient and applications before sending");
+  expect(managerCheck.markup).toContain('href="/deed-polls/settings#gazette-recipient" target="_blank" rel="noopener"');
   const missing = await render({ journey: check.journey, action: "send" });
   expect(missing.markup).toContain("Confirm the recipient and applications before sending");
   expect(sendGazetteSelection).not.toHaveBeenCalled();

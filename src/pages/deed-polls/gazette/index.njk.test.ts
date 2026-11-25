@@ -35,10 +35,10 @@ const RECORD = {
 };
 const PAGE = { filter: "readyForPublication", cases: [RECORD], page: 1, size: 25, total: 26, totalPages: 2 };
 
-async function render(query: Record<string, unknown> = {}, locale = "en") {
+async function render(query: Record<string, unknown> = {}, locale = "en", persona: "teamLeader" | "deliveryManager" = "teamLeader") {
   const res = pageResponse();
   res.locals.locale = locale;
-  await GET(pageRequest({ teamLeader: true, accessToken: "admin-token", query }), res);
+  await GET(pageRequest({ [persona]: true, accessToken: "admin-token", query }), res);
   const model = res.render.mock.calls[0][1];
   return { model, markup: withoutSignOutForm(environment.render("deed-polls/gazette/index.njk", { ...model[locale], ...model })) };
 }
@@ -63,7 +63,7 @@ describe("Gazette ready list", () => {
 
   it("should preserve API row order and link to case details and history", async () => {
     vi.mocked(findGazetteReadyCases).mockResolvedValue({ ...PAGE, cases: [{ ...RECORD, id: "case-2", displayReference: "SECOND" }, RECORD] } as never);
-    const { markup } = await render();
+    const { markup } = await render({}, "en", "deliveryManager");
     expect(markup.indexOf('href="/deed-polls/case-2"')).toBeLessThan(markup.indexOf('href="/deed-polls/case-1"'));
     expect(markup).toContain("KBDP2026-00001");
     expect(markup).toContain("Ada");
@@ -74,6 +74,15 @@ describe("Gazette ready list", () => {
     expect(markup).not.toContain("/deed-polls/gazette/settings");
     expect(markup).toContain('href="/deed-polls"');
     expect(markup).toContain("Applications enrolled longest ago are first");
+  });
+
+  it("should give a Team leader the ready list and its links, but not the Delivery Manager's recipient setting", async () => {
+    const { markup } = await render();
+    expect(markup).toContain('href="/deed-polls/case-1"');
+    expect(markup).toContain('href="/deed-polls/gazette/history"');
+    expect(markup).toContain('href="/deed-polls/gazette/batch"');
+    expect(markup).toContain('href="/deed-polls/gazette/requests"');
+    expect(markup).not.toContain("#gazette-recipient");
   });
 
   it("should identify private cases without filtering them out of the ready list", async () => {

@@ -345,33 +345,35 @@ it("should read full new-ledger membership beyond 100 without truncation and cle
 });
 
 it.each([
-  { roles: [], allowed: false },
-  { roles: ["unknown"], allowed: false },
-  { roles: ["caseworker-deedpoll"], allowed: false },
-  { roles: ["caseworker-deedpoll-admin"], allowed: false },
-  { roles: ["caseworker-deedpoll-team-leader"], allowed: false },
-  { roles: ["caseworker-deedpoll-judicial"], allowed: false },
-  { roles: ["caseworker-deedpoll-team-leader", "caseworker-deedpoll-judicial"], allowed: false },
-  { roles: ["caseworker-deedpoll-delivery-manager"], allowed: true },
-  { roles: ["caseworker-deedpoll-delivery-manager", "caseworker-deedpoll-judicial"], allowed: true }
-])("should enforce the complete Gazette HTTP boundary for $roles", async ({ roles, allowed }) => {
+  { roles: [], gazette: false, recipient: false },
+  { roles: ["unknown"], gazette: false, recipient: false },
+  { roles: ["caseworker-deedpoll"], gazette: false, recipient: false },
+  { roles: ["caseworker-deedpoll-admin"], gazette: false, recipient: false },
+  { roles: ["caseworker-deedpoll-judicial"], gazette: false, recipient: false },
+  // A Team leader reviews and sends batches; the recipient is the Delivery Manager's setting.
+  { roles: ["caseworker-deedpoll-team-leader"], gazette: true, recipient: false },
+  { roles: ["caseworker-deedpoll-team-leader", "caseworker-deedpoll-judicial"], gazette: true, recipient: false },
+  { roles: ["caseworker-deedpoll-delivery-manager"], gazette: true, recipient: true },
+  { roles: ["caseworker-deedpoll-delivery-manager", "caseworker-deedpoll-judicial"], gazette: true, recipient: true }
+])("should enforce the complete Gazette HTTP boundary for $roles", async ({ roles, gazette, recipient }) => {
   const accessToken = `x.${Buffer.from(JSON.stringify({ sub: "staff", roles })).toString("base64url")}.signature`;
-  for (const [method, path, admittedStatus] of [
-    ["GET", "gazette-settings", 200],
-    ["PUT", "gazette-settings", 400],
-    ["GET", "gazette-notices", 200],
-    ["POST", "gazette-notice-previews", 400],
-    ["POST", "gazette-notices", 400],
-    ["GET", "gazette-notice-requests", 200],
-    ["GET", `gazette-notices/${randomUUID()}`, 404],
-    ["GET", `gazette-notices/${randomUUID()}/cases`, 404],
-    ["GET", "cases?filter=readyForPublication&size=1", 200]
+  for (const [method, path, admittedStatus, isRecipient] of [
+    ["GET", "gazette-settings", 200, true],
+    ["PUT", "gazette-settings", 400, true],
+    ["GET", "gazette-notices", 200, false],
+    ["POST", "gazette-notice-previews", 400, false],
+    ["POST", "gazette-notices", 400, false],
+    ["GET", "gazette-notice-requests", 200, false],
+    ["GET", `gazette-notices/${randomUUID()}`, 404, false],
+    ["GET", `gazette-notices/${randomUUID()}/cases`, 404, false],
+    ["GET", "cases?filter=readyForPublication&size=1", 200, false]
   ] as const) {
     const response = await fetch(`${mock.url}/caseworker/${path}`, {
       method,
       headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
       ...(method === "POST" || method === "PUT" ? { body: "{}" } : {})
     });
+    const allowed = isRecipient ? recipient : gazette;
     expect(response.status, `${method} ${path}`).toBe(allowed ? admittedStatus : 403);
   }
 });

@@ -1,6 +1,6 @@
-import { buildCaseList, buildPaging, findGazetteReadyCases, parsePage } from "@hmcts/deed-poll";
+import { buildCaseList, buildPaging, can, findGazetteReadyCases, MANAGE_PROCESS_CONFIG, parsePage } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { callerFromRequest } from "../../../auth/current-user.js";
+import { callerFromRequest, userFromRequest } from "../../../auth/current-user.js";
 
 const LIST_PATH = "/deed-polls/gazette";
 const en = {
@@ -56,6 +56,8 @@ export const GET = async (req: Request, res: Response) => {
     en,
     cy,
     cases: buildCaseList(results.cases),
+    // A Team leader sends batches but the recipient is the Delivery Manager's setting, behind MANAGE_PROCESS_CONFIG.
+    showRecipientSettings: can(userFromRequest(req), MANAGE_PROCESS_CONFIG),
     paging,
     isBeyondEnd: results.total > 0 && results.page > results.totalPages,
     pagingSummary: paging.first === 0 ? "" : content.pagingSummaryFor(paging.first, paging.last, paging.total)

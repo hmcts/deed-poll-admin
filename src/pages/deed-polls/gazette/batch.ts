@@ -1,6 +1,7 @@
 import {
   buildCaseList,
   type Caller,
+  can,
   ForbiddenError,
   findDeedPoll,
   findGazetteReadyCases,
@@ -10,13 +11,14 @@ import {
   gazetteChecklistComplete,
   gazetteReviewsCurrent,
   gazetteReviewVersion,
+  MANAGE_PROCESS_CONFIG,
   NotFoundError,
   previewGazetteSelection,
   sendGazetteSelection,
   UnauthorizedError
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { callerFromRequest } from "../../../auth/current-user.js";
+import { callerFromRequest, userFromRequest } from "../../../auth/current-user.js";
 import {
   type GazetteJourney,
   gazetteRequestKey,
@@ -324,6 +326,8 @@ async function render(req: Request, res: Response, journey: GazetteJourney | nul
     cases,
     page,
     record,
+    // A Team leader sends batches but the recipient is the Delivery Manager's setting, behind MANAGE_PROCESS_CONFIG.
+    showRecipientSettings: can(userFromRequest(req), MANAGE_PROCESS_CONFIG),
     selectedCount: content.countFor(journey?.selected.length ?? 0),
     offPage: journey?.selected.filter((id) => !cases.some((c) => c.id === id)) ?? [],
     previousPage: page && page.page > 1 ? page.page - 1 : null,

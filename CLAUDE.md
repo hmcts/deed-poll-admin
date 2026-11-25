@@ -55,6 +55,9 @@ The Referrals area `/deed-polls/referrals/**` is gated the same way, beside it, 
 and Delivery Managers); see "Referrals wait in a queue" under "Personas and role gating".
 The recipient editor is the "London Gazette recipient" section of `/deed-polls/settings` (see "Delivery Manager
 settings" below); `/deed-polls/gazette/settings` is now only a `GET` 302 to `/deed-polls/settings#gazette-recipient`.
+Team leaders hold `ACCESS_GAZETTE` too (the business, 2026-11-25), so they review and send batches, but the recipient
+stays the Delivery Manager's: api's recipient GET/PUT need `MANAGE_PROCESS_CONFIG` as well, and the Gazette index and
+batch pages draw the "Gazette recipient" link only for `MANAGE_PROCESS_CONFIG` holders (`showRecipientSettings`).
 It uses API GET/PUT settings, forwards the original revision on save and preserves input on 400/409. A conflict
 requires a reload, never an automatic write with a fresh revision. Attribution comes
 from API; the page does not post it. The mock starts unset and resets settings with
@@ -415,7 +418,7 @@ api owns the capability matrix (`RoleCapabilities.java`); the mock mirrors it, a
 | Role | Privacy override, note/witness deletion, shared-query management, CCD repair | Send referrals | Management information | Gazette | Process settings | Judicial |
 |---|---|---|---|---|---|---|
 | `caseworker-deedpoll` | No | No | No | No | No | No |
-| `caseworker-deedpoll-team-leader` | Yes | Yes | Yes | No | No | No |
+| `caseworker-deedpoll-team-leader` | Yes | Yes | Yes | Yes | No | No |
 | `caseworker-deedpoll-delivery-manager` | Yes | Yes | Yes | Yes | Yes | No |
 | `caseworker-deedpoll-admin` (temporary compatibility) | Yes | Yes | No | No | No | No |
 | `caseworker-deedpoll-judicial` | No | No | No | No | No | Yes |
@@ -440,8 +443,8 @@ login. If `/me` fails at sign-in the login is refused with a 503 try-again page 
 "we could not check" is not "you have no access"; if it fails on refresh the previous answer is kept.
 
 Deploy this Admin change only after API #105 (`GET /me`) is serving on every target instance, both new roles are
-registered with IDAM, and CCD reader mappings are imported. Assign Delivery Manager explicitly to
-Gazette operators. `scripts/seed-idam-users.mjs` retains legacy admin only as a negative Gazette fixture;
+registered with IDAM, and CCD reader mappings are imported. Gazette operators need Team leader or Delivery
+Manager; only a Delivery Manager sets the Gazette recipient. `scripts/seed-idam-users.mjs` retains legacy admin only as a negative Gazette fixture;
 the switcher has no legacy persona. The case seeder uses Team leader but keeps its journal's `admin`
 key and subject IDs so existing runs remain resumable. See the
 [role-change plan](docs/plans/20261009-team-leader-delivery-manager.md) for validation and infra handoff.
@@ -1185,7 +1188,7 @@ Follow these strict naming conventions throughout the project:
   referral information" snapshot comes off the case, so nesting it inside the live-history branch would let a
   failed referrals read hide a historical record that was never at risk
 - **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its additive calls — the saved-query nav, the returned-for-action, awaiting-confirmation and
-  waiting-for-assignment counts, and the Delivery Manager-only Gazette count — *before* the list read and awaits each inside a helper that catches everything, logs, and returns a sentinel
+  waiting-for-assignment counts, and the Gazette count (`ACCESS_GAZETTE` holders only) — *before* the list read and awaits each inside a helper that catches everything, logs, and returns a sentinel
   (`[]`, `null`); only the list read is fatal. Reach for that shape on a page with one load-bearing call rather
   than `Promise.allSettled`, which is `[id].ts`'s answer to two load-bearing reads beside two additive ones. `worklistCount(name, read)` is the generalised
   degrade-and-log helper, and the counts are separate reads on purpose: a caseworker whose confirmation count
