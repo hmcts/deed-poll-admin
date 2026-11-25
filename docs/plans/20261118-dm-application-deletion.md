@@ -210,12 +210,12 @@ tests, the mock's process settings.
 **Files:** new `libs/deed-poll/src/deletion/{service,schemas}.ts`, library export index, new
 `src/application-deletion/` journey module and co-located tests. Read existing Gazette journey seams first.
 
-- [ ] Add functions that forward only caller token, case/key/reason/note/`lastChangedOn` or request ID through
+- [x] Add functions that forward only caller token, case/key/reason/note/`lastChangedOn` or request ID through
   `callApi`, including restore. Validate form
   reason against API's enum; reject missing/repeated/object-shaped controls rather than stringifying them.
-- [ ] Bind case/key/original timestamp/confirmed body to tamper-resistant journey state. Keep independent tabs independent and preserve
+- [x] Bind case/key/original timestamp/confirmed body to tamper-resistant journey state. Keep independent tabs independent and preserve
   the original state on lost responses; a recovery action cannot edit the body or mint a replacement key.
-- [ ] Test expiry, tampering, cross-case/session replay, reason changes, double submits, unavailable API and a repeat
+- [x] Test expiry, tampering, cross-case/session replay, reason changes, double submits, unavailable API and a repeat
   after application deletion. Keep audit attribution exclusively in API.
 
 ### Task 3: Build the gated confirmation, status and unknown-outcome pages
@@ -310,6 +310,26 @@ files / 1812 passed; app `vitest run` 175 files / 3498 passed, 4 files / 93 **sk
 here). `yarn welsh:extract` added the 12 new strings, untranslated (`cy` mirrors `en`). The new `service-settings.spec.ts`
 journey and the updated tab list were **not run**: no local IDAM (5556) or Redis (6316) in this environment; run
 `yarn test:gazette` before Task 4's browser work.
+
+**Task 2 (2026-11-25).** Domain: `libs/deed-poll/src/deletion/` holds `requestDeletion`, `findDeletion` and
+`restoreDeletion` (each forwarding only the token and the ids, plus the key and the three body fields for an
+admission) and `deletionFormSchema`, which reads `reason` against api's enum and `note` by api's rule exactly: spaces
+trimmed, 10–500 code points, no control character and no lone surrogate. **A line break or tab in the note is refused,
+not rewritten**, because api refuses it (`CreateDeletionRequest.note`, "no control characters but ordinary spaces") and
+the note is audit text; Task 3's hint should say so. A repeated or bracketed control is refused, never stringified.
+**An admission's unknown outcome is its own error:** `callDeletionAdmissionApi` (`api/deed-poll-api.ts`, beside
+`callGazetteApi`) maps only a 400, 401, 403, 404 or 409 through `callApi`'s mapping, and a timeout, transport failure,
+5xx, unreadable 202 or 429 to `DeletionOutcomeUnknownError` with a fixed message. Status and restore keep `callApi`. The
+deletion schemas re-export `DELETION_REASON` and `DELETION_NOTE_LIMITS`, because the app does not depend on the client
+package. Journey: `src/application-deletion/journey.ts`, one signed hidden `journey` control like the Gazette batch's
+(HMAC over the session id, domain `application-deletion-v1`), holding the key minted at render, the case id, the
+reviewed `lastChangedOn` and `issuedAt`, and, once confirmed, the reason and note. `openDeletionJourney` answers
+`open`, `expired` (over 8 hours, or issued in the future) or `invalid` (forged, altered, another session, another
+application, malformed); only `open` may write. `confirmDeletionJourney` leaves an already confirmed journey unchanged,
+so the recovery action replays its sealed body and cannot edit it; a back-navigated form keeps its key, so a changed
+reason is api's reused-key 409, never a second request. Validation: `yarn lint` clean (Biome's existing version info),
+`yarn build` clean, `git diff --check` clean; `libs/deed-poll` 79 files / 1837 passed (25 new); app `vitest run` 176
+files / 3508 passed (11 new), 4 files / 93 **skipped** (Redis session suites, no Redis here).
 
 ## Post-Completion
 

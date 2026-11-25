@@ -28,6 +28,7 @@ import {
   type GazetteApiResult,
   type PreviewApiResult
 } from "@hmcts/deed-poll-api-client";
+import { DeletionOutcomeUnknownError } from "../deletion/errors.js";
 import { DocumentPreviewRefusedError } from "../document-viewer/errors.js";
 import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "../errors.js";
 
@@ -55,6 +56,9 @@ export function assertDeedPollApiSettings(): void {
  * in `src/app.ts` down with it.
  */
 const HEALTH_PROBE_TIMEOUT_MS = 2_000;
+
+/** The answers that say what api did with a deletion admission. Anything else leaves its outcome unknown. */
+const DEFINITE_KINDS: ReadonlySet<ApiError["kind"]> = new Set(["validation", "unauthorized", "forbidden", "not-found", "conflict"]);
 
 /**
  * Who is making the call, as far as api is concerned.
@@ -84,6 +88,19 @@ export async function callApi<T>(caller: Caller, call: (config: ApiConfig) => Pr
   if (result.ok) return result.data;
 
   throw errorFor(result.error);
+}
+
+/**
+ * An application deletion admission: `callApi`'s mapping for every definite answer (a 400, 401, 403, 404 or 409 says
+ * this attempt was not admitted), and `DeletionOutcomeUnknownError` for everything else. A timeout, a transport
+ * failure, a 5xx or an unreadable 202 may each have been admitted, and a 429 does not prove an earlier attempt under
+ * the same key was not, so all of them leave the page holding the original request to send again.
+ */
+export async function callDeletionAdmissionApi<T>(caller: Caller, call: (config: ApiConfig) => Promise<ApiResult<T>>): Promise<T> {
+  const result = await call(apiConfig(caller));
+  if (result.ok) return result.data;
+  if (DEFINITE_KINDS.has(result.error.kind)) throw errorFor(result.error);
+  throw new DeletionOutcomeUnknownError();
 }
 
 /**
