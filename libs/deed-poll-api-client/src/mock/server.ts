@@ -5,7 +5,7 @@
  * case page. It is a stand-in for the CONTRACT, not a second implementation of api: there is no database,
  * no signature verification, no S2S and no document storage, and it forgets everything when it stops.
  *
- * Eleven routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
+ * Thirteen routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
  * could be mistaken for one api serves:
  *
  *   POST /__mock/scenario   switch behaviour (see fixtures.ts)
@@ -30,12 +30,19 @@
  *   POST /__mock/application-deletion-outcome
  *                           `{ loseAdmissionResponse?, refuseAdmission?: <code>, statusReads?: "available" |
  *                           "unavailable" }`: the next admission's lost response or 409, and a status-read outage
+ *   POST /__mock/document-deletions
+ *                           move one document deletion request on as api's recovery sweep would: `{ requestId,
+ *                           status, failure? }`. `Completed` drops the fenced document and writes api's case note
+ *   POST /__mock/document-deletion-outcome
+ *                           `{ admissionOutcome?: <status>, failure?, loseAdmissionResponse?, refuseAdmission?: <code>,
+ *                           statusReads? }`: the next admission's outcome (200 Completed unless told otherwise), lost
+ *                           response or 409, and a status-read outage
  *
  * `GET /health` and `GET /health/liveness` are outside the contract too, so `yarn dev` and Playwright's
  * `webServer` have something to wait for — and so the readiness check task 5 adds has something to probe.
  * Both, because api's actuator serves both and `checkApiReachable` deliberately probes the liveness group.
  *
- * **Eighteen of api's rules are restated here.** A mock that applied none of them would let a
+ * **Nineteen of api's rules are restated here.** A mock that applied none of them would let a
  * page ship having never seen a real reference number or a derived state:
  *
  *   1. Reference-number allocation — the year from Date Received, the prefix from Type, a per-year serial.
@@ -111,6 +118,13 @@
  *      on the detail's `lastChangedOn` to the millisecond, `RETAINED_PERMANENTLY` and `GAZETTE_EVIDENCE`, the fence
  *      (an admitted case is gone from every read until restored), the grace period from the process settings, and
  *      restore's `CLEANUP_STARTED` and `RESTORE_WINDOW_CLOSED`. No cleanup runs: a request moves only by `/__mock`.
+ *  19. api#179's document deletion (`document-deletions.ts`): any staff role and never a judge, before anything is read;
+ *      the closed body, api's reason rule and a JSON-integer `expectedDocumentVersion`, the canonical key, replay by key
+ *      and body (also after the document is gone), `KEY_REUSED`, another key's request for the document, the version
+ *      check (`DOCUMENT_CHANGED`), the fence (an admitted document is gone from every read at once), completion in the
+ *      request (200) with api's case note under the requester, the case-scoped status read, and an application
+ *      deletion refused `DOCUMENT_DELETION_UNRESOLVED` while one is not `Completed`. In-use, storage, shared-binary
+ *      and application-fence refusals and 202 outcomes are reached only by `/__mock`.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
  * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `ReferralNotes`, `JudicialReferralService`,
@@ -178,6 +192,7 @@ import { REFERRAL_REASON, REFERRAL_SEND_LIMITS, WIRE_SCHEMAS } from "../api/wire
 import { createApplicationDeletions } from "./application-deletions.js";
 import { createBankHolidays } from "./bank-holidays.js";
 import { callerAccess } from "./caller-access.js";
+import { createDocumentDeletions } from "./document-deletions.js";
 import { buildDocumentPreview, type DocumentPreviewMode, PREVIEW_BUSY_RETRY_AFTER_SECONDS } from "./document-preview.js";
 import {
   APPLICATION_REJECTED,
@@ -405,6 +420,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   // deleted. Without it a delete would take its row's stamps with it and could put `lastChangedOn` back to a value
   // a deletion confirmation already reviewed, admitting it instead of answering STALE_CONFIRMATION.
   const audits = new WeakMap<MockCase, Date>();
+  const documentDeletions = createDocumentDeletions<MockCase>({ cases, now: () => new Date(), appendNote });
   const deletions = createApplicationDeletions<MockCase>({
     cases,
     now: () => new Date(),
@@ -413,7 +429,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     audited: (record, at) => audits.set(record, at),
     hasGazetteEvidence: (record) =>
       gazetteRequests.holds(record.id) ||
-      [...gazetteBatches.values()].some((batch) => record.displayReference != null && batch.referenceNumbers.includes(record.displayReference))
+      [...gazetteBatches.values()].some((batch) => record.displayReference != null && batch.referenceNumbers.includes(record.displayReference)),
+    hasUnresolvedDocumentDeletion: (record) => documentDeletions.hasUnresolved(record.id)
   });
   const savedQueries = new Map<string, MockSavedQuery>();
   /**
@@ -494,6 +511,14 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return send(res, result.status, result.body);
     }
 
+    if (method === "POST" && pathname === "/__mock/document-deletions") {
+      const result = documentDeletions.control(await readJsonBody(req));
+      return send(res, result.status, result.body);
+    }
+    if (method === "POST" && pathname === "/__mock/document-deletion-outcome") {
+      const result = documentDeletions.configure(await readJsonBody(req));
+      return send(res, result.status, result.body);
+    }
     if (method === "POST" && pathname === "/__mock/gazette-batches") {
       const parsed = SEEDABLE_GAZETTE_BATCH.safeParse(await readJsonBody(req));
       if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
@@ -739,6 +764,35 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
         : restoring
           ? deletions.restore(decodeURIComponent(deletion?.[1] ?? ""))
           : deletions.status(decodeURIComponent(deletion?.[1] ?? ""));
+      if (result.loseResponse) {
+        res.destroy();
+        return;
+      }
+      res.setHeader("Cache-Control", "no-store");
+      if (result.location) res.setHeader("Location", result.location);
+      return send(res, result.status, result.body);
+    }
+
+    // api#179's two document deletion routes, any staff role before the path ids, the header or the body is read (a
+    // judge is refused by api's `/caseworker/**` rule). Matched before the case pattern below, which knows neither.
+    const documentAdmission = /^\/caseworker\/cases\/([^/]+)\/documents\/([^/]+)\/deletion-requests$/.exec(pathname);
+    const documentDeletion = /^\/caseworker\/cases\/([^/]+)\/document-deletions\/([^/]+)$/.exec(pathname);
+    if (documentAdmission || documentDeletion) {
+      const claims = await callerClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      if (!callerAccess(claims).staff) return send(res, 403, { error: "Deed poll staff role required" });
+      if (documentAdmission && method !== "POST") return send(res, 405, { error: "Method not allowed" });
+      if (documentDeletion && method !== "GET") return send(res, 405, { error: "Method not allowed" });
+      const result = documentAdmission
+        ? documentDeletions.admit({
+            caseId: decodeURIComponent(documentAdmission[1]),
+            documentId: decodeURIComponent(documentAdmission[2]),
+            key: req.headers[IDEMPOTENCY_HEADER],
+            contentType: req.headers["content-type"],
+            rawBody: await readRawBody(req),
+            requester: auditName(req)
+          })
+        : documentDeletions.status(decodeURIComponent(documentDeletion?.[1] ?? ""), decodeURIComponent(documentDeletion?.[2] ?? ""));
       if (result.loseResponse) {
         res.destroy();
         return;
@@ -1135,7 +1189,9 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
         sizeBytes: upload.file.bytes.length,
         bytes: upload.file.bytes,
         createdOn: now,
-        modifiedOn: now
+        modifiedOn: now,
+        // V51's starting version. Nothing in the mock changes a document after upload, so it never moves.
+        documentVersion: 1
       };
       record.documents.push(created);
       return send(res, 201, toWireDocument(created));
@@ -2176,6 +2232,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     gazetteBatches.clear();
     gazetteRequests.reset();
     deletions.reset();
+    documentDeletions.reset();
     processSettings.reset();
     masters.reset();
     bankHolidays.reset();

@@ -144,11 +144,11 @@
     },
     "/caseworker/cases": {
       "get": {
-        "description": "The named readyForPublication worklist and count require caseworker-deedpoll-delivery-manager, including saved-query links. Other authenticated roles receive 403 before reads or side effects. Ordinary filters and field conditions are unchanged.",
+        "description": "The named readyForPublication worklist and count require caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ACCESS_GAZETTE), including saved-query links. Other authenticated roles receive 403 before reads or side effects. Ordinary filters and field conditions are unchanged.",
         "operationId": "cases",
         "parameters": [
           {
-            "description": "Which tab of the case list to return: `all` (All applications), `open` (Open), `received` (Received), `enroled` (Enroled), `returned` (Returned), `awaitingConfirmation` (Awaiting confirmation), `readyForPublication` (Ready for publication). An unrecognised or repeated value falls back to `all` rather than being refused, because the key comes from a URL a caseworker may have bookmarked -- the response echoes the key that was actually applied, so the fallback is observable. ANDs with `q` and every `where` condition. `awaitingConfirmation` is the cases still waiting for an applicant's reply to the Request confirmation to proceed email, and each row on it carries `daysAwaitingConfirmation`. `readyForPublication` selects `publishToLondonGazette=true`, `dateNoticeSentToLondonGazette` absent and `state=Enroled`, excluding `type=DeedOfRelinquishment`; other types, including unset types, are unchanged. This named worklist and its count require caseworker-deedpoll-delivery-manager (403 otherwise), including saved-query links. Its default sort is `dateEnroled:asc` (oldest enrolled first), unless the caller supplies `sort`.",
+            "description": "Which tab of the case list to return: `all` (All applications), `open` (Open), `received` (Received), `enroled` (Enroled), `returned` (Returned), `awaitingConfirmation` (Awaiting confirmation), `readyForPublication` (Ready for publication). An unrecognised or repeated value falls back to `all` rather than being refused, because the key comes from a URL a caseworker may have bookmarked -- the response echoes the key that was actually applied, so the fallback is observable. ANDs with `q` and every `where` condition. `awaitingConfirmation` is the cases still waiting for an applicant's reply to the Request confirmation to proceed email, and each row on it carries `daysAwaitingConfirmation`. `readyForPublication` selects `publishToLondonGazette=true`, `dateNoticeSentToLondonGazette` absent and `state=Enroled`, excluding `type=DeedOfRelinquishment`; other types, including unset types, are unchanged. This named worklist and its count require caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ACCESS_GAZETTE; 403 otherwise), including saved-query links. Its default sort is `dateEnroled:asc` (oldest enrolled first), unless the caller supplies `sort`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -482,7 +482,7 @@
                 }
               }
             },
-            "description": "Refused, with a code and fixed words, and nothing written: STALE_CONFIRMATION (review the application again), RETAINED_PERMANENTLY, GAZETTE_EVIDENCE, RETAINED_DEED_PAYLOAD, RETAINED_STAGED_UPLOADS, DOCUMENT_STORAGE_UNRESOLVED, CCD_CREATION_UNRESOLVED, EMAIL_SEND_UNRESOLVED (try again once it settles), KEY_REUSED or CONFLICTING_REASON."
+            "description": "Refused, with a code and fixed words, and nothing written: STALE_CONFIRMATION (review the application again), RETAINED_PERMANENTLY, GAZETTE_EVIDENCE, RETAINED_DEED_PAYLOAD, RETAINED_STAGED_UPLOADS, DOCUMENT_STORAGE_UNRESOLVED, DOCUMENT_DELETION_UNRESOLVED (a document's permanent deletion has not completed), CCD_CREATION_UNRESOLVED, EMAIL_SEND_UNRESOLVED (try again once it settles), KEY_REUSED or CONFLICTING_REASON."
           },
           "413": {
             "content": {
@@ -507,6 +507,58 @@
         },
         "summary": "Request permanent deletion of an application",
         "tags": ["caseworker-application-deletion-controller"]
+      }
+    },
+    "/caseworker/cases/{id}/document-deletions/{requestId}": {
+      "get": {
+        "description": "Any staff role that can open the case. Answers whether or not the document still exists; only Completed means it is deleted. InProgress is still being carried out and NeedsAttention needs somebody, with failure set only then. Reading never starts or retries work. Carries no reason, document name, requester or storage locator. An id that is not a UUID, a request of another application, and an application the caller cannot open are 404; an application later deleted as a whole is a 404 too, which is not evidence about the document.",
+        "operationId": "getDocumentDeletion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDeletionRequestResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "There is no such application, or no such request on it."
+          }
+        },
+        "summary": "Read a document deletion request's status",
+        "tags": ["caseworker-document-deletion-controller"]
       }
     },
     "/caseworker/cases/{id}/documents": {
@@ -586,6 +638,136 @@
           }
         },
         "tags": ["caseworker-document-controller"]
+      }
+    },
+    "/caseworker/cases/{id}/documents/{documentId}/deletion-requests": {
+      "post": {
+        "description": "Any staff role that can open the case (caseworker, Team leader, Delivery Manager); never a judge. Permanently deletes the document's file and its record, with the reason in the staff member's own words; this cannot be undone, and there is no restore. Runs while the caller waits: 200 Completed means it is done and recorded once in the audit trail and as a case note under the caller. 202 means it is not yet confirmed (InProgress, finished by recovery) or needs somebody (NeedsAttention): read the Location; neither is deleted. Send one UUID Idempotency-Key per confirmation journey and reuse it, with the same body, on every retry, including after a timeout: the same key and body answers the same request, even after the document is gone; the same key with a different body is 409 KEY_REUSED. Never retry with a new key to get past a refusal. Send the document's documentVersion from the case detail as expectedDocumentVersion.",
+        "operationId": "requestDocumentDeletion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "documentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "One UUID per confirmation journey, reused with the same body on every retry of it. Missing or not a UUID is a 400 naming the header. The same key with a different body is 409.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDocumentDeletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDeletionAdmissionResponse"
+                }
+              }
+            },
+            "description": "Completed: the document is permanently deleted, or the same completed request replayed."
+          },
+          "202": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDeletionAdmissionResponse"
+                }
+              }
+            },
+            "description": "Admitted, or replayed, and not yet Completed: InProgress or NeedsAttention. The document is no longer available, but it is not deleted yet.",
+            "headers": {
+              "Location": {
+                "description": "The request's status resource.",
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "The Idempotency-Key is missing or not a UUID, the body has a key other than reason and expectedDocumentVersion, or a field is refused, each field's error named. Nothing is written."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "There is no such application or document on it, in the words the other document routes use."
+          },
+          "409": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDeletionError"
+                }
+              }
+            },
+            "description": "Refused, with a code and fixed words, and nothing written: DOCUMENT_IN_USE (show its words; try again once the operation has finished), DOCUMENT_CHANGED (review the document again), DOCUMENT_STORAGE_UNRESOLVED, DOCUMENT_SHARED, APPLICATION_DELETION_PENDING or KEY_REUSED."
+          },
+          "413": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDeletionAdmissionResponse"
+                }
+              }
+            },
+            "description": "The body is over 16 KB. Nothing is written."
+          },
+          "415": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDeletionAdmissionResponse"
+                }
+              }
+            },
+            "description": "The body is not application/json. Nothing is written."
+          }
+        },
+        "summary": "Delete a supporting document permanently",
+        "tags": ["caseworker-document-deletion-controller"]
       }
     },
     "/caseworker/cases/{id}/documents/{documentId}/file": {
@@ -1786,7 +1968,7 @@
     },
     "/caseworker/gazette-notice-previews": {
       "post": {
-        "description": "Requires caseworker-deedpoll-delivery-manager. Checks recipient, readiness, reservations and configuration. Returns a 30-minute comparison token. No reservations, uploads or notes are written.",
+        "description": "Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ACCESS_GAZETTE). Checks recipient, readiness, reservations and configuration. Returns a 30-minute comparison token. No reservations, uploads or notes are written.",
         "operationId": "previewGazetteNotice",
         "requestBody": {
           "content": {
@@ -1851,7 +2033,7 @@
     },
     "/caseworker/gazette-notice-requests": {
       "get": {
-        "description": "Requires caseworker-deedpoll-delivery-manager. Newest submission first, then descending batch ID. Legacy sent batches remain in sent history. Page defaults to 1; size defaults to 25, capped at 100.",
+        "description": "Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ACCESS_GAZETTE). Newest submission first, then descending batch ID. Legacy sent batches remain in sent history. Page defaults to 1; size defaults to 25, capped at 100.",
         "operationId": "getGazetteRequests",
         "parameters": [
           {
@@ -1900,7 +2082,7 @@
     },
     "/caseworker/gazette-notices": {
       "get": {
-        "description": "Requires caseworker-deedpoll-delivery-manager. Batches are newest first, with frozen case references and display-name attribution. At most 100 references per batch, in lexical display order, with referencesTruncated indicating omitted members. This is not send order. No custom filtering or sorting.",
+        "description": "Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ACCESS_GAZETTE). Batches are newest first, with frozen case references and display-name attribution. At most 100 references per batch, in lexical display order, with referencesTruncated indicating omitted members. This is not send order. No custom filtering or sorting.",
         "operationId": "history",
         "parameters": [
           {
@@ -1941,7 +2123,7 @@
         "tags": ["caseworker-gazette-controller"]
       },
       "post": {
-        "description": "Requires caseworker-deedpoll-delivery-manager. Sending is disabled by default. When configured and enabled, a fresh confirmed request makes at most one email attempt. Repeats resolve recorded status only. 202 means Preparing/Sending; 200 means terminal, not necessarily sent. Reuse the original key and body after a lost response. Never retry an uncertain request with a new key.",
+        "description": "Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ACCESS_GAZETTE). Sending is disabled by default. When configured and enabled, a fresh confirmed request makes at most one email attempt. Repeats resolve recorded status only. 202 means Preparing/Sending; 200 means terminal, not necessarily sent. Reuse the original key and body after a lost response. Never retry an uncertain request with a new key.",
         "operationId": "submitGazetteNotice",
         "parameters": [
           {
@@ -2026,7 +2208,7 @@
     },
     "/caseworker/gazette-notices/{batchId}": {
       "get": {
-        "description": "Requires caseworker-deedpoll-delivery-manager. Includes legacy sent batches, with unknown submission, recipient and group facts null. Sent means accepted by Notify, not delivered or published.",
+        "description": "Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ACCESS_GAZETTE). Includes legacy sent batches, with unknown submission, recipient and group facts null. Sent means accepted by Notify, not delivered or published.",
         "operationId": "getGazetteNotice",
         "parameters": [
           {
@@ -2060,7 +2242,7 @@
     },
     "/caseworker/gazette-notices/{batchId}/cases": {
       "get": {
-        "description": "Requires caseworker-deedpoll-delivery-manager. Reference then case ID ordering, independent of live cases. Page defaults to 1; size defaults to 25, capped at 100. Includes legacy batches.",
+        "description": "Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ACCESS_GAZETTE). Reference then case ID ordering, independent of live cases. Page defaults to 1; size defaults to 25, capped at 100. Includes legacy batches.",
         "operationId": "getGazetteNoticeCases",
         "parameters": [
           {
@@ -2110,7 +2292,7 @@
     },
     "/caseworker/gazette-settings": {
       "get": {
-        "description": "Requires caseworker-deedpoll-delivery-manager. Initially recipient and attribution are null, revision 0.",
+        "description": "Requires caseworker-deedpoll-delivery-manager (ACCESS_GAZETTE and MANAGE_PROCESS_CONFIG). Initially recipient and attribution are null, revision 0.",
         "operationId": "getGazetteSettings",
         "responses": {
           "200": {
@@ -2131,7 +2313,7 @@
         "tags": ["caseworker-gazette-settings-controller"]
       },
       "put": {
-        "description": "Requires caseworker-deedpoll-delivery-manager. Supply the revision read with the form; stale revisions return 409 without changes. Each changed address increments revision and records attribution. Saving the current address at the current revision is a no-op. No email is sent.",
+        "description": "Requires caseworker-deedpoll-delivery-manager (ACCESS_GAZETTE and MANAGE_PROCESS_CONFIG). Supply the revision read with the form; stale revisions return 409 without changes. Each changed address increments revision and records attribution. Saving the current address at the current revision is a no-op. No email is sent.",
         "operationId": "updateGazetteSettings",
         "requestBody": {
           "content": {
@@ -4350,6 +4532,25 @@
         },
         "required": ["expectedLastChangedOn", "note", "reason"]
       },
+      "CreateDocumentDeletionRequest": {
+        "additionalProperties": false,
+        "description": "A permanent deletion of the document in the path. No other key is accepted.",
+        "properties": {
+          "expectedDocumentVersion": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The document's documentVersion exactly as the case detail published it when the staff member reviewed it, as a JSON integer. A different version is 409 DOCUMENT_CHANGED on a first request; a replay is never compared with the document.",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why the document is being deleted, in the staff member's own words, for example \"Uploaded in error\". Outer whitespace is trimmed first, then 1 to 500 characters, with no line breaks, tabs, control characters or bidirectional controls. Kept exactly as accepted in the audit trail and the case note, so it should say why and avoid unnecessary applicant personal details.",
+            "maxLength": 500,
+            "minLength": 1
+          }
+        },
+        "required": ["expectedDocumentVersion", "reason"]
+      },
       "CreateMasterRequest": {
         "additionalProperties": false,
         "properties": {
@@ -4537,6 +4738,7 @@
               "RETAINED_DEED_PAYLOAD",
               "RETAINED_STAGED_UPLOADS",
               "DOCUMENT_STORAGE_UNRESOLVED",
+              "DOCUMENT_DELETION_UNRESOLVED",
               "CCD_CREATION_UNRESOLVED",
               "EMAIL_SEND_UNRESOLVED",
               "KEY_REUSED",
@@ -4573,6 +4775,7 @@
               "CCD_COPY_PRESENT",
               "RETAINED_PAYLOAD",
               "UNLISTED_OWNED_STAGE",
+              "DOCUMENT_DELETION_UNRESOLVED",
               "LOCAL_FINALISATION_REFUSED"
             ]
           },
@@ -4612,6 +4815,59 @@
         },
         "required": ["status"]
       },
+      "DocumentDeletionAdmissionResponse": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["InProgress", "NeedsAttention", "Completed"]
+          }
+        }
+      },
+      "DocumentDeletionError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": ["DOCUMENT_IN_USE", "DOCUMENT_CHANGED", "DOCUMENT_STORAGE_UNRESOLVED", "DOCUMENT_SHARED", "APPLICATION_DELETION_PENDING", "KEY_REUSED"]
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "DocumentDeletionRequestResponse": {
+        "type": "object",
+        "properties": {
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "failure": {
+            "type": "string",
+            "enum": ["CDAM_PURGE_UNPROVEN", "CDAM_PERMISSION", "CDAM_DELETE_FAILED", "CCD_REFERENCE_FAILED", "LOCAL_FILE_UNREMOVED", "LOCAL_COMPLETION_REFUSED"]
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["InProgress", "NeedsAttention", "Completed"]
+          }
+        }
+      },
       "DocumentPreviewError": {
         "type": "object",
         "description": "A document preview that was not produced. The original download is unaffected.",
@@ -4641,6 +4897,12 @@
           },
           "documentType": {
             "$ref": "#/components/schemas/DocumentTypeResponse"
+          },
+          "documentVersion": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The document's version as reviewed. Send it back as expectedDocumentVersion when deleting the document: it moves whenever the document's metadata, file or storage changes, and a deletion against an older one is 409 DOCUMENT_CHANGED.",
+            "minimum": 1
           },
           "hasFile": {
             "type": "boolean"

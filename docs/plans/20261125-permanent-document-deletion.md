@@ -2,7 +2,7 @@
 
 ## Overview
 
-Status: planned, 2026-11-25. No feature implementation has started.
+Status: in progress, 2026-11-26 (Task 1 done).
 
 Steve confirmed: office staff who can already access an application's documents (caseworkers, Team leaders and
 Delivery Managers) can permanently delete one, and **Masters are read-only** (Steve, 2026-11-25);
@@ -145,13 +145,13 @@ untranslated inventory honestly.
 **Files:** API client's openapi.json/SPEC-PROVENANCE.md, API client/wire/contract tests, mock document/deletion routes,
 staff fixtures and domain exports.
 
-- [ ] Record execution and merged API SHAs/artifact hash; compare the full generated spec delta, document every
+- [x] Record execution and merged API SHAs/artifact hash; compare the full generated spec delta, document every
   added/changed operation/schema and reconcile this proposal before refreshing the vendored copy.
-- [ ] Add the typed staff admission (200/202) and status operations and documentVersion, free-text reason
+- [x] Add the typed staff admission (200/202) and status operations and documentVersion, free-text reason
   limits, statuses and coded conflicts. Preserve the adapter-never-throws boundary and token-only Caller identity.
-- [ ] Mirror API auth/ownership, active-use/storage refusal, idempotency and status-after-row-removal in the mock;
+- [x] Mirror API auth/ownership, active-use/storage refusal, idempotency and status-after-row-removal in the mock;
   add deterministic test-only in-progress/failure/completion control without production-accessible controls.
-- [ ] Test all staff roles (not just Delivery Managers) and a judge refused, wrong parent/access, encoded IDs,
+- [x] Test all staff roles (not just Delivery Managers) and a judge refused, wrong parent/access, encoded IDs,
   invalid/missing body/key/version, exact replay and key/body conflict. Run focused client/contract/mock tests.
 
 ### Task 2: Add document deletion domain calls, validation and sealed journey
@@ -215,8 +215,23 @@ view and whole-application grace/restore remain correct. There is no new direct 
 
 ## Execution notes
 
-Not started. Record execution baseline, merged API/spec provenance, focused/full validation and review findings.
+Record execution baseline, merged API/spec provenance, focused/full validation and review findings.
 Plan structure/whitespace checks do not prove feature behaviour. Keep actionable checkboxes only in Task sections.
+
+**Task 1 (2026-11-26).** Execution baseline: admin `99d0991` on master `4399727` (#422, unchanged since planning); api
+`origin/master` `d632cdc` (#179), whose spec was generated in a throwaway detached api worktree (raw SHA-256
+`48dc8026…c6c2ee`); full provenance and delta in `libs/deed-poll-api-client/SPEC-PROVENANCE.md`. The delta matched this
+plan's proposal except: the reason is 1–500 code points after Java's `strip()` with bidirectional controls refused too;
+the status is case-scoped and carries `documentId` but no reason or name; and #179 also added
+`DOCUMENT_DELETION_UNRESOLVED` to application deletion's refusals and failures, so the application deletion page gained a
+sentence for it (its test pins every admission code). #177's ten Gazette description changes rode along (no behaviour).
+Added `requestDocumentDeletion`/`getDocumentDeletion`, the four wire schemas, strict `documentVersion`, the vocabularies,
+and `ConflictError.code` widened to both refusal vocabularies. Mock: `src/mock/document-deletions.ts` (staff gate, api's
+order and words, JSON-integer version read from source text, fence at admission, note at completion under the
+requester, `/__mock/document-deletions` and `/__mock/document-deletion-outcome`), and application deletion refused
+`DOCUMENT_DELETION_UNRESOLVED` while one is unconfirmed. Focused: `contract.test.ts` 339 and
+`client-document-deletion.test.ts` 36 passed. Gates: `yarn lint`, `yarn build`, `git diff --check` green; `yarn test`
+green in every workspace (app 3623 passed, 93 skipped: the Redis suites, no `REDIS_URL` set for this per-task run).
 
 ## Post-Completion
 
