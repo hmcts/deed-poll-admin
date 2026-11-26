@@ -163,6 +163,15 @@ describe("judicial referral template", () => {
     expect(html).not.toContain("<form");
   });
 
+  // Masters are read-only (Steve, 2026-11-25): the staff Documents tab offers Delete on every document, this list never.
+  it("should offer no Delete control on any of the referral's documents", async () => {
+    const html = await render(detail({ state: "Decided" }));
+
+    expect(html).toContain("birth-certificate.pdf");
+    expect(html).not.toContain("/delete");
+    expect(html).not.toContain("document-deletions");
+  });
+
   it("should list the reasons the caseworker chose, in the business's words", async () => {
     const html = await render(detail());
 

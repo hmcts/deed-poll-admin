@@ -71,6 +71,7 @@ import type { Request, Response } from "express";
 import { deletionConfirmationPath } from "../../application-deletion/paths.js";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
 import { casePath } from "../../case-path.js";
+import { documentDeletionConfirmationPath } from "../../document-deletion/paths.js";
 import { caseViewerScope, documentPaths } from "../../document-viewer/context.js";
 import { forLog } from "../../for-log.js";
 import { pathSegment } from "../../path-segment.js";
@@ -181,6 +182,8 @@ const en = {
   emailsUnavailable:
     "Email information could not be loaded, so this tab cannot say what has been sent to the applicant, and no email can be sent from here at the moment. The rest of the case is shown as normal. Try again shortly.",
   documentColumns: DOCUMENT_COLUMNS,
+  documentActionsColumn: "Actions",
+  deleteDocument: "Delete",
   amendWitnessHint: "amend this witness",
   witnessAddress: "Address",
   witnessOccupation: "Occupation",
@@ -275,7 +278,10 @@ export const GET = async (req: Request, res: Response) => {
     // with the viewer's own helpers, so the case page and the viewer cannot disagree on where a document lives.
     documents: buildDocumentsView(found.documents).map((document) => ({
       ...document,
-      viewHref: documentPaths(caseViewerScope(found.id), document.id).viewPath
+      viewHref: documentPaths(caseViewerScope(found.id), document.id).viewPath,
+      // Every staff user, every document type, and no eligibility read per row: api decides whether this document
+      // may go, and the confirmation page renders its refusal by code (`documents/[documentId]/delete.ts`).
+      deleteHref: documentDeletionConfirmationPath(found.id, document.id)
     })),
     referrals: referralsView,
     // Per row, so keyed by referral id: the sentence interpolates each row's date, and the template looks its row

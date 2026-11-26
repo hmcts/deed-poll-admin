@@ -574,6 +574,22 @@ describe("case detail page", () => {
     ]);
   });
 
+  // No capability check and no per-row eligibility read: every staff user may ask, and api decides.
+  it("should offer every document its deletion page, encoding the ids, with no eligibility read per row", async () => {
+    const generated = { id: "doc/1", name: "Deed.pdf", documentType: { name: "Generated deed" }, direction: "Outgoing", createdOn: null, hasFile: true };
+    const pending = { id: "doc-2", name: "Scan.pdf", documentType: null, direction: null, createdOn: null, hasFile: false };
+    vi.mocked(findDeedPoll).mockResolvedValue({ ...found, documents: [generated, pending] } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].documents.map((d: { deleteHref: string }) => d.deleteHref)).toEqual([
+      "/deed-polls/case-1/documents/doc%2F1/delete",
+      "/deed-polls/case-1/documents/doc-2/delete"
+    ]);
+    expect(findDeedPoll).toHaveBeenCalledTimes(1);
+  });
+
   it("passes a referrals view model built from the second call, formatted rather than raw", async () => {
     // Referrals are the one subgrid whose rows are not on the case payload, so the tab is only ever as
     // populated as this call makes it — and the labels are the view model's, not the template's.

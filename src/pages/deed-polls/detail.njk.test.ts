@@ -796,7 +796,19 @@ describe("case detail template — the documents tab", () => {
 
     const panel = panelFor(rendered, "documents");
     expect(panel).toContain("Generated deed.pdf");
-    expect(panel).not.toContain("/documents/doc-1/");
+    expect(panel).not.toContain("/documents/doc-1/view");
+  });
+
+  it("should give each document a Delete link naming the document for a screen reader, in its own column", async () => {
+    const rendered = await page([], { ...found, documents: [DOCUMENT, { ...DOCUMENT, id: "doc-2", name: "Scan <b>.pdf", hasFile: false }] });
+
+    const panel = panelFor(rendered, "documents");
+    expect(panel).toContain(
+      '<a class="govuk-link" href="/deed-polls/case-1/documents/doc-1/delete">Delete<span class="govuk-visually-hidden"> Generated deed.pdf</span></a>'
+    );
+    expect(panel).toContain('href="/deed-polls/case-1/documents/doc-2/delete">Delete<span class="govuk-visually-hidden"> Scan &lt;b&gt;.pdf</span></a>');
+    expect(panel).toMatch(/<th scope="col" class="govuk-table__header">\s*Actions\s*<\/th>/);
+    expect(panel).not.toContain("<form");
   });
 });
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Status: in progress, 2026-11-26 (Tasks 1 to 3 done).
+Status: in progress, 2026-11-26 (Tasks 1 to 4 done).
 
 Steve confirmed: office staff who can already access an application's documents (caseworkers, Team leaders and
 Delivery Managers) can permanently delete one, and **Masters are read-only** (Steve, 2026-11-25);
@@ -184,11 +184,11 @@ new shared document-deletion templates/helpers as appropriate, app route boundar
 **Files:** staff detail/document view model and tests, a pin that the judicial referral view has no Delete,
 dedicated `e2e-tests/tests/document-deletion.spec.ts` plus isolated server/config fixtures.
 
-- [ ] Add per-document Delete links for all authorised users and exposed document types; preserve existing View/
+- [x] Add per-document Delete links for all authorised users and exposed document types; preserve existing View/
   Download and responsive table semantics. Avoid per-row API eligibility calls. Deleted rows disappear on refresh.
-- [ ] Prove a normal caseworker enters a reason, confirms, reaches Completed, sees other documents survive and
+- [x] Prove a normal caseworker enters a reason, confirms, reaches Completed, sees other documents survive and
   the API-created case note contains document identity/reason. Include Cancel, validation, Welsh and accessibility inline.
-- [ ] Prove a judge sees no Delete control on a referral's documents and is refused the staff delete URL and POST.
+- [x] Prove a judge sees no Delete control on a referral's documents and is refused the staff delete URL and POST.
   Cover the in-use friendly refusal, a 202 and recovery at handler level; keep the browser test count small and
   record isolated results.
 
@@ -262,6 +262,19 @@ Content `cy` mirrors `en` (Welsh pending; covered by the extractor's `src/pages/
 progress 14, templates 11 (axe, escaping, error-summary targets), routes 4, `app.test.ts` 52, detail banner. Gates:
 `yarn lint`, `yarn build`, `git diff --check` green; `yarn test` green in every workspace (app 3709 passed, 93 skipped:
 the Redis suites, no `REDIS_URL` for this per-task run).
+
+**Task 4 (2026-11-26).** The case page's Documents tab gives every row a **Delete** link
+(`deleteHref` from `documentDeletionConfirmationPath`, built in `[id].ts` beside `viewHref`), in an "Actions" column,
+with the document's name as visually hidden text. It is drawn for every staff user and every document, attached file or
+not, with no capability check and no per-row read; the referral queue's check view (which shares `DOCUMENT_COLUMNS`)
+and the Master's referral page get none, the latter pinned in `referral.njk.test.ts`. Browser: `yarn
+test:document-deletion` (mock 3221, app 3321, Redis database 7, out of `yarn test:e2e`), two journeys, both passed
+(11.9 s): a caseworker deletes one of two uploaded documents (Delete link by accessible name, confirmation, Cancel,
+Welsh toggle, empty-reason error summary focusing `#reason`, keyboard submit, banner, other document kept, api's note
+naming the document and reason, old confirmation now 404, axe at four points); a judge sees no Delete on the referral
+and gets 403 for the staff page and a forged POST, the document still on the case. In-use, 202 and unknown outcome stay
+at handler level (Task 3). Gates: `yarn lint`, `yarn build`, `git diff --check` green; `yarn test` green in every
+workspace (app 3712 passed, 93 skipped: the Redis suites, no `REDIS_URL` for this per-task run).
 
 ## Post-Completion
 
