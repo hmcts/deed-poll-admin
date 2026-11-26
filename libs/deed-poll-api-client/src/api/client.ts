@@ -205,13 +205,17 @@ const UPLOAD_TIMEOUT_MS = 60_000;
 const GAZETTE_SUBMIT_TIMEOUT_MS = 20_000;
 
 /**
- * Twenty seconds, for a document deletion's admission, which api carries out while the caller waits: it removes the
- * file, or the CCD reference and then the CDAM document with `permanent=true`, before it answers. The ten-second
- * default would turn a slow success into an unknown outcome, and both Application Gateways end the request at 30 s
- * (see `GAZETTE_SUBMIT_TIMEOUT_MS`), so this is the same ceiling for the same reason: a configured timeout can only
- * shorten it. The recovery's **Check deletion request** replays this same call, so it gets the same wait.
+ * Twenty-four seconds, for a document deletion's admission, which api carries out while the caller waits: it removes
+ * the file, or the CCD reference and then the CDAM document with `permanent=true`, before it answers. It must outlast
+ * api's answer on the slow path: api's `deedpoll.documents.deletion.request-budget` (20 s by default) bounds only the
+ * remote steps, and admission's commit before them and the outcome or completion after them add to it, so a deletion
+ * that spends its whole budget answers 202 just after 20 s. Waiting only 20 s turned exactly that answer into an
+ * unknown outcome (Birch's review of #423). Both Application Gateways end the request at 30 s (see
+ * `GAZETTE_SUBMIT_TIMEOUT_MS`), so 24 s leaves room for the rest of this request, as the preview's 27 s does. **Keep
+ * api's budget at or below 20 s**, or raise this with it. A configured timeout can only shorten it. The recovery's
+ * **Check deletion request** replays this same call, so it gets the same wait.
  */
-const DOCUMENT_DELETION_TIMEOUT_MS = 20_000;
+const DOCUMENT_DELETION_TIMEOUT_MS = 24_000;
 
 /**
  * Twenty-seven seconds, for a document preview, which api builds inside the request before it sends a byte.
