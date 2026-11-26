@@ -2,7 +2,7 @@
 
 ## Overview
 
-Status: in progress, 2026-11-26 (Task 1 done).
+Status: in progress, 2026-11-26 (Tasks 1 and 2 done).
 
 Steve confirmed: office staff who can already access an application's documents (caseworkers, Team leaders and
 Delivery Managers) can permanently delete one, and **Masters are read-only** (Steve, 2026-11-25);
@@ -159,11 +159,11 @@ staff fixtures and domain exports.
 **Files:** new `libs/deed-poll/src/documents/deletion/` modules, domain API error seam if needed,
 new `src/document-deletion/` modules and co-located tests; inspect application-deletion/journey.ts first.
 
-- [ ] Implement the document-specific reason form schema, caller-only service functions, unknown-admission seam
+- [x] Implement the document-specific reason form schema, caller-only service functions, unknown-admission seam
   and code-bearing errors; do not duplicate API eligibility logic or separately create a case note.
-- [ ] Bind case/document/version/key/session in the signed journey; seal the first submitted body for
+- [x] Bind case/document/version/key/session in the signed journey; seal the first submitted body for
   uncertain outcomes. Preserve reason on definite errors and require fresh review for DOCUMENT_CHANGED.
-- [ ] Test blank/length/Unicode/non-string reasons, tamper/expiry/cross-parent/session cases, independent tabs,
+- [x] Test blank/length/Unicode/non-string reasons, tamper/expiry/cross-parent/session cases, independent tabs,
   back/double submit, exact recovery replay, access loss and no new key after an uncertain result.
 
 ### Task 3: Build the staff confirmation, progress and recovery pages
@@ -232,6 +232,21 @@ requester, `/__mock/document-deletions` and `/__mock/document-deletion-outcome`)
 `DOCUMENT_DELETION_UNRESOLVED` while one is unconfirmed. Focused: `contract.test.ts` 339 and
 `client-document-deletion.test.ts` 36 passed. Gates: `yarn lint`, `yarn build`, `git diff --check` green; `yarn test`
 green in every workspace (app 3623 passed, 93 skipped: the Redis suites, no `REDIS_URL` set for this per-task run).
+
+**Task 2 (2026-11-26).** Domain: `libs/deed-poll/src/documents/deletion/` holds `documentDeletionFormSchema` (one
+`reason` control, Java `strip()` then 1–500 code points; refuses ISO controls, inner line breaks and tabs, U+2028/9,
+api's bidirectional controls and lone surrogates, exactly as the mock restates api), `requestDocumentDeletion` /
+`findDocumentDeletion` (body copied field by field, caller-owned key, status read under its case) and
+`DocumentDeletionOutcomeUnknownError`. `callDocumentDeletionAdmissionApi` sits beside `callDeletionAdmissionApi`, both
+now one private `callAdmissionApi`, so a 409 keeps api's `DocumentDeletionRefusal` code and a timeout, transport
+failure, 5xx, unreadable answer or 429 is unknown. No note or audit write and no eligibility check here. Journey:
+`src/document-deletion/journey.ts` signs `{ key, caseId, documentId, documentVersion, issuedAt, confirmed? }` under
+its own HMAC domain (`document-deletion-v1`), 8 h, session-bound, refused for another case or document; a sealed
+reason is never edited by a recovery; `afterDefiniteRefusal` unseals (same key, reason kept to redraw) after a 400 or
+any 409 except `DOCUMENT_CHANGED` and `KEY_REUSED`, which need a fresh review. Focused: deed-poll `documents/deletion`
+plus `api` 39 passed, app `journey.test.ts` 16 passed. Gates: `yarn lint`, `yarn build`, `git diff --check` green;
+`yarn test` green in every workspace (deed-poll 1867, client 1673, app 3639 passed and 93 skipped: the Redis suites,
+no `REDIS_URL` for this per-task run).
 
 ## Post-Completion
 

@@ -30,6 +30,7 @@ import {
 } from "@hmcts/deed-poll-api-client";
 import { DeletionOutcomeUnknownError } from "../deletion/errors.js";
 import { DocumentPreviewRefusedError } from "../document-viewer/errors.js";
+import { DocumentDeletionOutcomeUnknownError } from "../documents/deletion/errors.js";
 import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "../errors.js";
 
 import { GazetteOutcomeUnknownError, GazetteRefusalError } from "../gazette/errors.js";
@@ -96,11 +97,16 @@ export async function callApi<T>(caller: Caller, call: (config: ApiConfig) => Pr
  * failure, a 5xx or an unreadable 202 may each have been admitted, and a 429 does not prove an earlier attempt under
  * the same key was not, so all of them leave the page holding the original request to send again.
  */
-export async function callDeletionAdmissionApi<T>(caller: Caller, call: (config: ApiConfig) => Promise<ApiResult<T>>): Promise<T> {
-  const result = await call(apiConfig(caller));
-  if (result.ok) return result.data;
-  if (DEFINITE_KINDS.has(result.error.kind)) throw errorFor(result.error);
-  throw new DeletionOutcomeUnknownError();
+export function callDeletionAdmissionApi<T>(caller: Caller, call: (config: ApiConfig) => Promise<ApiResult<T>>): Promise<T> {
+  return callAdmissionApi(caller, call, () => new DeletionOutcomeUnknownError());
+}
+
+/**
+ * A document deletion admission, on the same terms as an application's: a definite answer is `callApi`'s domain
+ * error (a 409 keeping api's `DocumentDeletionRefusal` code), and anything else `DocumentDeletionOutcomeUnknownError`.
+ */
+export function callDocumentDeletionAdmissionApi<T>(caller: Caller, call: (config: ApiConfig) => Promise<ApiResult<T>>): Promise<T> {
+  return callAdmissionApi(caller, call, () => new DocumentDeletionOutcomeUnknownError());
 }
 
 /**
@@ -199,6 +205,13 @@ function apiConfig(caller: Caller): ApiConfig {
     timeoutMs: Number.isFinite(timeout) && timeout > 0 ? timeout : undefined,
     accessToken: caller.accessToken
   };
+}
+
+async function callAdmissionApi<T>(caller: Caller, call: (config: ApiConfig) => Promise<ApiResult<T>>, unknown: () => Error): Promise<T> {
+  const result = await call(apiConfig(caller));
+  if (result.ok) return result.data;
+  if (DEFINITE_KINDS.has(result.error.kind)) throw errorFor(result.error);
+  throw unknown();
 }
 
 function shortest(configured: number | undefined, limit: number | undefined): number | undefined {
