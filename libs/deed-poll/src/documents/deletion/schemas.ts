@@ -1,8 +1,8 @@
-import { DOCUMENT_DELETION_REASON_LIMITS, DOCUMENT_DELETION_REFUSAL_CODE, DOCUMENT_DELETION_STATUS } from "@hmcts/deed-poll-api-client";
+import { DOCUMENT_DELETION_REASON_LIMITS, DOCUMENT_DELETION_REFUSAL_CODE } from "@hmcts/deed-poll-api-client";
 import { z } from "zod";
 
 // The page bounds its textarea by api's limit and picks its sentences by api's codes, and reaches them only here.
-export { DOCUMENT_DELETION_REASON_LIMITS, DOCUMENT_DELETION_REFUSAL_CODE, DOCUMENT_DELETION_STATUS };
+export { DOCUMENT_DELETION_REASON_LIMITS, DOCUMENT_DELETION_REFUSAL_CODE };
 
 // Java's `String.strip()`, which api applies (`CreateDocumentDeletionRequest.reason`): `Character.isWhitespace` at
 // either end. Not JavaScript's `trim()`, which also takes U+00A0 and U+FEFF and keeps U+001C to U+001F.

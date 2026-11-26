@@ -265,13 +265,19 @@ describe("document deletion confirmation page", () => {
       expect(model.documentsPath).toBe("/deed-polls/case-1#documents");
     });
 
-    it("should have a sentence for every refusal api publishes", async () => {
+    it.each([...DOCUMENT_DELETION_REFUSAL_CODE])("should answer api's %s with its own sentence, never the generic refusal", async (code) => {
+      // Arrange
+      vi.mocked(requestDocumentDeletion).mockRejectedValue(new ConflictError("refused", [], code));
       const res = pageResponse();
 
-      await GET(request(), res);
+      // Act
+      await POST(await posted({ action: "delete", reason: REASON }), res);
 
-      const { en } = res.render.mock.calls[0][1];
-      for (const code of DOCUMENT_DELETION_REFUSAL_CODE) expect(en[code], code).toEqual(expect.any(String));
+      // Assert
+      const model = res.render.mock.calls[0][1];
+      const shown = model.state === "stopped" ? model.sentence : model.errors.form;
+      expect(shown).toBe(model.en[code]);
+      expect(shown).not.toBe(model.en.refused);
     });
 
     it("should redraw api's 400 on the reason in this page's words, unsealed with the same key", async () => {
@@ -358,6 +364,43 @@ describe("document deletion confirmation page", () => {
         expect(journeyIn(res.render.mock.calls[0][1])).toEqual(sealed);
       });
 
+      it.each([
+        ["DOCUMENT_IN_USE", new ConflictError("in use", [], "DOCUMENT_IN_USE")],
+        ["a 400 on the reason", new InvalidInputError("bad", [{ field: "reason", message: "api's words" }])]
+      ])("should unseal the journey with the same key and the sealed reason when the replay meets %s", async (_label, error) => {
+        // Arrange
+        vi.mocked(requestDocumentDeletion).mockRejectedValue(error);
+        const sealed = { ...newDocumentDeletionJourney("case-1", "doc-1", 3), confirmed: { reason: REASON } };
+        const res = pageResponse();
+
+        // Act
+        await POST(await posted({ action: "check" }, sealed), res);
+
+        // Assert
+        const model = res.render.mock.calls[0][1];
+        expect(model.state).toBe("form");
+        expect(model.reason).toBe(REASON);
+        const redrawn = journeyIn(model);
+        expect(redrawn.key).toBe(sealed.key);
+        expect(redrawn.confirmed).toBeUndefined();
+      });
+
+      it.each([
+        ["DOCUMENT_CHANGED", "The document has changed"],
+        ["KEY_REUSED", "The document cannot be deleted from this page"]
+      ])("should stop with no journey when the replay meets %s", async (code, heading) => {
+        vi.mocked(requestDocumentDeletion).mockRejectedValue(new ConflictError("refused", [], code as never));
+        const sealed = { ...newDocumentDeletionJourney("case-1", "doc-1", 3), confirmed: { reason: REASON } };
+        const res = pageResponse();
+
+        await POST(await posted({ action: "check" }, sealed), res);
+
+        const model = res.render.mock.calls[0][1];
+        expect(model.state).toBe("stopped");
+        expect(model.heading).toBe(heading);
+        expect(model.journey).toBeUndefined();
+      });
+
       it("should not let a sealed journey's delete action write again", async () => {
         const sealed = { ...newDocumentDeletionJourney("case-1", "doc-1", 3), confirmed: { reason: REASON } };
         const res = pageResponse();
@@ -390,6 +433,19 @@ describe("document deletion confirmation page", () => {
       expect(res.status).toHaveBeenCalledWith(400);
       expect(model.state).toBe("stopped");
       expect(model.heading).toBe("This confirmation can no longer be used");
+      expect(requestDocumentDeletion).not.toHaveBeenCalled();
+    });
+
+    it("should say nothing was sent when an expired, never-sent confirmation is submitted", async () => {
+      const old = newDocumentDeletionJourney("case-1", "doc-1", 3, Date.now() - DOCUMENT_DELETION_JOURNEY_TTL_MS - 1);
+      const res = pageResponse();
+
+      await POST(await posted({ action: "delete", reason: REASON }, old), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(model.heading).toBe("This confirmation has expired");
+      expect(model.sentence).toBe(model.en.stopped);
       expect(requestDocumentDeletion).not.toHaveBeenCalled();
     });
 

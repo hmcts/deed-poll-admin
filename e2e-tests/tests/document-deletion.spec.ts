@@ -7,8 +7,9 @@
  * referral's documents and is refused the staff page and a forged POST. The in-use refusal, a 202 and an unknown
  * outcome are pinned at handler level (`documents/[documentId]/delete.test.ts`), where each refusal is one fixture.
  *
- * **On a mock of its own (`yarn test:document-deletion`), never the shared developer mock**, because its document
- * deletion outcome controls are the whole mock's.
+ * **On a mock of its own (`yarn test:document-deletion`), never the shared developer mock**, because it deletes
+ * documents from the mock it runs on, and the mock's document deletion outcome controls, which these journeys leave
+ * alone, are the whole mock's.
  *
  * **What this proves is the browser journey against the mock, not permanent removal.** The mock only drops the
  * document from memory and writes api's note; that CDAM and the filesystem lose the file is api's proof.

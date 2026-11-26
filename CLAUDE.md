@@ -946,8 +946,8 @@ several files:
   case to guess: a 404 there is also what an admitted deletion looks like. Never mint a new key.
 - **A 409's sentence comes from api's `code`, never its prose.** The adapter keeps a deletion 409's `DeletionError.code`
   and `callApi` puts it on `ConflictError.code`. `STALE_CONFIRMATION` (anything on the application changed since review,
-  including after a restore) links back to the application to review it again; the retention refusals, the three
-  `*_UNRESOLVED` refusals, `KEY_REUSED` and `CONFLICTING_REASON` each have a page-owned sentence, and an unknown code gets
+  including after a restore) links back to the application to review it again; the retention refusals, the four
+  `*_UNRESOLVED` refusals (`DOCUMENT_DELETION_UNRESOLVED`, from api#179, among them), `KEY_REUSED` and `CONFLICTING_REASON` each have a page-owned sentence, and an unknown code gets
   a generic one. No 409 offers a resubmit. A 400 redraws the form with the same key, since api admitted nothing.
 - **Restore is a confirmation and one POST with no body** (`deletions/[requestId]/restore`). The address carries
   `?case=`, because api answers 404 for a restored request and the page must still link to the application. 200 is a 303

@@ -120,12 +120,10 @@ export {
   DELETION_REASON,
   DELETION_REFUSAL_CODE,
   DELETION_STATUS,
-  // Document deletion's vocabulary (api#179), for the same reason: the progress page a sentence per status and
-  // failure, a refusal's sentence chosen by its code, and the reason form's bounds.
-  DOCUMENT_DELETION_FAILURE,
+  // Document deletion's vocabulary (api#179), for the same reason: a refusal's sentence chosen by its code, and the
+  // reason form's bounds.
   DOCUMENT_DELETION_REASON_LIMITS,
   DOCUMENT_DELETION_REFUSAL_CODE,
-  DOCUMENT_DELETION_STATUS,
   DOCUMENT_DIRECTION,
   // The two saved-query vocabularies, for the same reason as the option sets above: the domain turns a
   // caseworker's chosen tab and sort order into a create body, and narrowing against the published array
@@ -205,6 +203,15 @@ const UPLOAD_TIMEOUT_MS = 60_000;
  * past the gateways (plan `docs/plans/completed/20261021-r03b-gazette-send-deadline.md`).
  */
 const GAZETTE_SUBMIT_TIMEOUT_MS = 20_000;
+
+/**
+ * Twenty seconds, for a document deletion's admission, which api carries out while the caller waits: it removes the
+ * file, or the CCD reference and then the CDAM document with `permanent=true`, before it answers. The ten-second
+ * default would turn a slow success into an unknown outcome, and both Application Gateways end the request at 30 s
+ * (see `GAZETTE_SUBMIT_TIMEOUT_MS`), so this is the same ceiling for the same reason: a configured timeout can only
+ * shorten it. The recovery's **Check deletion request** replays this same call, so it gets the same wait.
+ */
+const DOCUMENT_DELETION_TIMEOUT_MS = 20_000;
 
 /**
  * Twenty-seven seconds, for a document preview, which api builds inside the request before it sends a byte.
@@ -987,8 +994,9 @@ export function requestDocumentDeletion(
   idempotencyKey: string,
   config: ApiConfig
 ): Promise<ApiResult<DocumentDeletionAdmission>> {
+  const timeoutMs = Math.min(config.timeoutMs ?? DOCUMENT_DELETION_TIMEOUT_MS, DOCUMENT_DELETION_TIMEOUT_MS);
   return deletionRequest(
-    config,
+    { ...config, timeoutMs },
     "POST",
     `/caseworker/cases/${encodeURIComponent(caseId)}/documents/${encodeURIComponent(documentId)}/deletion-requests`,
     WIRE_SCHEMAS.DocumentDeletionAdmissionResponse,
@@ -1771,8 +1779,6 @@ export type DeletionRefusalCode = (typeof DELETION_REFUSAL_CODE)[number];
 export type DocumentDeletionCreate = WireDocumentDeletionCreate;
 export type DocumentDeletionAdmission = WireDocumentDeletionAdmission;
 export type DocumentDeletionStatusResponse = WireDocumentDeletionRequest;
-export type DocumentDeletionStatus = WireDocumentDeletionRequest["status"];
-export type DocumentDeletionFailure = NonNullable<WireDocumentDeletionRequest["failure"]>;
 export type DocumentDeletionRefusalCode = (typeof DOCUMENT_DELETION_REFUSAL_CODE)[number];
 export type CaseDetail = WireCaseDetail;
 export type CaseSummary = WireCaseList["cases"][number];

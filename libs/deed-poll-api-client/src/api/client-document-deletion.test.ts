@@ -4,7 +4,7 @@
  * the mock's contract cannot produce.
  */
 import { createServer } from "node:http";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type RunningMockApi, startMockApi } from "../mock/server.js";
 import {
   type ApiConfig,
@@ -582,3 +582,55 @@ async function outcome(body: Record<string, unknown>): Promise<void> {
 function roleToken(sub: string, roles: string[], name?: string): string {
   return `x.${Buffer.from(JSON.stringify({ sub, roles, ...(name ? { name } : {}) })).toString("base64url")}.signature`;
 }
+
+/**
+ * api deletes while the caller waits, so the admission has a longer wait than the JSON default, capped below both
+ * Application Gateways' 30 s. The recorded figures pin the constant; the abort itself runs on a clock divided by
+ * `CLOCK_SCALE` so a silent server is not twenty real seconds.
+ */
+const CLOCK_SCALE = 1_000;
+const DOCUMENT_DELETION_TIMEOUT_MS = 20_000;
+
+describe("the document deletion admission's timeout, which is longer than the JSON default", () => {
+  let armed: number[];
+
+  beforeEach(() => {
+    armed = [];
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      armed.push(ms);
+      return realTimeout(ms / CLOCK_SCALE);
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ["no configured timeout", undefined, DOCUMENT_DELETION_TIMEOUT_MS],
+    ["a configured timeout longer than its own, because it may only shorten the wait", 60_000, DOCUMENT_DELETION_TIMEOUT_MS],
+    ["a configured timeout shorter than its own", 5_000, 5_000]
+  ])("should wait the admission's own ceiling or less given %s", async (_label, timeoutMs, expected) => {
+    const silent = createServer(() => {});
+    await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
+    const address = silent.address();
+    const baseUrl = typeof address === "object" && address !== null ? `http://127.0.0.1:${address.port}` : "";
+
+    try {
+      const result = await requestDocumentDeletion("case-1", "doc-1", { reason: REASON, expectedDocumentVersion: 1 }, KEY, { baseUrl, timeoutMs });
+
+      expect(result).toMatchObject({ ok: false, error: { kind: "timeout" } });
+      expect(armed).toEqual([expected]);
+    } finally {
+      silent.closeAllConnections();
+      await new Promise<void>((resolve) => silent.close(() => resolve()));
+    }
+  });
+
+  it("should leave the status read on the JSON default, because it deletes nothing", async () => {
+    await getDocumentDeletion("case-1", "00000000-0000-4000-8000-000000000001", { ...config, timeoutMs: undefined });
+
+    expect(armed).toEqual([10_000]);
+  });
+});
