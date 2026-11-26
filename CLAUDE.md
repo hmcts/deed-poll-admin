@@ -423,6 +423,9 @@ api owns the capability matrix (`RoleCapabilities.java`); the mock mirrors it, a
 | `caseworker-deedpoll-admin` (temporary compatibility) | Yes | Yes | No | No | No | No | No |
 | `caseworker-deedpoll-judicial` | No | No | No | No | No | No | Yes |
 
+Deleting one supporting document is not in the table because it needs no capability: every staff row may, the
+judicial row may not (see "Document deletion").
+
 `can(user, capability)` is the UI policy entry point (`libs/deed-poll/src/auth/capabilities.ts`); `staffAccess(user)`
 gives `{ staff, judicial }`. The IDAM callback refuses a sign-in whose answer has neither (403, the no-access
 sentence on `errors/403`) before any session exists (OWASP plan 01 Task 6). **`/deed-polls/**` is gated on `staff`**
@@ -962,6 +965,53 @@ several files:
   `/__mock/application-deletion-outcome`). The mock hides an admitted case from every read, removes nothing remotely,
   and moves a request only through those controls; nothing it does proves api's permanent clean-up.
 - **Welsh is pending**: `src/application-deletion` is on the extractor's `INCLUDE`, and its `cy` mirrors `en`.
+
+## Document deletion
+
+Any member of staff (caseworker, Team leader, Delivery Manager) can permanently delete one supporting document with a
+reason (plan `docs/plans/20261125-permanent-document-deletion.md`; api#179, `docs/DOCUMENT-DELETION.md` in api, merged
+`d632cdc`). Masters are read-only. api owns permission, the active-use and storage checks, the version check, the
+permanent removal (the file, or the CCD reference then CDAM `permanent=true`), idempotency, the audit event **and the
+case note**; this app asks for the reason, binds what was reviewed and reports api's answer. There is no Restore, no
+grace period and no capability. This is separate from "Application deletion" above, which is unchanged. **Deploy
+order:** api#179 on every replica first. Facts that span several files:
+
+- **No capability, no new gate.** The routes are `/deed-polls/{id}/documents/{documentId}/delete` and
+  `/deed-polls/{id}/document-deletions/{requestId}` (`src/document-deletion/paths.ts`), covered by `requireStaff` on
+  `/deed-polls` and by same-origin and the global no-store; `app.test.ts` pins that the `DELETE_APPLICATION` gate
+  reaches neither. Every Documents-tab row gets a **Delete** link (`deleteHref`, built in `[id].ts`), with no per-row
+  eligibility read: api refuses what cannot go. The referral queue's check view and the Master's referral page draw
+  none (`referral.njk.test.ts`), and api answers a judge 403 on `/caseworker/**`. Do not add a `DELETE_DOCUMENT`
+  capability or an uploader rule here; api has neither.
+- **The reason is free text, api's rule exactly** (`documentDeletionFormSchema`, `libs/deed-poll/src/documents/deletion/`):
+  1–500 code points after Java's `strip()`, one line, no tab, control, bidirectional character or lone surrogate. Not
+  application deletion's 10-character minimum or reason radios. It is audit text and goes into api's case note: never
+  log it, put it in a URL or store it in the session.
+- **The confirmation binds what was reviewed** (`src/document-deletion/journey.ts`, HMAC domain `document-deletion-v1`,
+  session-bound, 8 h): the case, the document, its published `documentVersion` (sent as `expectedDocumentVersion`) and
+  an `Idempotency-Key` minted when the page renders. Only the literal `delete` action writes; Cancel is a link. Once
+  sent, the reason is sealed with the key and the recovery replays exactly that body.
+- **api deletes while the caller waits.** A 200 `Completed` is a 303 to `/deed-polls/{id}?document=deleted#documents`
+  and a fixed "Document deleted" banner that names no document. A 202 (`InProgress`, which api's recovery sweep
+  finishes, or `NeedsAttention`, a person's work) is a 303 to the progress page, which reads only the request, so it
+  answers after the document is gone. Only `Completed` says deleted; refresh is a read, never a new request.
+- **A 409's sentence comes from api's `code`, never its prose.** `DOCUMENT_IN_USE` (queued or unsettled work on the
+  document) redraws the form, reason kept, same key, with "This document is currently being used and cannot be
+  deleted. Try again once the operation has finished." `DOCUMENT_STORAGE_UNRESOLVED`, `DOCUMENT_SHARED`,
+  `APPLICATION_DELETION_PENDING`, a 400 and an unknown code redraw the same way; `DOCUMENT_CHANGED` and `KEY_REUSED`
+  stop and need a fresh review. An application deletion is refused `DOCUMENT_DELETION_UNRESOLVED` while a document
+  deletion on the case is not `Completed`, and the application deletion page has its sentence.
+- **An admission whose answer never came is an unknown outcome** (`DocumentDeletionOutcomeUnknownError`, from
+  `callDocumentDeletionAdmissionApi`, which shares `callAdmissionApi` with application deletion): a timeout, transport
+  failure, 5xx, unreadable answer or 429. The page offers only **Check deletion request**, replaying the sealed POST.
+  Never read the document to guess (its 404 is also what a completed deletion looks like) and never mint a new key.
+- **The mock is not evidence of removal.** `src/mock/document-deletions.ts` restates api's order and words, fences at
+  admission and writes the note under the requester at completion; `/__mock/document-deletions` and
+  `/__mock/document-deletion-outcome` move requests. `yarn test:document-deletion` (mock 3221, app 3321, Redis database
+  7) is out of `yarn test:e2e` for that reason. A real purge is proved only by api's rehearsal
+  (`docs/DEPLOYMENT.md#document-deletion`).
+- **Welsh is pending**: the pages are under `src/pages/deed-polls`, on the extractor's `INCLUDE`, and their `cy`
+  mirrors `en`.
 
 ## Management information
 

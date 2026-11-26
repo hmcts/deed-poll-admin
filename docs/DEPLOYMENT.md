@@ -273,6 +273,7 @@ database to connect to: that is api's, along with the schema and the Flyway migr
 | **Referral queue** (`GET /caseworker/referral-queue`, `POST /caseworker/referral-queue/sends`, the assignment `PUT` restricted to `ALLOCATE_REFERRALS` and `Claimed`, no `masterId` on `POST …/referrals`, `windowCap` in the process settings, and `ALLOCATE_REFERRALS` in `/me`; api F1 `cc1deef` on `feat/f-referral-queue`, unmerged) | Must be serving on **every** api replica before this version, with no expand-then-contract step. Against D2 the Referrals screen's reads fail, every raised referral stays `Open` with nothing in this app able to send it, and a referral-process save is refused because it sends `windowCap`. Until `/me` carries `ALLOCATE_REFERRALS` the whole `/deed-polls/referrals` area answers 403 on the 404 view and the case list shows no Referrals link; an existing Team leader or Delivery Manager session gets it within one token lifetime, or at once on signing in again |
 | **Management information** (`GET /caseworker/management-information/{volume,stage-durations,referral-outcomes,completion}` and `VIEW_MANAGEMENT_INFORMATION` in `/me`; api #165/#166, master `e7ee862`) | Must be serving on **every** api replica before this version. Until `/me` carries `VIEW_MANAGEMENT_INFORMATION` the whole `/deed-polls/management-information` area, its CSVs included, answers 403 on the 404 view and the case list shows no link; if the capability arrives but the endpoints do not, each KPI section shows its unavailable sentence and each CSV is the error page. An existing Team leader or Delivery Manager session gets the link within one token lifetime, or at once on signing in again |
 | **Application deletion** (`POST /caseworker/cases/{id}/deletion-requests`, `GET /caseworker/application-deletions/{requestId}`, its `restore`, `lastChangedOn` on the case detail, `deletionGraceDays` in the process settings, and `DELETE_APPLICATION` in `/me`; api#175 `576d559`, spec from master `e6a84c3`) | Must be serving on **every** api replica before this version. See [Application deletion](#application-deletion) for the release note |
+| **Document deletion** (`POST /caseworker/cases/{id}/documents/{documentId}/deletion-requests`, `GET /caseworker/cases/{id}/document-deletions/{requestId}`, `documentVersion` on each case-detail document, and `DOCUMENT_DELETION_UNRESOLVED` on application deletion; api#179 `d632cdc`) | Must be serving on **every** api replica before this version. See [Document deletion](#document-deletion) |
 | `DEED_POLL_API_URL` | Set in `charts/deed-poll-admin/values.yaml` to `http://deed-poll-api-{env}.service.core-compute-{env}.internal` — the CNP internal host of api's `charts/deed-poll-api`, cluster-internal and cleartext, not an ingress. Preview overrides it to AAT's, because api's preview deploys are per-PR hosts with no stable name |
 | `DEED_POLL_API_TIMEOUT_MS` | Optional, and when set it overrides every call's timeout except the Gazette submit, its status-check replay and the document preview, which it can only shorten. Unset, each call keeps its own: 10 s for JSON calls, 60 s for uploads (`UPLOAD_TIMEOUT_MS`), 27 s for a document preview (`PREVIEW_TIMEOUT_MS`, above api's 25 s conversion budget and inside the gateways' 30 s), and for the Gazette submit what is left of a 25 s budget from the request's arrival, capped at 20 s (`GAZETTE_SUBMIT_TIMEOUT_MS`, findings R03 and R03b). A value below 20 s turns a slow but successful Gazette send back into an unknown outcome; a value above 20 s does not lengthen it. An unparseable value falls back to those per-call defaults rather than becoming `NaN`. The readiness probe does **not** use it: `HEALTH_PROBE_TIMEOUT_MS` is fixed at 2s, because a probe must answer on its own terms |
 | **An S2S credential** | **Nothing to add, and adding one would be wrong.** api authenticates a *forwarded IDAM access token* and nothing else — see its `SecurityConfiguration`, an OAuth2 resource server with no `ServiceAuthorization` filter, and `openapi.json`, whose only security scheme is `bearerAuth`. The caseworker's own token, held in this app's session, is the whole credential. If api ever adds S2S, the answer is a token provider minting one per call against `service-auth-provider-api`, plus an S2S microservice name registered for **this app**; it is not a static secret in the vault. `deed-poll-web/docs/external-dependencies.md` tracks the same requirement for the other frontend |
@@ -300,6 +301,46 @@ duplicated, restore it during a grace period, and set that period on the setting
   note) is api's; this app adds no log or event for it.
 - **Not part of this release's evidence.** The browser journeys (`yarn test:application-deletion`) run against the
   mock, which removes nothing remotely. No live deletion was made in any environment while building it.
+
+### Document deletion
+
+**Release note.** This version lets every member of staff (caseworkers, Team leaders and Delivery Managers; never a
+Master) permanently delete one supporting document from the application's Documents tab. They must give a reason,
+which api records in its audit trail and in a case note it writes itself. A document in use is refused with "This
+document is currently being used and cannot be deleted. Try again once the operation has finished." There is no
+Restore, and a copy already downloaded or emailed cannot be recalled (plan
+`docs/plans/20261125-permanent-document-deletion.md`; "Document deletion" in `CLAUDE.md`).
+
+- **Deploy order.** api#179 (merged `d632cdc`; this app's `openapi.json` is from it, see
+  `libs/deed-poll-api-client/SPEC-PROVENANCE.md`) on **every** api replica first. The Delete link needs no capability, so
+  unlike application deletion nothing in `/me` holds it back: against an older api the case detail has no
+  `documentVersion` and the adapter refuses it, so the case page fails. **Do not deploy this app before api.**
+- **api's prerequisites, from api `docs/DOCUMENT-DELETION.md` ("Activation blockers", "Runbook"):**
+  - The recovery sweep, `DOCUMENT_DELETION_RECOVERY_ENABLED`, is on by default and independent of
+    `APPLICATION_DELETION_WORKER_ENABLED`. Off, a 202 request stays `InProgress` and is never reported `Completed`, so
+    confirm it is on in each environment.
+  - Under CDAM (prod), `deed_poll_api` needs `UPDATE` on `DEEDPOLL` in the **deployed** CDAM's `service_config.json`.
+    Without it every CDAM deletion becomes `NeedsAttention` `CDAM_PERMISSION` *after* the document has been fenced.
+    Check the deployed CDAM image before exposing this app in prod.
+  - There is no supported way to settle a `NeedsAttention` request yet. It stays visibly unresolved, the document stays
+    fenced and the application cannot be deleted (`DOCUMENT_DELETION_UNRESOLVED`). Watch
+    `deedpoll.documents.deletion.requests{status}`.
+- **Rehearsal checklist** (api `docs/DOCUMENT-DELETION-SMOKE.md`; disposable fixtures only, never a real application):
+  - [ ] AAT (filesystem store): a disposable application with two documents. Delete one from this app with a reason.
+    Expect the "Document deleted" banner, the other document still listed, api's case note naming the document and
+    reason, both audit events, and the file absent from `DOCUMENT_STORE_ROOT`.
+  - [ ] AAT: during queued work on a document, confirm the in-use sentence, then a deliberate resubmit once it settles.
+  - [ ] AAT: a replayed submission (the same confirmation sent twice) creates one request, one note and one audit.
+  - [ ] Prod (CDAM), after the CDAM permission check: a Delivery Manager creates a disposable test application,
+    uploads a test document, deletes it with a reason, and confirms the note, the audit and CDAM's 404 for the
+    document. Then they delete the application through application deletion. AAT cannot prove the CDAM path.
+  - [ ] Record the request ids and outcomes (never the reason) in the release ticket.
+- **Existing sessions.** Nothing to wait for: the link is drawn for every staff session at once.
+- **Nothing to configure here**: no new environment variable, secret or chart value. This app writes no note, audit
+  or log of the reason.
+- **Not part of this release's evidence.** The browser journeys (`yarn test:document-deletion`) run against the mock,
+  which removes nothing remotely. No live deletion or deployment was made while building it, and none of the
+  rehearsal above has been run.
 
 ### Document previews
 

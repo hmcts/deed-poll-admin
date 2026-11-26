@@ -352,7 +352,10 @@ manage shared queries, perform API CCD repair, and send referrals from the queue
 have those capabilities plus Gazette access and the service settings page (`MANAGE_PROCESS_CONFIG`, `/deed-polls/settings`). Only
 Delivery Managers can delete an application created in error or duplicated (`DELETE_APPLICATION`, the **Delete
 application** link on its detail page), and restore it during the grace period set on the settings page's Application
-deletion tab; see "Application deletion" in `CLAUDE.md`. Both roles can view management information (`VIEW_MANAGEMENT_INFORMATION`,
+deletion tab; see "Application deletion" in `CLAUDE.md`. Every member of staff, ordinary caseworkers included, can
+permanently delete one supporting document with a reason from the **Delete** link on the application's Documents tab
+(no capability; api refuses a document in use, and a Master's referral page has no Delete); see "Document deletion" in
+`CLAUDE.md`. Both roles can view management information (`VIEW_MANAGEMENT_INFORMATION`,
 `/deed-polls/management-information`). Neither role grants judicial access. The temporary legacy
 admin role keeps the Team leader's casework and referral capabilities, but not management information, and cannot use Gazette; its seeded account is only for
 migration-refusal checks. Ordinary caseworker and judge permissions are unchanged.

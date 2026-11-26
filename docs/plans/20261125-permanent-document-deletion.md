@@ -2,7 +2,7 @@
 
 ## Overview
 
-Status: in progress, 2026-11-26 (Tasks 1 to 4 done).
+Status: implemented, 2026-11-26 (Tasks 1 to 5 done); awaiting review before moving to `completed/`.
 
 Steve confirmed: office staff who can already access an application's documents (caseworkers, Team leaders and
 Delivery Managers) can permanently delete one, and **Masters are read-only** (Steve, 2026-11-25);
@@ -196,14 +196,15 @@ dedicated `e2e-tests/tests/document-deletion.spec.ts` plus isolated server/confi
 
 **Files:** changed files, README.md, CLAUDE.md, generated translation inventory, this plan and deployment guidance.
 
-- [ ] Run final full gates/coverage/audit and isolated journeys. Record exact commands/counts and outstanding
+- [x] Run final full gates/coverage/audit and isolated journeys. Record exact commands/counts and outstanding
   external checks without lowering coverage or equating mock deletion with a real permanent CDAM purge.
-- [ ] Document permanent document deletion for all existing authorised users, mandatory free text, audit plus
+- [x] Document permanent document deletion for all existing authorised users, mandatory free text, audit plus
   note ownership, active-use copy, status/recovery and no Restore. Regenerate Welsh inventory; amend stale guidance
   saying document deletion has no consumer while keeping application-deletion/grace behaviour intact.
-- [ ] Prepare API-before-Admin rollout and disposable-fixture rehearsal checklist for filesystem/CDAM and
+- [x] Prepare API-before-Admin rollout and disposable-fixture rehearsal checklist for filesystem/CDAM and
   note/audit verification. Record worker availability/activation prerequisites and local review results. No live
-  deletion/deployment occurs as part of these implementation tasks; move to completed after review.
+  deletion/deployment occurs as part of these implementation tasks; move to completed after review (not moved:
+  review is Steve's, outside this loop).
 
 ## Success criteria
 
@@ -275,6 +276,26 @@ naming the document and reason, old confirmation now 404, axe at four points); a
 and gets 403 for the staff page and a forged POST, the document still on the case. In-use, 202 and unknown outcome stay
 at handler level (Task 3). Gates: `yarn lint`, `yarn build`, `git diff --check` green; `yarn test` green in every
 workspace (app 3712 passed, 93 skipped: the Redis suites, no `REDIS_URL` for this per-task run).
+
+**Task 5 (2026-11-26).** Final gate with a private Redis (`docdel-redis` on 6391, stopped afterwards):
+`REDIS_URL=redis://127.0.0.1:6391 yarn turbo test test:app --concurrency=1 --force` exit 0, 8 of 8 tasks: app 3805
+passed and **0 skipped** (194 files; the 93 Redis tests ran), deed-poll 1867, client 1673, cloud-native-platform 156,
+express-govuk-starter 136, express-session-postgres 85, simple-router 45, express-session-redis 7.
+`REDIS_URL=… yarn test:coverage` exit 0, statements: app 81.01%, deed-poll 87.05%, client 96.95%,
+cloud-native-platform 97.98%, starter 97.85%, session-postgres 99.01%, simple-router 93.27%, session-redis 100%; lcov
+merged from 8 reports, no threshold lowered. `yarn npm audit --recursive --environment production`: no audit
+suggestions. `yarn test:document-deletion` (repo's own `deed-poll-idam`/`deed-poll-redis` started, `yarn idam:users`
+after the simulator answered discovery, both stopped afterwards): 2 passed, 12.5 s. A first attempt failed both journeys
+at sign-in because `yarn idam:users` ran before the simulator was ready; not a code fault. `yarn lint`, `yarn build`,
+`git diff --check` green. Welsh: `yarn welsh:extract` added 53 document deletion rows; `yarn welsh:check` reports 1260
+strings, 1036 still identical in cy (1029 prose, 7 not prose), so the new copy is untranslated, as is the application
+deletion copy. Docs: "Document deletion" in `CLAUDE.md` (plus a note beside the capability table), the README's staff
+paragraph, `docs/DEPLOYMENT.md#document-deletion` (release note, api-first order, api's prerequisites and a rehearsal
+checklist), and the stale `.business_context/DEED_POLL_API_PLAN.md` "Decided separately" row now names api#179.
+Outstanding external checks, none run: api#179 on every replica; `DOCUMENT_DELETION_RECOVERY_ENABLED` on; the deployed
+CDAM granting `deed_poll_api` `UPDATE` on `DEEDPOLL`; the AAT filesystem and prod CDAM rehearsals on disposable
+fixtures; no supported `NeedsAttention` resolution route in api yet. Mock journeys prove this app's behaviour, never a
+permanent CDAM purge.
 
 ## Post-Completion
 
