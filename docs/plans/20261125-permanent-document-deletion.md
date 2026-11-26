@@ -25,8 +25,8 @@ needs switching on for deletions to complete.
 
 ## Context
 
-Planning baseline: Admin `43997276fde4d97ec039fe0ef802dcc66b533f69` (#422), API
-`edb705272e4840465cf031395a3f6096a4ae3034`. Fetch/rebase and record execution commits. Read CLAUDE.md in full,
+Planning baseline: Admin `43997276fde4d97ec039fe0ef802dcc66b533f69` (#422; re-check at execution), API
+`d632cdc3e8e08ea88d4711955974867a42f88c5f` (api#179 merged, the document deletion contract). Fetch/rebase and record execution commits. Read CLAUDE.md in full,
 `.claude/rules/{backend,frontend,testing,e2e-testing}.md`, and:
 
 - `src/pages/deed-polls/[id].ts`, `detail.njk` and tests, `libs/deed-poll/src/documents/{service,documents-view}.ts`:
