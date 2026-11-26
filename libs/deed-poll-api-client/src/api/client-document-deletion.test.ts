@@ -586,10 +586,10 @@ function roleToken(sub: string, roles: string[], name?: string): string {
 /**
  * api deletes while the caller waits, so the admission has a longer wait than the JSON default, capped below both
  * Application Gateways' 30 s. The recorded figures pin the constant; the abort itself runs on a clock divided by
- * `CLOCK_SCALE` so a silent server is not twenty real seconds.
+ * `CLOCK_SCALE` so a silent server is not twenty-four real seconds.
  */
 const CLOCK_SCALE = 1_000;
-const DOCUMENT_DELETION_TIMEOUT_MS = 20_000;
+const DOCUMENT_DELETION_TIMEOUT_MS = 24_000;
 
 describe("the document deletion admission's timeout, which is longer than the JSON default", () => {
   let armed: number[];
