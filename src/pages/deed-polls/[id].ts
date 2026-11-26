@@ -173,6 +173,9 @@ const en = {
   // Where a restore lands (`deletions/[requestId]/restore.ts`). The query string is user input, but the sentence is
   // true of any case this page can render: a deleted application is not found, so one shown here is on the service.
   applicationRestored: "The application has been restored and is back on the service.",
+  // Where a completed document deletion lands (`documents/[documentId]/delete.ts`). User input like the restore's, so
+  // it names no document: the sentence is only ever reached by api answering `Completed`, or by someone typing it.
+  documentDeleted: "Document deleted. The reason has been recorded in the audit trail and as a case note.",
   deleteApplication: "Delete application",
   // The emails read failed. Worded, like the referrals one, so it cannot be read as "nothing has been sent".
   emailsUnavailable:
@@ -283,6 +286,7 @@ export const GET = async (req: Request, res: Response) => {
     emails: emails ? buildEmailsView(emails) : unavailableEmailsView(),
     emailBanner: emailBanner(req, emails),
     isRestored: req.query.deletion === "restored",
+    isDocumentDeleted: req.query.document === "deleted",
     // From the session's capability alone, with no eligibility read: api decides whether this application may be
     // deleted, and refuses on the confirmation page by code. A session granted the capability since sign-in gets the
     // link within one token lifetime (the `/me` refresh); a forged visit without it meets the area gate and api.

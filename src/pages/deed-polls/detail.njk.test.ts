@@ -817,6 +817,20 @@ describe("case detail template — the restored banner", () => {
     expect(html(restored.render.mock.calls[0][1])).toContain("The application has been restored and is back on the service.");
     expect(html(ordinary.render.mock.calls[0][1])).not.toContain("has been restored");
   });
+
+  it("should draw the document deleted banner only when a completed document deletion lands on the page", async () => {
+    // Arrange
+    const deleted = pageResponse();
+    const ordinary = pageResponse();
+
+    // Act
+    await GET(pageRequest({ params: { id: "case-1" }, query: { document: "deleted" }, accessToken: "session-token" }), deleted);
+    await GET(pageRequest({ params: { id: "case-1" }, query: { document: "anything" }, accessToken: "session-token" }), ordinary);
+
+    // Assert
+    expect(html(deleted.render.mock.calls[0][1])).toContain("Document deleted. The reason has been recorded in the audit trail and as a case note.");
+    expect(html(ordinary.render.mock.calls[0][1])).not.toContain("Document deleted.");
+  });
 });
 
 describe("case detail template — the deletion action", () => {

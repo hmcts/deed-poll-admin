@@ -56,6 +56,10 @@
     {{ govukNotificationBanner({ titleText: successTitle, text: applicationRestored, type: "success" }) }}
   {% endif %}
 
+  {% if isDocumentDeleted %}
+    {{ govukNotificationBanner({ titleText: successTitle, text: documentDeleted, type: "success" }) }}
+  {% endif %}
+
   {#
     Case header, porting the Dynamics form header above the tabs. Rows come from the `header` view
     model (case-header.ts) — do not hand-list them. State renders as a tag so status stays

@@ -1,0 +1,36 @@
+{% extends "layouts/app.njk" %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+
+{#
+  A document deletion request's progress, from api's status alone (`[id]/document-deletions/[requestId].ts`). Only
+  Completed is headed as a deletion, and a status that could not be read has its own heading, so it never reads as
+  success. Refresh is a link to the same read; there is no control to delete again, resend or restore.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+    {% if progress == "unavailable" %}
+      <p class="govuk-body">{{ unavailable }}</p>
+    {% else %}
+      <p class="govuk-body">{{ sentence }}</p>
+
+      {% set items = [] %}
+      {% for row in rows %}
+        {% set items = (items.push({ key: { text: row.key }, value: { text: row.value } }), items) %}
+      {% endfor %}
+      {{ govukSummaryList({ rows: items }) }}
+    {% endif %}
+
+    <div class="govuk-button-group">
+      {% if progress != "Completed" %}
+        <a class="govuk-link" href="{{ statusPath }}">{{ refresh }}</a>
+      {% endif %}
+      <a class="govuk-link" href="{{ documentsPath }}">{{ back }}</a>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

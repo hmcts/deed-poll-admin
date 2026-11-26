@@ -2,7 +2,7 @@
 
 ## Overview
 
-Status: in progress, 2026-11-26 (Tasks 1 and 2 done).
+Status: in progress, 2026-11-26 (Tasks 1 to 3 done).
 
 Steve confirmed: office staff who can already access an application's documents (caseworkers, Team leaders and
 Delivery Managers) can permanently delete one, and **Masters are read-only** (Steve, 2026-11-25);
@@ -171,12 +171,12 @@ new `src/document-deletion/` modules and co-located tests; inspect application-d
 **Files:** new delete/status/recovery page routes under the staff document path,
 new shared document-deletion templates/helpers as appropriate, app route boundary tests and co-located tests.
 
-- [ ] Implement the journey above with the existing authentication and staff gates, same-origin protection,
+- [x] Implement the journey above with the existing authentication and staff gates, same-origin protection,
   no-store headers and safe return links. Add no DELETE_APPLICATION or manager-only gate to these paths.
-- [ ] Implement reason/confirmation, exact user-friendly DOCUMENT_IN_USE copy, typed stale/storage/shared refusal,
+- [x] Implement reason/confirmation, exact user-friendly DOCUMENT_IN_USE copy, typed stale/storage/shared refusal,
   303 to the Documents tab on 200 and to progress on 202, the in-progress/needs-attention/completed states and
   original-key unknown-outcome recovery.
-- [ ] Test both locales/contexts, meaningful statuses, error-summary targets, safe escaping, no writes on GET/Cancel,
+- [x] Test both locales/contexts, meaningful statuses, error-summary targets, safe escaping, no writes on GET/Cancel,
   status after document removal, unreadable status, access revocation, and routes not captured by dynamic IDs.
 
 ### Task 4: Link document lists and prove the complete user journeys
@@ -247,6 +247,21 @@ any 409 except `DOCUMENT_CHANGED` and `KEY_REUSED`, which need a fresh review. F
 plus `api` 39 passed, app `journey.test.ts` 16 passed. Gates: `yarn lint`, `yarn build`, `git diff --check` green;
 `yarn test` green in every workspace (deed-poll 1867, client 1673, app 3639 passed and 93 skipped: the Redis suites,
 no `REDIS_URL` for this per-task run).
+**Task 3 (2026-11-26).** Pages: `src/pages/deed-polls/[id]/documents/[documentId]/delete.ts` (+ `document-delete.njk`)
+and `src/pages/deed-polls/[id]/document-deletions/[requestId].ts` (+ `document-deletion-status.njk`), addresses in
+`src/document-deletion/paths.ts`. No new gate: the existing `requireStaff` on `/deed-polls`, same-origin and the global
+no-store cover both, and `app.test.ts` pins that the application deletion gate reaches neither and the staff gate reaches
+both. GET reads the case once, 404s a document not on it, and binds the published `documentVersion` and a fresh key.
+`Completed` is a 303 to `/deed-polls/{id}?document=deleted#documents`, where the case page draws a fixed "Document
+deleted" banner (user input like the restore banner, so it names no document); `InProgress`/`NeedsAttention` a 303 to the
+progress page, which reads only the request (503 "could not check" on an unreadable read, 404/403/401/429 to the
+existing flows, no POST). In-use, storage, shared, application-pending and unknown codes redraw the form at 409 with the
+reason and the same key, the sentence as the error summary's first item (no field link); `DOCUMENT_CHANGED` and
+`KEY_REUSED` stop with links only. Unknown outcome: 503 recovery with one `check` control replaying the sealed body.
+Content `cy` mirrors `en` (Welsh pending; covered by the extractor's `src/pages/deed-polls`). Focused: delete 39,
+progress 14, templates 11 (axe, escaping, error-summary targets), routes 4, `app.test.ts` 52, detail banner. Gates:
+`yarn lint`, `yarn build`, `git diff --check` green; `yarn test` green in every workspace (app 3709 passed, 93 skipped:
+the Redis suites, no `REDIS_URL` for this per-task run).
 
 ## Post-Completion
 

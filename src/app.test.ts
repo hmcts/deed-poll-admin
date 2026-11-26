@@ -542,6 +542,10 @@ describe("createApp's caseworker area gate", () => {
     const paths = judicialPagePaths("deed-polls");
 
     expect(paths.length).toBeGreaterThanOrEqual(30);
+    // Document deletion's only gate is this one: any staff user may delete a document, and api decides eligibility.
+    expect(paths).toEqual(
+      expect.arrayContaining(["/deed-polls/a-sample-id/documents/a-sample-id/delete", "/deed-polls/a-sample-id/document-deletions/a-sample-id"])
+    );
     for (const url of paths) {
       expect(
         layer.matchers.some((matches) => matches(url) !== false),
@@ -868,6 +872,9 @@ describe("createApp's application deletion gate", () => {
       "/deed-polls/case-1/notes/n-1/edit",
       "/deed-polls/queries/q-1/delete",
       "/deed-polls/deletions-other",
+      // Document deletion is for every staff user, so no application deletion gate may reach it.
+      "/deed-polls/case-1/documents/doc-1/delete",
+      "/deed-polls/case-1/document-deletions/a-sample-id",
       "/login"
     ]) {
       expect(
