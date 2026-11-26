@@ -1007,8 +1007,8 @@ order:** api#179 on every replica first. Facts that span several files:
   Never read the document to guess (its 404 is also what a completed deletion looks like) and never mint a new key.
 - **The mock is not evidence of removal.** `src/mock/document-deletions.ts` restates api's order and words, fences at
   admission and writes the note under the requester at completion; `/__mock/document-deletions` and
-  `/__mock/document-deletion-outcome` move requests. `yarn test:document-deletion` (mock 3221, app 3321, Redis database
-  7) is out of `yarn test:e2e` for that reason. A real purge is proved only by api's rehearsal
+  `/__mock/document-deletion-outcome` move requests. `yarn test:document-deletion` (mock 3222, app 3322, Redis database
+  8) is out of `yarn test:e2e` for that reason. A real purge is proved only by api's rehearsal
   (`docs/DEPLOYMENT.md#document-deletion`).
 - **Welsh is pending**: the pages are under `src/pages/deed-polls`, on the extractor's `INCLUDE`, and their `cy`
   mirrors `en`.

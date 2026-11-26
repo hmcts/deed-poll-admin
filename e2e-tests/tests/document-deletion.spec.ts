@@ -23,7 +23,7 @@ import { CASEWORKER_EMAIL, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STA
 import { bearer, judgePersonaMaster, sendToMaster } from "./masters.js";
 
 // The config hands DEED_POLL_API_URL to the app it starts, not to this process, so the default is its mock's port.
-const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3221";
+const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3222";
 const DOCUMENT_TYPE_ID = "11111111-1111-4111-8111-111111111111";
 const REASON = "Uploaded in error to the wrong application";
 const IN_ERROR = "Wrong applicant's statement";

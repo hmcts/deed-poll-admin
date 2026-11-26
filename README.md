@@ -282,7 +282,7 @@ recovered with the same key, `NeedsAttention`, a failed status read and a Team l
 checks. They prove this app's behaviour against the mock, never api's permanent clean-up.
 
 For the document deletion journeys (`yarn test:document-deletion`), prepare the same way. The suite starts its own app
-on 3321 and a fresh mock on 3221 and uses Redis database 7, because the mock's document deletion outcome controls are the
+on 3322 and a fresh mock on 3222 and uses Redis database 8, because the mock's document deletion outcome controls are the
 whole mock's. Its two journeys are a caseworker deleting one of two documents (Cancel, validation, Welsh, axe, the case
 note) and a judge, who sees no Delete control and is refused the staff page and a forged POST. The in-use refusal, a 202
 and an unknown outcome are covered at handler level. Like the application suite, they prove nothing about api's purge.
