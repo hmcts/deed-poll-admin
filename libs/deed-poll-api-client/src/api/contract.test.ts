@@ -22,6 +22,10 @@ import {
   DELETION_REASON,
   DELETION_REFUSAL_CODE,
   DELETION_STATUS,
+  DOCUMENT_DELETION_FAILURE,
+  DOCUMENT_DELETION_REASON_LIMITS,
+  DOCUMENT_DELETION_REFUSAL_CODE,
+  DOCUMENT_DELETION_STATUS,
   DOCUMENT_PREVIEW_ERROR_CODE,
   GAZETTE_RECIPIENT_EMAIL_PATTERN,
   MI_GRANULARITY,
@@ -86,6 +90,8 @@ const IMPLEMENTED_OPERATIONS = [
   "POST /caseworker/cases/{id}/documents",
   "GET /caseworker/cases/{id}/documents/{documentId}/file",
   "GET /caseworker/cases/{id}/documents/{documentId}/preview",
+  "POST /caseworker/cases/{id}/documents/{documentId}/deletion-requests",
+  "GET /caseworker/cases/{id}/document-deletions/{requestId}",
   "POST /caseworker/cases/{id}/deletion-requests",
   "GET /caseworker/application-deletions/{requestId}",
   "POST /caseworker/application-deletions/{requestId}/restore",
@@ -461,6 +467,91 @@ describe("openapi.json and the wire schemas", () => {
     it("should grant the capability by name and keep it last", () => {
       expect(CAPABILITY.at(-1)).toBe("DELETE_APPLICATION");
     });
+
+    it("should refuse an application deletion while one of its documents' deletions has not completed", () => {
+      expect(admission.responses?.["409"]?.description).toContain("DOCUMENT_DELETION_UNRESOLVED");
+    });
+  });
+
+  /**
+   * api#179's permanent document deletion (refreshed from api `d632cdc`). Staff only by api's `/caseworker/**` rule, with
+   * no capability of its own, so nothing here is added to `CAPABILITY`. Pinned in api's declaration order.
+   */
+  describe("the document deletion", () => {
+    const schemas = spec.components.schemas;
+    const admission = spec.paths["/caseworker/cases/{id}/documents/{documentId}/deletion-requests"].post;
+    const status = spec.paths["/caseworker/cases/{id}/document-deletions/{requestId}"].get;
+
+    it("should publish a closed admission body of exactly a free-text reason and the reviewed documentVersion", () => {
+      const body = schemas.CreateDocumentDeletionRequest;
+      expect(body.additionalProperties).toBe(false);
+      expect(body.required?.toSorted()).toEqual(["expectedDocumentVersion", "reason"]);
+      expect(body.properties?.reason).toMatchObject({
+        type: "string",
+        minLength: DOCUMENT_DELETION_REASON_LIMITS.minLength,
+        maxLength: DOCUMENT_DELETION_REASON_LIMITS.maxLength
+      });
+      expect(body.properties?.reason?.enum).toBeUndefined();
+      expect(body.properties?.expectedDocumentVersion).toMatchObject({ type: "integer", format: "int64", minimum: 1 });
+      const write = WIRE_SCHEMAS.CreateDocumentDeletionRequest;
+      const valid = { reason: "Uploaded in error", expectedDocumentVersion: 3 };
+      expect(write.safeParse(valid).success).toBe(true);
+      for (const refused of [
+        { ...valid, idempotencyKey: "key" },
+        { ...valid, requestedBy: "forged" },
+        { ...valid, note: "an application deletion's field" },
+        { ...valid, expectedDocumentVersion: 0 },
+        { ...valid, expectedDocumentVersion: 1.5 },
+        { ...valid, expectedDocumentVersion: "3" },
+        { ...valid, reason: "" },
+        { ...valid, reason: "x".repeat(DOCUMENT_DELETION_REASON_LIMITS.maxLength + 1) }
+      ]) {
+        expect(write.safeParse(refused).success, JSON.stringify(refused).slice(0, 80)).toBe(false);
+      }
+    });
+
+    it("should publish documentVersion on every document the case detail lists", () => {
+      expect(schemas.DocumentResponse.properties?.documentVersion).toMatchObject({ type: "integer", format: "int64", minimum: 1 });
+      expect(STRICT_RESPONSE_PROPERTIES.DocumentResponse).toContain("documentVersion");
+    });
+
+    it("should require a UUID Idempotency-Key on the admission, answer 200 or 202, and read the status under its case", () => {
+      expect(admission.parameters?.find((parameter) => parameter.name === "Idempotency-Key")).toMatchObject({
+        in: "header",
+        required: true,
+        schema: { type: "string", format: "uuid" }
+      });
+      expect(Object.keys(admission.responses ?? {}).sort()).toEqual(["200", "202", "400", "403", "404", "409", "413", "415"]);
+      expect(admission.responses?.["202"]?.headers?.Location).toBeDefined();
+      expect(admission.responses?.["409"]?.content?.["*/*"]?.schema?.$ref).toBe("#/components/schemas/DocumentDeletionError");
+      expect(status.requestBody).toBeUndefined();
+      expect(Object.keys(status.responses ?? {}).sort()).toEqual(["200", "403", "404"]);
+    });
+
+    it("should publish the statuses, refusal codes and failures in api's declaration order", () => {
+      expect(schemas.DocumentDeletionAdmissionResponse.properties?.status?.enum).toEqual([...DOCUMENT_DELETION_STATUS]);
+      expect(schemas.DocumentDeletionRequestResponse.properties?.status?.enum).toEqual([...DOCUMENT_DELETION_STATUS]);
+      expect(schemas.DocumentDeletionRequestResponse.properties?.failure?.enum).toEqual([...DOCUMENT_DELETION_FAILURE]);
+      expect(schemas.DocumentDeletionError.properties?.code?.enum).toEqual([...DOCUMENT_DELETION_REFUSAL_CODE]);
+    });
+
+    it("should publish no reason, document name, requester, key or locator on the status", () => {
+      expect(Object.keys(schemas.DocumentDeletionRequestResponse.properties ?? {}).sort()).toEqual([
+        "completedAt",
+        "documentId",
+        "failure",
+        "requestId",
+        "requestedAt",
+        "status"
+      ]);
+      expect(Object.keys(schemas.DocumentDeletionAdmissionResponse.properties ?? {}).sort()).toEqual(["requestId", "status"]);
+    });
+
+    it("should name the user-facing in-use refusal and say a judge is never admitted", () => {
+      expect(admission.responses?.["409"]?.description).toContain("DOCUMENT_IN_USE (show its words");
+      expect(admission.description).toContain("never a judge");
+      expect(admission.description).toContain("there is no restore");
+    });
   });
 
   it("should publish the capability members in api's declaration order", () => {
@@ -638,7 +729,8 @@ describe("openapi.json and the wire schemas", () => {
       "200": { description: "OK", content: { "*/*": { schema: { $ref: "#/components/schemas/GazetteNoticeHistoryResponse" } } } },
       "403": { $ref: "#/components/responses/Forbidden" }
     });
-    expect(operation.description).toContain("Requires caseworker-deedpoll-delivery-manager");
+    // api#177 opened the Gazette to Team leaders by capability; the recipient stays the Delivery Manager's.
+    expect(operation.description).toContain("Requires caseworker-deedpoll-team-leader or caseworker-deedpoll-delivery-manager (ACCESS_GAZETTE)");
     expect(operation.description).toContain("At most 100 references per batch");
     expect(spec.components.schemas.GazetteNoticeHistoryResponse.properties?.batches?.items?.$ref).toBe("#/components/schemas/GazetteNoticeBatchResponse");
     const filter = spec.paths["/caseworker/cases"].get.parameters?.find((parameter) => parameter.name === "filter");
@@ -692,6 +784,7 @@ describe("openapi.json and the wire schemas", () => {
       "UpdateGazetteSettingsRequest",
       "UpdateProcessSettingsRequest",
       "CreateDeletionRequest",
+      "CreateDocumentDeletionRequest",
       "CreateMasterRequest",
       "UpdateMasterRequest",
       "CreateBankHolidayRequest",
@@ -829,6 +922,7 @@ describe("openapi.json and the wire schemas", () => {
 
     expect(required.toSorted()).toEqual([
       "POST /caseworker/cases/{id}/deletion-requests Idempotency-Key",
+      "POST /caseworker/cases/{id}/documents/{documentId}/deletion-requests Idempotency-Key",
       "POST /caseworker/cases/{id}/emails/{template} Idempotency-Key",
       "POST /caseworker/gazette-notices Idempotency-Key"
     ]);

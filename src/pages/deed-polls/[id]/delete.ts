@@ -101,6 +101,8 @@ const en = {
   RETAINED_DEED_PAYLOAD: "The application holds deed records that must be kept, so it cannot be deleted.",
   RETAINED_STAGED_UPLOADS: "The application has documents that must be kept, so it cannot be deleted.",
   DOCUMENT_STORAGE_UNRESOLVED: "A document on the application has not finished uploading, so it cannot be deleted yet. Try again later.",
+  DOCUMENT_DELETION_UNRESOLVED:
+    "A document on the application is being deleted and that has not finished, so the application cannot be deleted yet. Try again once it has finished.",
   CCD_CREATION_UNRESOLVED: "The application has not finished being added to the case platform, so it cannot be deleted yet. Try again later.",
   EMAIL_SEND_UNRESOLVED: "An email about the application has not finished sending, so it cannot be deleted yet. Try again later.",
   KEY_REUSED:
@@ -120,6 +122,7 @@ const REFUSAL_CODES = [
   "RETAINED_DEED_PAYLOAD",
   "RETAINED_STAGED_UPLOADS",
   "DOCUMENT_STORAGE_UNRESOLVED",
+  "DOCUMENT_DELETION_UNRESOLVED",
   "CCD_CREATION_UNRESOLVED",
   "EMAIL_SEND_UNRESOLVED",
   "KEY_REUSED",

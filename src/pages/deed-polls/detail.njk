@@ -56,6 +56,10 @@
     {{ govukNotificationBanner({ titleText: successTitle, text: applicationRestored, type: "success" }) }}
   {% endif %}
 
+  {% if isDocumentDeleted %}
+    {{ govukNotificationBanner({ titleText: successTitle, text: documentDeleted, type: "success" }) }}
+  {% endif %}
+
   {#
     Case header, porting the Dynamics form header above the tabs. Rows come from the `header` view
     model (case-header.ts) — do not hand-list them. State renders as a tag so status stays
@@ -221,11 +225,16 @@
                 {{ d.name }}
               {% endif %}
             {% endset %}
+            {# The document's name is in the link for a screen reader, since a column of "Delete" says nothing out of context. #}
+            {% set deleteCell %}
+              <a class="govuk-link" href="{{ d.deleteHref }}">{{ deleteDocument }}<span class="govuk-visually-hidden"> {{ d.name }}</span></a>
+            {% endset %}
             {% set docRows = (docRows.push([
               { html: nameCell },
               { text: d.type },
               { text: d.direction },
-              { text: d.added }
+              { text: d.added },
+              { html: deleteCell }
             ]), docRows) %}
           {% endfor %}
           {{ govukTable({
@@ -233,7 +242,8 @@
               { text: documentColumns[0] },
               { text: documentColumns[1] },
               { text: documentColumns[2] },
-              { text: documentColumns[3] }
+              { text: documentColumns[3] },
+              { text: documentActionsColumn }
             ],
             rows: docRows
           }) }}

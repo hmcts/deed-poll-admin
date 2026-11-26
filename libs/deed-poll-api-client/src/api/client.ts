@@ -19,6 +19,7 @@ import type { z } from "zod";
 import { assertApiBaseUrl } from "./transport.js";
 import {
   type DELETION_REFUSAL_CODE,
+  type DOCUMENT_DELETION_REFUSAL_CODE,
   type MI_GRANULARITY,
   type MI_STAGE_INTERVAL,
   WIRE_SCHEMAS,
@@ -35,6 +36,9 @@ import {
   type WireDeletionRequest,
   type WireDeletionRestore,
   type WireDocument,
+  type WireDocumentDeletionAdmission,
+  type WireDocumentDeletionCreate,
+  type WireDocumentDeletionRequest,
   type WireDocumentPreviewError,
   type WireDocumentType,
   type WireEmailHistory,
@@ -116,6 +120,10 @@ export {
   DELETION_REASON,
   DELETION_REFUSAL_CODE,
   DELETION_STATUS,
+  // Document deletion's vocabulary (api#179), for the same reason: a refusal's sentence chosen by its code, and the
+  // reason form's bounds.
+  DOCUMENT_DELETION_REASON_LIMITS,
+  DOCUMENT_DELETION_REFUSAL_CODE,
   DOCUMENT_DIRECTION,
   // The two saved-query vocabularies, for the same reason as the option sets above: the domain turns a
   // caseworker's chosen tab and sort order into a create body, and narrowing against the published array
@@ -195,6 +203,19 @@ const UPLOAD_TIMEOUT_MS = 60_000;
  * past the gateways (plan `docs/plans/completed/20261021-r03b-gazette-send-deadline.md`).
  */
 const GAZETTE_SUBMIT_TIMEOUT_MS = 20_000;
+
+/**
+ * Twenty-four seconds, for a document deletion's admission, which api carries out while the caller waits: it removes
+ * the file, or the CCD reference and then the CDAM document with `permanent=true`, before it answers. It must outlast
+ * api's answer on the slow path: api's `deedpoll.documents.deletion.request-budget` (20 s by default) bounds only the
+ * remote steps, and admission's commit before them and the outcome or completion after them add to it, so a deletion
+ * that spends its whole budget answers 202 just after 20 s. Waiting only 20 s turned exactly that answer into an
+ * unknown outcome (Birch's review of #423). Both Application Gateways end the request at 30 s (see
+ * `GAZETTE_SUBMIT_TIMEOUT_MS`), so 24 s leaves room for the rest of this request, as the preview's 27 s does. **Keep
+ * api's budget at or below 20 s**, or raise this with it. A configured timeout can only shorten it. The recovery's
+ * **Check deletion request** replays this same call, so it gets the same wait.
+ */
+const DOCUMENT_DELETION_TIMEOUT_MS = 24_000;
 
 /**
  * Twenty-seven seconds, for a document preview, which api builds inside the request before it sends a byte.
@@ -960,6 +981,50 @@ export function restoreApplicationDeletion(requestId: string, config: ApiConfig)
 }
 
 /**
+ * Ask api to delete one supporting document permanently (api#179): any staff role that can open the case, never a
+ * judge, with the staff member's own reason and the `documentVersion` they reviewed.
+ *
+ * api deletes **while the caller waits**, so 200 is `Completed`, and 202 (`InProgress` or `NeedsAttention`) means the
+ * document is no longer available but not yet deleted. Both arrive as data with their `status`; the HTTP status adds
+ * nothing a page needs. **The caller owns the key and this never mints one**, exactly as `requestApplicationDeletion`'s:
+ * one per confirmation journey, reused with the same body on every retry, so a lost response is recovered by sending
+ * the same request again, which api answers with the same request even after the document is gone. A 409 carries api's
+ * `code` on the error (`DOCUMENT_IN_USE`, `DOCUMENT_CHANGED`, …), the only thing a page may branch on.
+ */
+export function requestDocumentDeletion(
+  caseId: string,
+  documentId: string,
+  body: DocumentDeletionCreate,
+  idempotencyKey: string,
+  config: ApiConfig
+): Promise<ApiResult<DocumentDeletionAdmission>> {
+  const timeoutMs = Math.min(config.timeoutMs ?? DOCUMENT_DELETION_TIMEOUT_MS, DOCUMENT_DELETION_TIMEOUT_MS);
+  return deletionRequest(
+    { ...config, timeoutMs },
+    "POST",
+    `/caseworker/cases/${encodeURIComponent(caseId)}/documents/${encodeURIComponent(documentId)}/deletion-requests`,
+    WIRE_SCHEMAS.DocumentDeletionAdmissionResponse,
+    { reason: body.reason, expectedDocumentVersion: body.expectedDocumentVersion },
+    { "idempotency-key": idempotencyKey },
+    WIRE_SCHEMAS.DocumentDeletionError
+  );
+}
+
+/**
+ * A document deletion request's status, under its case, whether or not the document still exists. Reading never
+ * starts or retries work, and only `Completed` means deleted. A 404 is an unknown request, another case's, or a case
+ * the caller cannot open (including one since deleted as a whole), which says nothing about the document.
+ */
+export function getDocumentDeletion(caseId: string, requestId: string, config: ApiConfig): Promise<ApiResult<DocumentDeletionStatusResponse>> {
+  return request(
+    config,
+    "GET",
+    `/caseworker/cases/${encodeURIComponent(caseId)}/document-deletions/${encodeURIComponent(requestId)}`,
+    WIRE_SCHEMAS.DocumentDeletionRequestResponse
+  );
+}
+
+/**
  * The caller's saved-query library: every shared query plus their own, each flagged `selected` and
  * `editable`.
  *
@@ -1435,8 +1500,9 @@ async function gazetteRequest<S extends z.ZodType>(
 }
 
 /**
- * A deletion operation: classified as every other call is, except that a 409 carrying api's `DeletionError` keeps its
- * `code`. A 409 without a published code stays a plain conflict, which a page answers with its generic refusal.
+ * A deletion operation: classified as every other call is, except that a 409 carrying the operation's published
+ * refusal body (application deletion's `DeletionError` unless another is given) keeps its `code`. A 409 without a
+ * published code stays a plain conflict, which a page answers with its generic refusal.
  */
 async function deletionRequest<S extends z.ZodType>(
   config: ApiConfig,
@@ -1444,7 +1510,8 @@ async function deletionRequest<S extends z.ZodType>(
   path: string,
   schema: S,
   body?: unknown,
-  headers?: Record<string, string>
+  headers?: Record<string, string>,
+  refusalSchema: typeof WIRE_SCHEMAS.DeletionError | typeof WIRE_SCHEMAS.DocumentDeletionError = WIRE_SCHEMAS.DeletionError
 ): Promise<ApiResult<z.infer<S>>> {
   const result = await exchange(config, method, path, body, "application/json", { headers });
   if (!result.ok) return result;
@@ -1452,7 +1519,7 @@ async function deletionRequest<S extends z.ZodType>(
   if (response.ok) return parseResponse(response, schema, method, path);
   const payload = await readJsonOrNull(response);
   const error = classifyFailure(response, payload);
-  const refusal = WIRE_SCHEMAS.DeletionError.safeParse(payload);
+  const refusal = refusalSchema.safeParse(payload);
   return { ok: false, error: response.status === 409 && refusal.success ? { ...error, code: refusal.data.code } : error };
 }
 
@@ -1669,8 +1736,12 @@ export interface ApiError {
   fieldErrors?: readonly ApiFieldError[];
   /** Set for `rate-limited` only. */
   retryAfterSeconds?: number | null;
-  /** Set only on a deletion operation's 409: api's `DeletionRefusal` member, the one thing a page may branch on. */
-  code?: DeletionRefusalCode;
+  /**
+   * Set only on a deletion operation's 409: api's `DeletionRefusal` or `DocumentDeletionRefusal` member, the one thing
+   * a page may branch on. `KEY_REUSED` and `DOCUMENT_STORAGE_UNRESOLVED` are members of both, so a page reads it only
+   * from the operation it called.
+   */
+  code?: DeletionRefusalCode | DocumentDeletionRefusalCode;
 }
 
 export type ApiErrorKind =
@@ -1709,6 +1780,10 @@ export type DeletionReason = WireDeletionCreate["reason"];
 export type DeletionStatus = WireDeletionRequest["status"];
 export type DeletionFailure = NonNullable<WireDeletionRequest["failure"]>;
 export type DeletionRefusalCode = (typeof DELETION_REFUSAL_CODE)[number];
+export type DocumentDeletionCreate = WireDocumentDeletionCreate;
+export type DocumentDeletionAdmission = WireDocumentDeletionAdmission;
+export type DocumentDeletionStatusResponse = WireDocumentDeletionRequest;
+export type DocumentDeletionRefusalCode = (typeof DOCUMENT_DELETION_REFUSAL_CODE)[number];
 export type CaseDetail = WireCaseDetail;
 export type CaseSummary = WireCaseList["cases"][number];
 export type CaseList = WireCaseList;

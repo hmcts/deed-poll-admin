@@ -21,6 +21,7 @@
     "test:document-viewer": "yarn workspace e2e-tests exec playwright test --config playwright.document-viewer.config.ts",
     "test:referrals": "yarn workspace e2e-tests exec playwright test --config playwright.referrals.config.ts",
     "test:application-deletion": "yarn workspace e2e-tests exec playwright test --config playwright.application-deletion.config.ts",
+    "test:document-deletion": "yarn workspace e2e-tests exec playwright test --config playwright.document-deletion.config.ts",
     "test:session": "yarn workspace e2e-tests exec playwright test --config playwright.session.config.ts",
     "test:e2e": "yarn workspace e2e-tests run test:e2e",
     "test:smoke": "yarn workspace e2e-tests run test:smoke",

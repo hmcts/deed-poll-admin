@@ -71,6 +71,7 @@ import type { Request, Response } from "express";
 import { deletionConfirmationPath } from "../../application-deletion/paths.js";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
 import { casePath } from "../../case-path.js";
+import { documentDeletionConfirmationPath } from "../../document-deletion/paths.js";
 import { caseViewerScope, documentPaths } from "../../document-viewer/context.js";
 import { forLog } from "../../for-log.js";
 import { pathSegment } from "../../path-segment.js";
@@ -173,11 +174,16 @@ const en = {
   // Where a restore lands (`deletions/[requestId]/restore.ts`). The query string is user input, but the sentence is
   // true of any case this page can render: a deleted application is not found, so one shown here is on the service.
   applicationRestored: "The application has been restored and is back on the service.",
+  // Where a completed document deletion lands (`documents/[documentId]/delete.ts`). User input like the restore's, so
+  // it names no document: the sentence is only ever reached by api answering `Completed`, or by someone typing it.
+  documentDeleted: "Document deleted. The reason has been recorded in the audit trail and as a case note.",
   deleteApplication: "Delete application",
   // The emails read failed. Worded, like the referrals one, so it cannot be read as "nothing has been sent".
   emailsUnavailable:
     "Email information could not be loaded, so this tab cannot say what has been sent to the applicant, and no email can be sent from here at the moment. The rest of the case is shown as normal. Try again shortly.",
   documentColumns: DOCUMENT_COLUMNS,
+  documentActionsColumn: "Actions",
+  deleteDocument: "Delete",
   amendWitnessHint: "amend this witness",
   witnessAddress: "Address",
   witnessOccupation: "Occupation",
@@ -272,7 +278,10 @@ export const GET = async (req: Request, res: Response) => {
     // with the viewer's own helpers, so the case page and the viewer cannot disagree on where a document lives.
     documents: buildDocumentsView(found.documents).map((document) => ({
       ...document,
-      viewHref: documentPaths(caseViewerScope(found.id), document.id).viewPath
+      viewHref: documentPaths(caseViewerScope(found.id), document.id).viewPath,
+      // Every staff user, every document type, and no eligibility read per row: api decides whether this document
+      // may go, and the confirmation page renders its refusal by code (`documents/[documentId]/delete.ts`).
+      deleteHref: documentDeletionConfirmationPath(found.id, document.id)
     })),
     referrals: referralsView,
     // Per row, so keyed by referral id: the sentence interpolates each row's date, and the template looks its row
@@ -283,6 +292,7 @@ export const GET = async (req: Request, res: Response) => {
     emails: emails ? buildEmailsView(emails) : unavailableEmailsView(),
     emailBanner: emailBanner(req, emails),
     isRestored: req.query.deletion === "restored",
+    isDocumentDeleted: req.query.document === "deleted",
     // From the session's capability alone, with no eligibility read: api decides whether this application may be
     // deleted, and refuses on the confirmation page by code. A session granted the capability since sign-in gets the
     // link within one token lifetime (the `/me` refresh); a forged visit without it meets the area gate and api.

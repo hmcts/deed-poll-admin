@@ -281,6 +281,12 @@ reasons, Cancel, restore inside and after the grace period, a stale confirmation
 recovered with the same key, `NeedsAttention`, a failed status read and a Team leader refused, with axe and keyboard
 checks. They prove this app's behaviour against the mock, never api's permanent clean-up.
 
+For the document deletion journeys (`yarn test:document-deletion`), prepare the same way. The suite starts its own app
+on 3322 and a fresh mock on 3222 and uses Redis database 8, because the mock's document deletion outcome controls are the
+whole mock's. Its two journeys are a caseworker deleting one of two documents (Cancel, validation, Welsh, axe, the case
+note) and a judge, who sees no Delete control and is refused the staff page and a forged POST. The in-use refusal, a 202
+and an unknown outcome are covered at handler level. Like the application suite, they prove nothing about api's purge.
+
 There are no database commands: this repo has no database.
 
 ### The document viewer
@@ -346,7 +352,10 @@ manage shared queries, perform API CCD repair, and send referrals from the queue
 have those capabilities plus Gazette access and the service settings page (`MANAGE_PROCESS_CONFIG`, `/deed-polls/settings`). Only
 Delivery Managers can delete an application created in error or duplicated (`DELETE_APPLICATION`, the **Delete
 application** link on its detail page), and restore it during the grace period set on the settings page's Application
-deletion tab; see "Application deletion" in `CLAUDE.md`. Both roles can view management information (`VIEW_MANAGEMENT_INFORMATION`,
+deletion tab; see "Application deletion" in `CLAUDE.md`. Every member of staff, ordinary caseworkers included, can
+permanently delete one supporting document with a reason from the **Delete** link on the application's Documents tab
+(no capability; api refuses a document in use, and a Master's referral page has no Delete); see "Document deletion" in
+`CLAUDE.md`. Both roles can view management information (`VIEW_MANAGEMENT_INFORMATION`,
 `/deed-polls/management-information`). Neither role grants judicial access. The temporary legacy
 admin role keeps the Team leader's casework and referral capabilities, but not management information, and cannot use Gazette; its seeded account is only for
 migration-refusal checks. Ordinary caseworker and judge permissions are unchanged.

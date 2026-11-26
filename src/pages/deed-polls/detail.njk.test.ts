@@ -796,7 +796,19 @@ describe("case detail template — the documents tab", () => {
 
     const panel = panelFor(rendered, "documents");
     expect(panel).toContain("Generated deed.pdf");
-    expect(panel).not.toContain("/documents/doc-1/");
+    expect(panel).not.toContain("/documents/doc-1/view");
+  });
+
+  it("should give each document a Delete link naming the document for a screen reader, in its own column", async () => {
+    const rendered = await page([], { ...found, documents: [DOCUMENT, { ...DOCUMENT, id: "doc-2", name: "Scan <b>.pdf", hasFile: false }] });
+
+    const panel = panelFor(rendered, "documents");
+    expect(panel).toContain(
+      '<a class="govuk-link" href="/deed-polls/case-1/documents/doc-1/delete">Delete<span class="govuk-visually-hidden"> Generated deed.pdf</span></a>'
+    );
+    expect(panel).toContain('href="/deed-polls/case-1/documents/doc-2/delete">Delete<span class="govuk-visually-hidden"> Scan &lt;b&gt;.pdf</span></a>');
+    expect(panel).toMatch(/<th scope="col" class="govuk-table__header">\s*Actions\s*<\/th>/);
+    expect(panel).not.toContain("<form");
   });
 });
 
@@ -816,6 +828,20 @@ describe("case detail template — the restored banner", () => {
 
     expect(html(restored.render.mock.calls[0][1])).toContain("The application has been restored and is back on the service.");
     expect(html(ordinary.render.mock.calls[0][1])).not.toContain("has been restored");
+  });
+
+  it("should draw the document deleted banner only when a completed document deletion lands on the page", async () => {
+    // Arrange
+    const deleted = pageResponse();
+    const ordinary = pageResponse();
+
+    // Act
+    await GET(pageRequest({ params: { id: "case-1" }, query: { document: "deleted" }, accessToken: "session-token" }), deleted);
+    await GET(pageRequest({ params: { id: "case-1" }, query: { document: "anything" }, accessToken: "session-token" }), ordinary);
+
+    // Assert
+    expect(html(deleted.render.mock.calls[0][1])).toContain("Document deleted. The reason has been recorded in the audit trail and as a case note.");
+    expect(html(ordinary.render.mock.calls[0][1])).not.toContain("Document deleted.");
   });
 });
 

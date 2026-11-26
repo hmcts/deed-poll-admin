@@ -8,8 +8,8 @@ export default defineConfig({
   // timeout (yarn test:session), a mock whose preview scenario can be switched for the document viewer
   // (yarn test:document-viewer), a mock whose referral clock and window cap the queue's journeys may move
   // (yarn test:referrals), and a mock whose deletion outcomes the deletion journeys switch (yarn
-  // test:application-deletion).
-  testIgnore: /(gazette|service-settings|session-timeout|document-viewer|referral-queue|application-deletion)\.spec\.ts/,
+  // test:application-deletion and yarn test:document-deletion).
+  testIgnore: /(gazette|service-settings|session-timeout|document-viewer|referral-queue|application-deletion|document-deletion)\.spec\.ts/,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 4 : undefined,

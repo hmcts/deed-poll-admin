@@ -35,6 +35,8 @@ const REFUSAL_WORDS: Record<RefusalCode, string> = {
   RETAINED_STAGED_UPLOADS:
     "This application has staged uploads that are not yet settled. Remove unpromoted uploads or resolve their storage outcome before deleting the application.",
   DOCUMENT_STORAGE_UNRESOLVED: "A document on this application has an upload that is not yet settled. Resolve it before deleting the application.",
+  DOCUMENT_DELETION_UNRESOLVED:
+    "A document on this application is being permanently deleted and that deletion has not finished. Try again once it has finished, or once it has been resolved if it needs attention.",
   CCD_CREATION_UNRESOLVED: "This application's CCD case creation has not finished or needs repair. Resolve it before deleting the application.",
   EMAIL_SEND_UNRESOLVED: "An email about this application is being sent. Try again once it has settled.",
   KEY_REUSED: "This Idempotency-Key was already used for a different deletion request on this application.",
@@ -178,12 +180,13 @@ export function createApplicationDeletions<C extends DeletableCase>(store: Delet
     return refusal;
   }
 
-  // api's order: the stale check first, then each retention or unsettled-work refusal. Only the three the mock can
+  // api's order: the stale check first, then each retention or unsettled-work refusal. Only the four the mock can
   // know are restated; the rest are reached through `refuseAdmission`.
   function eligibilityRefusal(record: C, body: ValidBody): RefusalCode | null {
     if (store.lastChangedOn(record).getTime() !== body.expectedLastChangedOnMs) return "STALE_CONFIRMATION";
     if (record.retainPermanently === true) return "RETAINED_PERMANENTLY";
     if (store.hasGazetteEvidence(record)) return "GAZETTE_EVIDENCE";
+    if (store.hasUnresolvedDocumentDeletion(record)) return "DOCUMENT_DELETION_UNRESOLVED";
     return null;
   }
 }
@@ -308,6 +311,8 @@ export interface DeletionStore<C> {
   /** Record an audited write against the case, which moves its `lastChangedOn`. */
   audited(record: C, at: Date): void;
   hasGazetteEvidence(record: C): boolean;
+  /** api#179: a document deletion on the case not yet `Completed`. */
+  hasUnresolvedDocumentDeletion(record: C): boolean;
 }
 
 export interface DeletableCase {

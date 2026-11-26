@@ -322,7 +322,9 @@ const documentSchema = z.object({
   sizeBytes: z.int().nullish(),
   hasFile: z.boolean(),
   createdOn: wireDateTime.nullish(),
-  modifiedOn: wireDateTime.nullish()
+  modifiedOn: wireDateTime.nullish(),
+  /** What a document deletion sends back as `expectedDocumentVersion`; api's `long`, at least 1. */
+  documentVersion: z.int().min(1)
 });
 
 /** The Master a referral is assigned to, as api's `AssignedMasterResponse`: the id and the name it was assigned under. */
@@ -1526,6 +1528,7 @@ export const DELETION_REFUSAL_CODE = [
   "RETAINED_DEED_PAYLOAD",
   "RETAINED_STAGED_UPLOADS",
   "DOCUMENT_STORAGE_UNRESOLVED",
+  "DOCUMENT_DELETION_UNRESOLVED",
   "CCD_CREATION_UNRESOLVED",
   "EMAIL_SEND_UNRESOLVED",
   "KEY_REUSED",
@@ -1544,6 +1547,7 @@ export const DELETION_FAILURE = [
   "CCD_COPY_PRESENT",
   "RETAINED_PAYLOAD",
   "UNLISTED_OWNED_STAGE",
+  "DOCUMENT_DELETION_UNRESOLVED",
   "LOCAL_FINALISATION_REFUSED"
 ] as const;
 
@@ -1580,6 +1584,58 @@ const deletionRequestSchema = z.object({
 const deletionRestoreSchema = z.object({ caseId: z.string(), status: z.enum(["Restored"]) });
 /** A deletion 409: the code a page chooses its sentence by, and api's fixed words, which no page shows. */
 const deletionErrorSchema = z.object({ code: z.enum(DELETION_REFUSAL_CODE), error: z.string() });
+
+/**
+ * Permanent document deletion (api#179, `docs/DOCUMENT-DELETION.md`): the request's three statuses, the six 409 codes
+ * and the `NeedsAttention` failures, each in api's declaration order. Only `Completed` means deleted, and there is no
+ * restore. Separate from application deletion's vocabulary on purpose: the two share no reason, body or status.
+ */
+export const DOCUMENT_DELETION_STATUS = ["InProgress", "NeedsAttention", "Completed"] as const;
+export const DOCUMENT_DELETION_REFUSAL_CODE = [
+  "DOCUMENT_IN_USE",
+  "DOCUMENT_CHANGED",
+  "DOCUMENT_STORAGE_UNRESOLVED",
+  "DOCUMENT_SHARED",
+  "APPLICATION_DELETION_PENDING",
+  "KEY_REUSED"
+] as const;
+export const DOCUMENT_DELETION_FAILURE = [
+  "CDAM_PURGE_UNPROVEN",
+  "CDAM_PERMISSION",
+  "CDAM_DELETE_FAILED",
+  "CCD_REFERENCE_FAILED",
+  "LOCAL_FILE_UNREMOVED",
+  "LOCAL_COMPLETION_REFUSED"
+] as const;
+
+/**
+ * The reason's bounds in code points after api's `String.strip()`, pinned to `CreateDocumentDeletionRequest.reason` by
+ * `contract.test.ts`. Not application deletion's note: there is no ten-character minimum here.
+ */
+export const DOCUMENT_DELETION_REASON_LIMITS = { minLength: 1, maxLength: 500 } as const;
+
+/**
+ * The closed admission body. `expectedDocumentVersion` is the case detail's `documentVersion`, unchanged. The reason's
+ * trimming and character rule are api's (and the form's); this guards only shape and length.
+ */
+const createDocumentDeletionRequestSchema = z
+  .object({
+    reason: z.string().min(DOCUMENT_DELETION_REASON_LIMITS.minLength).max(DOCUMENT_DELETION_REASON_LIMITS.maxLength),
+    expectedDocumentVersion: z.int().min(1)
+  })
+  .strict();
+const documentDeletionAdmissionSchema = z.object({ requestId: z.uuid(), status: z.enum(DOCUMENT_DELETION_STATUS) });
+/** No reason, document name, requester or locator, on purpose: the status of a request whose document may be gone. */
+const documentDeletionRequestSchema = z.object({
+  requestId: z.uuid(),
+  documentId: z.string(),
+  status: z.enum(DOCUMENT_DELETION_STATUS),
+  requestedAt: wireDateTime,
+  completedAt: wireDateTime.nullish(),
+  failure: z.enum(DOCUMENT_DELETION_FAILURE).nullish()
+});
+/** A document deletion 409: the code a page chooses its sentence by, and api's fixed words. */
+const documentDeletionErrorSchema = z.object({ code: z.enum(DOCUMENT_DELETION_REFUSAL_CODE), error: z.string() });
 
 /**
  * `GET /me`: which staff areas admit the caller and what their roles grant. Both flags are Java primitives and
@@ -1636,6 +1692,10 @@ export const WIRE_SCHEMAS = {
   DeletionRequestResponse: deletionRequestSchema,
   DeletionRestoreResponse: deletionRestoreSchema,
   DeletionError: deletionErrorSchema,
+  CreateDocumentDeletionRequest: createDocumentDeletionRequestSchema,
+  DocumentDeletionAdmissionResponse: documentDeletionAdmissionSchema,
+  DocumentDeletionRequestResponse: documentDeletionRequestSchema,
+  DocumentDeletionError: documentDeletionErrorSchema,
   GazetteSettingsResponse: gazetteSettingsSchema,
   UpdateGazetteSettingsRequest: updateGazetteSettingsSchema,
   ProcessSettingsResponse: processSettingsSchema,
@@ -1760,6 +1820,12 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   DeletionRequestResponse: ["requestId", "caseId", "reason", "status", "requestedAt", "restorableUntil"],
   DeletionRestoreResponse: ["caseId", "status"],
   DeletionError: ["code", "error"],
+  // Document deletion (api#179). `requestId`, `documentId`, `status` and `requestedAt` are NOT NULL columns of the
+  // request and the records build each from the stored row; `completedAt` is null until `Completed`, and `failure` is
+  // set only on `NeedsAttention`. The error's code is an enum on a record built from the refusal, as above.
+  DocumentDeletionAdmissionResponse: ["requestId", "status"],
+  DocumentDeletionRequestResponse: ["requestId", "documentId", "status", "requestedAt"],
+  DocumentDeletionError: ["code", "error"],
   GazetteSettingsResponse: ["revision"],
   // `deletionGraceDays` is an `int` on api's record, as the other three numbers are.
   ProcessSettingsResponse: ["referralClaimExpiryMinutes", "reminderIntervalHours", "windowCap", "deletionGraceDays", "revision"],
@@ -1831,7 +1897,8 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   SavedCaseResponse: ["id", "migratedRecord", "retainPermanently", "publishToLondonGazette", "iShall", "iHaveSubscribed", "andAlsoMyOld"],
   NoteResponse: ["id", "note"],
   WitnessResponse: ["id", "declarant"],
-  DocumentResponse: ["id", "hasFile"],
+  // `documentVersion` is a `long` on api's record (V51's NOT NULL column), so it cannot arrive null.
+  DocumentResponse: ["id", "hasFile", "documentVersion"],
   DocumentTypeResponse: ["id", "applicableMaritalStatuses", "applicableTypes"],
   FieldRuleResponse: ["visible", "required"],
   FieldRulesResponse: ["rules"],
@@ -1957,3 +2024,6 @@ export type WireDeletionCreate = z.input<typeof createDeletionRequestSchema>;
 export type WireDeletionAdmission = z.infer<typeof deletionAdmissionSchema>;
 export type WireDeletionRequest = z.infer<typeof deletionRequestSchema>;
 export type WireDeletionRestore = z.infer<typeof deletionRestoreSchema>;
+export type WireDocumentDeletionCreate = z.input<typeof createDocumentDeletionRequestSchema>;
+export type WireDocumentDeletionAdmission = z.infer<typeof documentDeletionAdmissionSchema>;
+export type WireDocumentDeletionRequest = z.infer<typeof documentDeletionRequestSchema>;
